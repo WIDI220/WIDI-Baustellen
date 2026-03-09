@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, FileUp, Users } from 'lucide-react';
+import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, FileUp, Users, Building2 } from 'lucide-react';
 
 const NAV = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -12,7 +12,7 @@ const NAV = [
   { to: '/fotos', icon: Camera, label: 'Fotos' },
   { to: '/eskalationen', icon: AlertTriangle, label: 'Eskalationen' },
   { to: '/mitarbeiter', icon: Users, label: 'Mitarbeiter' },
-  { to: '/import', icon: FileUp, label: 'Auftrag importieren' },
+  { to: '/import', icon: FileUp, label: 'Import' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -21,15 +21,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#f0f2f5]">
+    <div className="flex h-screen overflow-hidden" style={{background:'#f4f6fa'}}>
       {/* Sidebar */}
-      <aside className={`${collapsed ? 'w-16' : 'w-56'} bg-[#1a3356] flex flex-col transition-all duration-300 flex-shrink-0`}>
+      <aside className={`${collapsed ? 'w-[60px]' : 'w-[220px]'} flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out`}
+        style={{background:'linear-gradient(180deg, #0d1d3a 0%, #142c52 100%)', borderRight:'1px solid rgba(255,255,255,.06)'}}>
+
         {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-5 border-b border-white/10">
-          <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <HardHat className="h-4 w-4 text-white" />
+        <div className={`flex items-center gap-3 px-4 py-5 ${collapsed ? 'justify-center' : ''}`}
+          style={{borderBottom:'1px solid rgba(255,255,255,.07)'}}>
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{background:'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', boxShadow:'0 2px 8px rgba(59,130,246,.4)'}}>
+            <Building2 className="h-4 w-4 text-white" />
           </div>
-          {!collapsed && <div><p className="text-white font-bold text-sm leading-none">WIDI</p><p className="text-white/50 text-[10px] mt-0.5">Baustellen</p></div>}
+          {!collapsed && (
+            <div>
+              <p className="text-white font-bold text-sm leading-none tracking-wide">WIDI</p>
+              <p className="text-xs mt-0.5 font-medium" style={{color:'rgba(255,255,255,.35)', letterSpacing:'.05em'}}>BAUSTELLEN</p>
+            </div>
+          )}
         </div>
 
         {/* Nav */}
@@ -37,7 +46,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {NAV.map(({ to, icon: Icon, label }) => {
             const active = location.pathname === to || location.pathname.startsWith(to + '/');
             return (
-              <NavLink key={to} to={to} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm ${active ? 'bg-white/15 text-white font-medium' : 'text-white/60 hover:bg-white/8 hover:text-white'}`}>
+              <NavLink key={to} to={to}
+                className={`flex items-center gap-3 rounded-xl transition-all text-sm font-medium
+                  ${collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5'}
+                  ${active
+                    ? 'nav-active text-white'
+                    : 'hover:text-white'
+                  }`}
+                style={active
+                  ? {background:'rgba(59,130,246,.18)', color:'#93c5fd'}
+                  : {color:'rgba(255,255,255,.45)'}
+                }
+                title={collapsed ? label : undefined}
+              >
                 <Icon className="h-4 w-4 flex-shrink-0" />
                 {!collapsed && <span className="truncate">{label}</span>}
               </NavLink>
@@ -46,20 +67,30 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Bottom */}
-        <div className="p-2 border-t border-white/10 space-y-1">
-          <button onClick={() => setCollapsed(!collapsed)} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-all text-sm">
+        <div className="p-2 space-y-1" style={{borderTop:'1px solid rgba(255,255,255,.07)'}}>
+          <button onClick={() => setCollapsed(!collapsed)}
+            className={`w-full flex items-center gap-3 rounded-xl py-2 transition-all text-sm
+              ${collapsed ? 'justify-center px-0' : 'px-3'}`}
+            style={{color:'rgba(255,255,255,.35)'}}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.7)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.35)')}>
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <><ChevronLeft className="h-4 w-4" /><span>Einklappen</span></>}
           </button>
-          <button onClick={signOut} className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-white/50 hover:text-red-300 hover:bg-white/10 transition-all text-sm">
+          <button onClick={signOut}
+            className={`w-full flex items-center gap-3 rounded-xl py-2 transition-all text-sm
+              ${collapsed ? 'justify-center px-0' : 'px-3'}`}
+            style={{color:'rgba(255,255,255,.35)'}}
+            onMouseEnter={e => (e.currentTarget.style.color = '#fca5a5')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.35)')}>
             <LogOut className="h-4 w-4 flex-shrink-0" />
             {!collapsed && <span>Abmelden</span>}
           </button>
         </div>
       </aside>
 
-      {/* Main */}
+      {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto p-6">
+        <div className="max-w-7xl mx-auto p-6 lg:p-8">
           {children}
         </div>
       </main>
