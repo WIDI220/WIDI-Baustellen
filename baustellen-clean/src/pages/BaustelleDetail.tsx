@@ -15,7 +15,7 @@ import { fmtEur, fmtDate } from '@/lib/utils';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const STUNDEN_SATZ = 45;
+const STUNDEN_SATZ = 38.08;
 const STATUS_OPTIONS = [
   { value:'offen',          label:'Offen',          dot:'#94a3b8', bg:'#f8fafc', text:'#64748b' },
   { value:'in_bearbeitung', label:'In Bearbeitung',  dot:'#3b82f6', bg:'#eff6ff', text:'#1d4ed8' },
