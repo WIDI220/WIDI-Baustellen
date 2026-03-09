@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, FileUp } from 'lucide-react';
 
 const NAV = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -11,6 +11,7 @@ const NAV = [
   { to: '/nachtraege', icon: FileText, label: 'Nachträge' },
   { to: '/fotos', icon: Camera, label: 'Fotos' },
   { to: '/eskalationen', icon: AlertTriangle, label: 'Eskalationen' },
+  { to: '/import', icon: FileUp, label: 'Auftrag importieren' },
 ];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
