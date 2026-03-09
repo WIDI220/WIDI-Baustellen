@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 const AuthPage = lazy(() => import('@/pages/AuthPage'));
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
@@ -35,6 +36,7 @@ function AppRoutes() {
   );
   return (
     <AppLayout>
+      <ErrorBoundary>
       <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="w-6 h-6 border-2 border-[#1e3a5f]/20 border-t-[#1e3a5f] rounded-full animate-spin" /></div>}>
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -51,6 +53,7 @@ function AppRoutes() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Suspense>
+      </ErrorBoundary>
     </AppLayout>
   );
 }
