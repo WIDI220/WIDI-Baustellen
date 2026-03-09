@@ -2,5 +2,70 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
 * { box-sizing: border-box; }
-body { margin: 0; font-family: Inter, system-ui, sans-serif; background: #f8fafc; -webkit-font-smoothing: antialiased; }
+
+:root {
+  --navy: #0f1f3d;
+  --navy-mid: #1a3356;
+  --navy-soft: #1e3a5f;
+  --accent: #e8f0fe;
+  --gold: #f59e0b;
+  --danger: #ef4444;
+  --success: #10b981;
+  --surface: #ffffff;
+  --bg: #f4f6fa;
+  --border: #e5e9f2;
+  --text: #0f1f3d;
+  --muted: #6b7a99;
+}
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  color: var(--text);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d9ef; border-radius: 99px; }
+
+/* Card */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 1px 4px rgba(15,31,61,.04), 0 4px 16px rgba(15,31,61,.03);
+}
+
+/* KPI Card hover lift */
+.kpi-card {
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(15,31,61,.10);
+}
+
+/* Animated number */
+@keyframes countUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+.count-up { animation: countUp .4s ease forwards; }
+
+/* Status bar pulse */
+@keyframes pulse-soft { 0%,100% { opacity:1; } 50% { opacity:.6; } }
+.pulse { animation: pulse-soft 2s infinite; }
+
+/* Sidebar active glow */
+.nav-active { box-shadow: 0 0 0 1px rgba(255,255,255,.15) inset; }
+
+/* Progress bar */
+.progress-bar { transition: width .6s cubic-bezier(.4,0,.2,1); }
+
+/* Recharts custom */
+.recharts-cartesian-grid-horizontal line { stroke: #eef1f9; }
+.recharts-cartesian-grid-vertical line { display: none; }
+.recharts-tooltip-wrapper { filter: drop-shadow(0 4px 12px rgba(15,31,61,.12)); }
