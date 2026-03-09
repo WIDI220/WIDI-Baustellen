@@ -53,7 +53,7 @@ export default function Dashboard() {
     const end = new Date(start); end.setDate(end.getDate() + 7);
     const label = `KW${Math.ceil((start.getDate()+(new Date(start.getFullYear(), start.getMonth(),1).getDay()||7)-1)/7)}`;
     const kosten = sw.filter(w => { const d = new Date(w.datum); return d >= start && d < end; })
-      .reduce((s,w) => s + Number(w.stunden??0)*Number(w.employees?.stundensatz??45), 0);
+      .reduce((s,w) => s + Number(w.stunden??0)*Number(w.employees?.stundensatz??38.08), 0);
     return { label, kosten: Math.round(kosten) };
   });
 
