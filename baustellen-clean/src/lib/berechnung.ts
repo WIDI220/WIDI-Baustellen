@@ -1,4 +1,4 @@
-const STUNDEN_SATZ_DEFAULT = 45;
+const STUNDEN_SATZ_DEFAULT = 38.08;
 
 export function berechneKosten(baustelleId: string, stunden: any[], materialien: any[], nachtraege: any[], budget: number) {
   const personalkosten = stunden
