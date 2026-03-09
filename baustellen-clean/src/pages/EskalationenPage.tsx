@@ -221,7 +221,7 @@ export default function EskalationenPage() {
             <div><Label>Datum</Label><Input type="date" value={form.datum} onChange={e=>setForm((f:any)=>({...f,datum:e.target.value}))} /></div>
             <div className="flex gap-3 pt-1">
               <Button variant="outline" className="flex-1" onClick={()=>setDialog(false)}>Abbrechen</Button>
-              <Button className="flex-1" onClick={()=>save.mutate()} disabled={save.isPending}>{save.isPending?'Speichert...':'Melden'}</Button>
+              <Button className="flex-1" onClick={()=>save.mutate(undefined)} disabled={save.isPending}>{save.isPending?'Speichert...':'Melden'}</Button>
             </div>
           </div>
         </DialogContent>
