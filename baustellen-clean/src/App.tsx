@@ -15,6 +15,7 @@ const NachtraegePage = lazy(() => import('@/pages/NachtraegePage'));
 const FotosPage = lazy(() => import('@/pages/FotosPage'));
 const EskalationenPage = lazy(() => import('@/pages/EskalationenPage'));
 const AuftragImportPage = lazy(() => import('@/pages/AuftragImportPage'));
+const MitarbeiterPage = lazy(() => import('@/pages/MitarbeiterPage'));
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30000 } } });
 
@@ -46,6 +47,7 @@ function AppRoutes() {
           <Route path="/fotos" element={<FotosPage />} />
           <Route path="/eskalationen" element={<EskalationenPage />} />
           <Route path="/import" element={<AuftragImportPage />} />
+          <Route path="/mitarbeiter" element={<MitarbeiterPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Suspense>
