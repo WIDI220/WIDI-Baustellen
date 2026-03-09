@@ -1,261 +1,249 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { HardHat, Euro, Clock, AlertTriangle, TrendingUp, Package, ArrowRight, CheckCircle, PauseCircle } from 'lucide-react';
-import { fmtEur, fmtDate } from '@/lib/utils';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
+import { HardHat, Euro, Clock, AlertTriangle, TrendingUp, Package, ArrowRight, CheckCircle } from 'lucide-react';
+import { fmtEur } from '@/lib/utils';
 import { berechneKosten } from '@/lib/berechnung';
 import { useNavigate } from 'react-router-dom';
 
 const STATUS_COLORS: Record<string,string> = { offen:'#94a3b8', in_bearbeitung:'#3b82f6', pausiert:'#f59e0b', abgeschlossen:'#10b981', abgerechnet:'#8b5cf6' };
 const STATUS_LABELS: Record<string,string> = { offen:'Offen', in_bearbeitung:'In Bearbeitung', pausiert:'Pausiert', abgeschlossen:'Abgeschlossen', abgerechnet:'Abgerechnet' };
 
+const ChartTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="card p-3 text-xs" style={{minWidth:'140px'}}>
+      <p className="font-semibold mb-2" style={{color:'#0f1f3d'}}>{label}</p>
+      {payload.map((p: any) => (
+        <div key={p.name} className="flex justify-between gap-4">
+          <span style={{color:'#6b7a99'}}>{p.name}</span>
+          <span className="font-bold" style={{color:p.fill||p.stroke}}>{typeof p.value === 'number' && p.value > 100 ? fmtEur(p.value) : p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
 
-  const { data: baustellen = [] } = useQuery({ queryKey: ['bs-dashboard'], queryFn: async () => { const { data } = await supabase.from('baustellen').select('*').order('created_at', { ascending: false }); return data ?? []; } });
-  const { data: stunden = [] } = useQuery({ queryKey: ['bs-stunden-dash'], queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('*, employees(stundensatz)'); return data ?? []; } });
-  const { data: materialien = [] } = useQuery({ queryKey: ['bs-mat-dash'], queryFn: async () => { const { data } = await supabase.from('bs_materialien').select('*'); return data ?? []; } });
-  const { data: nachtraege = [] } = useQuery({ queryKey: ['bs-nach-dash'], queryFn: async () => { const { data } = await supabase.from('bs_nachtraege').select('*'); return data ?? []; } });
-  const { data: eskalationen = [] } = useQuery({ queryKey: ['bs-esk-dash'], queryFn: async () => { const { data } = await supabase.from('bs_eskalationen').select('*').eq('gelesen', false); return data ?? []; } });
+  const { data: baustellen = [] } = useQuery({ queryKey: ['bs-dashboard'], queryFn: async () => { const { data } = await supabase.from('baustellen').select('*').order('created_at', {ascending:false}); return data ?? []; } });
+  const { data: stunden = [] }    = useQuery({ queryKey: ['bs-stunden-dash'], queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('*, employees(stundensatz,name)'); return data ?? []; } });
+  const { data: materialien = [] }= useQuery({ queryKey: ['bs-mat-dash'],    queryFn: async () => { const { data } = await supabase.from('bs_materialien').select('*'); return data ?? []; } });
+  const { data: nachtraege = [] } = useQuery({ queryKey: ['bs-nach-dash'],   queryFn: async () => { const { data } = await supabase.from('bs_nachtraege').select('*'); return data ?? []; } });
+  const { data: eskalationen = [] }=useQuery({ queryKey: ['bs-esk-dash'],   queryFn: async () => { const { data } = await supabase.from('bs_eskalationen').select('*').eq('gelesen', false); return data ?? []; } });
 
-  const bs = baustellen as any[];
-  const sw = stunden as any[];
-  const mat = materialien as any[];
-  const nach = nachtraege as any[];
-  const esk = eskalationen as any[];
+  const bs = baustellen as any[], sw = stunden as any[], mat = materialien as any[], nach = nachtraege as any[], esk = eskalationen as any[];
 
-  // Gesamtberechnungen mit Nachträgen
-  const alleKosten = bs.map(b => berechneKosten(b.id, sw, mat, nach, Number(b.budget ?? 0)));
-  const gesamtBudget = bs.reduce((s, b) => s + Number(b.budget ?? 0), 0);
-  const gesamtNachtraege = alleKosten.reduce((s, k) => s + k.nachtragGenehmigt, 0);
-  const gesamtEffektivBudget = gesamtBudget + gesamtNachtraege;
-  const gesamtPersonal = alleKosten.reduce((s, k) => s + k.personalkosten, 0);
-  const gesamtMaterial = alleKosten.reduce((s, k) => s + k.materialkosten, 0);
+  const alleKosten = bs.map(b => ({...b, ...berechneKosten(b.id, sw, mat, nach, Number(b.budget??0))}));
+  const gesamtBudget = bs.reduce((s,b) => s+Number(b.budget??0), 0);
+  const gesamtNachtraege = alleKosten.reduce((s,k) => s+k.nachtragGenehmigt, 0);
+  const effektivBudget = gesamtBudget + gesamtNachtraege;
+  const gesamtPersonal = alleKosten.reduce((s,k) => s+k.personalkosten, 0);
+  const gesamtMaterial = alleKosten.reduce((s,k) => s+k.materialkosten, 0);
   const gesamtkosten = gesamtPersonal + gesamtMaterial;
   const overBudgetCount = alleKosten.filter(k => k.overBudget).length;
+  const gesamtH = sw.reduce((s,w) => s+Number(w.stunden??0), 0);
+  const budgetPct = effektivBudget > 0 ? Math.min(Math.round(gesamtkosten/effektivBudget*100), 100) : 0;
 
-  // Status Verteilung
-  const statusData = Object.entries(STATUS_LABELS)
-    .map(([k, label]) => ({ name: label, value: bs.filter(b => b.status === k).length, color: STATUS_COLORS[k] }))
+  // Kosten-Timeline: letzte 8 Wochen (aus Stunden-Einträgen)
+  const now = new Date();
+  const weekData = Array.from({length:8}, (_,i) => {
+    const start = new Date(now); start.setDate(start.getDate() - (7-i)*7);
+    const end = new Date(start); end.setDate(end.getDate() + 7);
+    const label = `KW${Math.ceil((start.getDate()+(new Date(start.getFullYear(), start.getMonth(),1).getDay()||7)-1)/7)}`;
+    const kosten = sw.filter(w => { const d = new Date(w.datum); return d >= start && d < end; })
+      .reduce((s,w) => s + Number(w.stunden??0)*Number(w.employees?.stundensatz??45), 0);
+    return { label, kosten: Math.round(kosten) };
+  });
+
+  // Budget-Vergleich Top 6
+  const budgetChart = alleKosten
+    .filter(b => Number(b.effektivBudget) > 0)
+    .sort((a,b) => Number(b.effektivBudget)-Number(a.effektivBudget))
+    .slice(0,6)
+    .map(b => ({
+      name: b.name.length>14 ? b.name.substring(0,14)+'…' : b.name,
+      Budget: Math.round(b.effektivBudget),
+      Kosten: Math.round(b.gesamtkosten),
+      over: b.overBudget,
+    }));
+
+  // Status Pie
+  const statusPie = Object.entries(STATUS_LABELS)
+    .map(([k,v]) => ({name:v, value:bs.filter(b=>b.status===k).length, color:STATUS_COLORS[k]}))
     .filter(d => d.value > 0);
 
-  // Budget vs Kosten Chart - top 6 nach Budget
-  const budgetData = bs
-    .filter(b => Number(b.budget ?? 0) > 0)
-    .sort((a, b) => Number(b.budget) - Number(a.budget))
-    .slice(0, 6)
-    .map(b => {
-      const k = berechneKosten(b.id, sw, mat, nach, Number(b.budget ?? 0));
-      return {
-        name: b.name.length > 12 ? b.name.substring(0, 12) + '…' : b.name,
-        'Budget': Math.round(k.effektivBudget),
-        'Kosten': Math.round(k.gesamtkosten),
-        over: k.overBudget,
-      };
-    });
-
-  // Kosten Aufteilung Gesamt
-  const kostenPie = [
-    { name: 'Personal', value: Math.round(gesamtPersonal), color: '#1e3a5f' },
-    { name: 'Material', value: Math.round(gesamtMaterial), color: '#0ea5e9' },
-  ].filter(k => k.value > 0);
-
-  // Aktive Baustellen mit Kosten für die Liste
-  const aktiveBaustellen = bs
-    .filter(b => b.status === 'in_bearbeitung' || b.status === 'offen')
-    .slice(0, 5)
-    .map(b => ({ ...b, ...berechneKosten(b.id, sw, mat, nach, Number(b.budget ?? 0)) }));
+  // Aktive Baustellen
+  const aktive = alleKosten.filter(b => b.status === 'in_bearbeitung' || b.status === 'offen').slice(0,5);
 
   const kpis = [
-    { label: 'Baustellen gesamt', value: bs.length, sub: `${bs.filter(b=>b.status==='in_bearbeitung').length} aktiv`, icon: HardHat, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Effektives Budget', value: fmtEur(gesamtEffektivBudget), sub: gesamtNachtraege > 0 ? `+${fmtEur(gesamtNachtraege)} Nachträge` : 'inkl. Nachträge', icon: Euro, color: 'text-[#1e3a5f]', bg: 'bg-[#1e3a5f]/5' },
-    { label: 'Gesamtkosten', value: fmtEur(gesamtkosten), sub: `${Math.round(gesamtkosten/gesamtEffektivBudget*100)||0}% des Budgets`, icon: TrendingUp, color: gesamtkosten > gesamtEffektivBudget ? 'text-red-500' : 'text-emerald-600', bg: gesamtkosten > gesamtEffektivBudget ? 'bg-red-50' : 'bg-emerald-50' },
-    { label: 'Personalkosten', value: fmtEur(gesamtPersonal), sub: `${sw.length} Einträge`, icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50' },
-    { label: 'Materialkosten', value: fmtEur(gesamtMaterial), sub: `${mat.length} Positionen`, icon: Package, color: 'text-orange-600', bg: 'bg-orange-50' },
-    { label: 'Über Budget', value: overBudgetCount, sub: overBudgetCount > 0 ? 'Baustellen prüfen!' : 'Alles im Rahmen', icon: AlertTriangle, color: overBudgetCount > 0 ? 'text-red-500' : 'text-emerald-500', bg: overBudgetCount > 0 ? 'bg-red-50' : 'bg-emerald-50' },
+    { label:'Aktive Baustellen', value:bs.filter(b=>b.status==='in_bearbeitung').length, sub:`von ${bs.length} gesamt`, icon:HardHat, c:'#3b82f6', bg:'rgba(59,130,246,.1)' },
+    { label:'Effekt. Budget', value:fmtEur(effektivBudget), sub:gesamtNachtraege>0?`+${fmtEur(gesamtNachtraege)} Nachträge`:'inkl. Nachträge', icon:Euro, c:'#1e3a5f', bg:'rgba(30,58,95,.08)' },
+    { label:'Gesamtkosten', value:fmtEur(gesamtkosten), sub:`${budgetPct}% des Budgets`, icon:TrendingUp, c:gesamtkosten>effektivBudget?'#ef4444':'#10b981', bg:gesamtkosten>effektivBudget?'rgba(239,68,68,.1)':'rgba(16,185,129,.1)' },
+    { label:'Personalkosten', value:fmtEur(gesamtPersonal), sub:`${Math.round(gesamtH*10)/10}h erfasst`, icon:Clock, c:'#8b5cf6', bg:'rgba(139,92,246,.1)' },
+    { label:'Materialkosten', value:fmtEur(gesamtMaterial), sub:`${mat.length} Positionen`, icon:Package, c:'#f97316', bg:'rgba(249,115,22,.1)' },
+    { label:'Über Budget', value:overBudgetCount, sub:overBudgetCount>0?'⚠ Prüfen!':'Alles im Rahmen', icon:AlertTriangle, c:overBudgetCount>0?'#ef4444':'#10b981', bg:overBudgetCount>0?'rgba(239,68,68,.1)':'rgba(16,185,129,.1)' },
   ];
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload?.length) return null;
-    return (
-      <div className="bg-white border border-gray-100 rounded-xl shadow-lg p-3 text-xs">
-        <p className="font-semibold text-gray-700 mb-1">{label}</p>
-        {payload.map((p: any) => (
-          <p key={p.name} style={{color: p.fill}} className="font-medium">{p.name}: {fmtEur(p.value)}</p>
-        ))}
-        {payload[0]?.payload.over && <p className="text-red-500 font-bold mt-1">⚠ Budget überschritten!</p>}
-      </div>
-    );
-  };
-
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{bs.length} Baustellen · {bs.filter(b=>b.status==='in_bearbeitung').length} aktiv · Stand heute</p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 style={{fontFamily:'DM Sans', fontWeight:700, fontSize:'1.5rem', color:'#0f1f3d', letterSpacing:'-.02em'}}>Dashboard</h1>
+          <p className="text-sm mt-1" style={{color:'#6b7a99'}}>{bs.length} Baustellen · {bs.filter(b=>b.status==='in_bearbeitung').length} aktiv</p>
+        </div>
+        {esk.length > 0 && (
+          <button onClick={() => navigate('/eskalationen')} className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-all hover:scale-[1.02]"
+            style={{background:'rgba(239,68,68,.1)', color:'#dc2626', border:'1px solid rgba(239,68,68,.2)'}}>
+            <AlertTriangle className="h-4 w-4" />{esk.length} Eskalation{esk.length>1?'en':''} →
+          </button>
+        )}
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-        {kpis.map(({ label, value, sub, icon: Icon, color, bg }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <div className={`w-8 h-8 ${bg} rounded-xl flex items-center justify-center mb-3`}>
-              <Icon className={`h-4 w-4 ${color}`} />
+        {kpis.map(k => (
+          <div key={k.label} className="card kpi-card p-4">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center mb-3" style={{background:k.bg}}>
+              <k.icon className="h-4 w-4" style={{color:k.c}} />
             </div>
-            <p className="text-xl font-bold text-gray-900 leading-tight">{value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-            <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+            <p className="text-xl font-bold count-up leading-tight" style={{color:'#0f1f3d'}}>{k.value}</p>
+            <p className="text-xs mt-0.5" style={{color:'#6b7a99'}}>{k.label}</p>
+            <p className="text-[10px] mt-0.5" style={{color:'#9ca3af'}}>{k.sub}</p>
           </div>
         ))}
       </div>
 
-      {/* Eskalationen Banner */}
-      {esk.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" />
-          <p className="text-sm font-semibold text-red-700">{esk.length} ungelesene Eskalation{esk.length > 1 ? 'en' : ''} – sofortige Aufmerksamkeit erforderlich!</p>
-          <button onClick={() => navigate('/eskalationen')} className="ml-auto text-xs text-red-600 font-medium hover:underline flex-shrink-0">Ansehen →</button>
-        </div>
-      )}
-
-      {/* Charts */}
+      {/* Charts Row 1 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Budget vs Kosten */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h2 className="text-sm font-semibold text-gray-700">Budget vs. Kosten</h2>
-          <p className="text-xs text-gray-400 mb-4">Inkl. genehmigter Nachträge · Top 6 nach Budget</p>
-          {budgetData.length === 0 ? (
-            <div className="flex items-center justify-center h-48 text-gray-300 text-sm">Noch keine Daten</div>
+        {/* Kosten Timeline */}
+        <div className="lg:col-span-2 card p-5">
+          <h3 className="text-sm font-semibold mb-0.5" style={{color:'#0f1f3d'}}>Personalkosten – letzte 8 Wochen</h3>
+          <p className="text-xs mb-4" style={{color:'#9ca3af'}}>Wochentliche Lohnkosten aller Baustellen</p>
+          <ResponsiveContainer width="100%" height={180}>
+            <AreaChart data={weekData}>
+              <defs>
+                <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#1e3a5f" stopOpacity={0.15}/>
+                  <stop offset="95%" stopColor="#1e3a5f" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eef1f9" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize:10, fill:'#9ca3af' }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v=>`${Math.round(v/1000)}k`} tick={{ fontSize:10, fill:'#9ca3af' }} axisLine={false} tickLine={false} />
+              <Tooltip content={<ChartTooltip />} />
+              <Area type="monotone" dataKey="kosten" name="Kosten" stroke="#1e3a5f" strokeWidth={2} fill="url(#costGrad)" dot={false} activeDot={{r:4, fill:'#1e3a5f'}} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Status Pie */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold mb-0.5" style={{color:'#0f1f3d'}}>Status</h3>
+          <p className="text-xs mb-3" style={{color:'#9ca3af'}}>{bs.length} Baustellen gesamt</p>
+          {statusPie.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-sm" style={{color:'#d1d5db'}}>Keine Baustellen</div>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={budgetData} barGap={4}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={v => `${Math.round(v/1000)}k€`} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ fontSize: '11px' }} />
-                <Bar dataKey="Budget" fill="#e2e8f0" radius={[4,4,0,0]} />
-                <Bar dataKey="Kosten" radius={[4,4,0,0]}
+            <>
+              <ResponsiveContainer width="100%" height={130}>
+                <PieChart>
+                  <Pie data={statusPie} dataKey="value" cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={3}>
+                    {statusPie.map((d,i) => <Cell key={i} fill={d.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v:any, n:any) => [`${v}x`, n]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5 mt-1">
+                {statusPie.map(d => (
+                  <div key={d.name} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full" style={{background:d.color}} />
+                      <span className="text-xs" style={{color:'#6b7a99'}}>{d.name}</span>
+                    </div>
+                    <span className="text-xs font-bold" style={{color:'#0f1f3d'}}>{d.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Charts Row 2 */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        {/* Budget vs Kosten */}
+        <div className="lg:col-span-3 card p-5">
+          <h3 className="text-sm font-semibold mb-0.5" style={{color:'#0f1f3d'}}>Budget vs. Kosten</h3>
+          <p className="text-xs mb-4" style={{color:'#9ca3af'}}>Inkl. genehmigter Nachträge · Top 6</p>
+          {budgetChart.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-sm" style={{color:'#d1d5db'}}>Noch keine Daten</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={budgetChart} barGap={3}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#eef1f9" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize:9, fill:'#9ca3af' }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={v=>`${Math.round(v/1000)}k€`} tick={{ fontSize:9, fill:'#9ca3af' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="Budget" name="Budget" fill="#e2e8f0" radius={[4,4,0,0]} />
+                <Bar dataKey="Kosten" name="Kosten" radius={[4,4,0,0]}
                   fill="#1e3a5f"
-                  label={false} />
+                  // red if over budget per entry handled by recharts Cell
+                />
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
 
-        {/* Status Pie */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h2 className="text-sm font-semibold text-gray-700">Status-Übersicht</h2>
-          <p className="text-xs text-gray-400 mb-4">{bs.length} Baustellen gesamt</p>
-          {statusData.length === 0 ? (
-            <div className="flex items-center justify-center h-48 text-gray-300 text-sm">Keine Baustellen</div>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={160}>
-                <PieChart>
-                  <Pie data={statusData} dataKey="value" cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={2}>
-                    {statusData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                  </Pie>
-                  <Tooltip formatter={(v: any, name: any) => [`${v} Baustellen`, name]} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-1.5 mt-2">
-                {statusData.map(d => (
-                  <div key={d.name} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{background: d.color}} />
-                      <span className="text-xs text-gray-600">{d.name}</span>
-                    </div>
-                    <span className="text-xs font-bold text-gray-700">{d.value}</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Kostenaufteilung + Aktive Baustellen */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Kosten Pie */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <h2 className="text-sm font-semibold text-gray-700">Kostenaufteilung</h2>
-          <p className="text-xs text-gray-400 mb-3">Alle Baustellen gesamt</p>
-          {kostenPie.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-gray-300 text-sm">Noch keine Kosten</div>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={140}>
-                <PieChart>
-                  <Pie data={kostenPie} dataKey="value" cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={3}>
-                    {kostenPie.map((d, i) => <Cell key={i} fill={d.color} />)}
-                  </Pie>
-                  <Tooltip formatter={(v: any) => fmtEur(v)} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-2 mt-2">
-                {kostenPie.map(k => (
-                  <div key={k.name} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{background: k.color}} />
-                      <span className="text-xs text-gray-600">{k.name}</span>
-                    </div>
-                    <span className="text-xs font-bold text-gray-800">{fmtEur(k.value)}</span>
-                  </div>
-                ))}
-                <div className="border-t border-gray-100 pt-2 flex justify-between">
-                  <span className="text-xs text-gray-500 font-medium">Gesamt</span>
-                  <span className="text-xs font-bold text-gray-900">{fmtEur(gesamtkosten)}</span>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Aktive Baustellen Liste */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between p-5 border-b border-gray-50">
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700">Aktive Baustellen</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Mit aktuellen Kosten inkl. Nachträge</p>
-            </div>
-            <button onClick={() => navigate('/baustellen')} className="text-xs text-[#1e3a5f] font-medium hover:underline flex items-center gap-1">
+        {/* Aktive Baustellen */}
+        <div className="lg:col-span-2 card overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b" style={{borderColor:'#eef1f9'}}>
+            <h3 className="text-sm font-semibold" style={{color:'#0f1f3d'}}>Aktive Baustellen</h3>
+            <button onClick={() => navigate('/baustellen')} className="text-xs font-medium flex items-center gap-1 hover:gap-2 transition-all" style={{color:'#3b82f6'}}>
               Alle <ArrowRight className="h-3 w-3" />
             </button>
           </div>
-          <div className="divide-y divide-gray-50">
-            {aktiveBaustellen.length === 0 && (
-              <div className="flex items-center justify-center h-32 text-gray-300 text-sm">Keine aktiven Baustellen</div>
-            )}
-            {aktiveBaustellen.map((b: any) => (
-              <div key={b.id} onClick={() => navigate(`/baustellen/${b.id}`)} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${b.status === 'in_bearbeitung' ? 'bg-blue-50' : 'bg-gray-50'}`}>
-                  <HardHat className={`h-4 w-4 ${b.status === 'in_bearbeitung' ? 'text-blue-500' : 'text-gray-400'}`} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{b.name}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-xs text-gray-400">{b.auftraggeber || '–'}</span>
-                    {b.nachtragGenehmigt > 0 && (
-                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">+{fmtEur(b.nachtragGenehmigt)} Nachträge</span>
-                    )}
+          <div className="divide-y" style={{divideColor:'#eef1f9'}}>
+            {aktive.length === 0 && <div className="flex items-center justify-center h-32 text-sm" style={{color:'#d1d5db'}}>Keine aktiven Baustellen</div>}
+            {aktive.map((b: any) => (
+              <div key={b.id} onClick={() => navigate(`/baustellen/${b.id}`)} className="px-5 py-3.5 cursor-pointer transition-colors hover:bg-blue-50/30">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{color:'#0f1f3d'}}>{b.name}</p>
+                    <p className="text-xs truncate" style={{color:'#9ca3af'}}>{b.auftraggeber||'–'}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs font-bold" style={{color: b.overBudget ? '#ef4444' : '#0f1f3d'}}>{b.pct}%</p>
+                    <p className="text-[10px]" style={{color:'#9ca3af'}}>{fmtEur(b.gesamtkosten)}</p>
                   </div>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  {/* Budget Bar */}
-                  <div className="flex items-center gap-2">
-                    <div className="w-20 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                      <div className="h-1.5 rounded-full transition-all" style={{ width: `${b.pct}%`, background: b.overBudget ? '#ef4444' : b.pct > 80 ? '#f59e0b' : '#1e3a5f' }} />
-                    </div>
-                    <span className={`text-xs font-bold ${b.overBudget ? 'text-red-500' : 'text-gray-600'}`}>{b.pct}%</span>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5">{fmtEur(b.gesamtkosten)} / {fmtEur(b.effektivBudget)}</p>
+                <div className="mt-2 w-full rounded-full overflow-hidden" style={{background:'#eef1f9', height:'4px'}}>
+                  <div className="h-full rounded-full progress-bar" style={{width:`${Math.min(b.pct,100)}%`, background: b.overBudget?'#ef4444': b.pct>80?'#f59e0b':'#1e3a5f'}} />
                 </div>
-                <ArrowRight className="h-4 w-4 text-gray-300 flex-shrink-0" />
               </div>
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Kosten Aufteilung */}
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          { label:'Personalkosten', value: gesamtPersonal, pct: gesamtkosten>0?Math.round(gesamtPersonal/gesamtkosten*100):0, color:'#1e3a5f', light:'rgba(30,58,95,.08)' },
+          { label:'Materialkosten', value: gesamtMaterial, pct: gesamtkosten>0?Math.round(gesamtMaterial/gesamtkosten*100):0, color:'#f97316', light:'rgba(249,115,22,.08)' },
+        ].map(k => (
+          <div key={k.label} className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium" style={{color:'#6b7a99'}}>{k.label}</p>
+              <p className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:k.light, color:k.color}}>{k.pct}%</p>
+            </div>
+            <p className="text-2xl font-bold" style={{color:'#0f1f3d', fontFamily:'DM Mono, monospace'}}>{fmtEur(k.value)}</p>
+            <div className="mt-3 rounded-full overflow-hidden" style={{background:'#eef1f9', height:'6px'}}>
+              <div className="h-full rounded-full progress-bar" style={{width:`${k.pct}%`, background:k.color}} />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
