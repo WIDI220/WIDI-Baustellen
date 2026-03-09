@@ -204,7 +204,7 @@ export default function Dashboard() {
               Alle <ArrowRight className="h-3 w-3" />
             </button>
           </div>
-          <div className="divide-y" style={{divideColor:'#eef1f9'}}>
+          <div className="divide-y divide-gray-50">
             {aktive.length === 0 && <div className="flex items-center justify-center h-32 text-sm" style={{color:'#d1d5db'}}>Keine aktiven Baustellen</div>}
             {aktive.map((b: any) => (
               <div key={b.id} onClick={() => navigate(`/baustellen/${b.id}`)} className="px-5 py-3.5 cursor-pointer transition-colors hover:bg-blue-50/30">
