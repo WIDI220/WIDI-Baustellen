@@ -410,7 +410,7 @@ export default function BaustelleDetail() {
             <div><h3 className="font-semibold" style={{color:'#0f1f3d'}}>Zeiterfassung</h3><p className="text-xs mt-0.5" style={{color:'#9ca3af'}}>{Math.round(gesamtStunden*10)/10}h · {fmtEur(personalkosten)}</p></div>
             <Button size="sm" onClick={()=>{setStundenForm(STUNDEN_EMPTY);setEditStunden(null);setStundenDialog(true);}}><Plus className="h-4 w-4" />Eintragen</Button>
           </div>
-          <div className="divide-y" style={{divideColor:'#eef1f9'}}>
+          <div className="divide-y divide-gray-50">
             {sw.length===0 && <p className="text-center py-12 text-sm" style={{color:'#d1d5db'}}>Noch keine Stunden</p>}
             {sw.map((w:any)=>(
               <div key={w.id} className="flex items-center gap-4 px-5 py-3.5">
@@ -442,7 +442,7 @@ export default function BaustelleDetail() {
             <div><h3 className="font-semibold" style={{color:'#0f1f3d'}}>Material</h3><p className="text-xs mt-0.5" style={{color:'#9ca3af'}}>{mat.length} Pos. · {fmtEur(materialkosten)}</p></div>
             <Button size="sm" onClick={()=>{setMatForm(MAT_EMPTY);setEditMaterial(null);setMaterialDialog(true);}}><Plus className="h-4 w-4" />Hinzufügen</Button>
           </div>
-          <div className="divide-y" style={{divideColor:'#eef1f9'}}>
+          <div className="divide-y divide-gray-50">
             {mat.length===0 && <p className="text-center py-12 text-sm" style={{color:'#d1d5db'}}>Noch kein Material</p>}
             {mat.map((m:any)=>{
               const ms = {bestellt:{bg:'#fffbeb',text:'#b45309'},geliefert:{bg:'#eff6ff',text:'#1d4ed8'},verbraucht:{bg:'#f0fdf4',text:'#065f46'}}[m.status as string]||{bg:'#f4f6fa',text:'#6b7a99'};
