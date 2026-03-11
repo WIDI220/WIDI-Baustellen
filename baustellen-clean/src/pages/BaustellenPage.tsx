@@ -9,9 +9,10 @@ import { Select, SelectOption } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Search, HardHat, ArrowRight, Pencil, Trash2, Calendar, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Plus, Search, HardHat, ArrowRight, Pencil, Trash2, Calendar, TrendingUp, AlertTriangle, Lightbulb } from 'lucide-react';
 import { fmtEur, fmtDate } from '@/lib/utils';
 import { berechneKosten } from '@/lib/berechnung';
+import { erkenneBudget, budgetAnzeige } from '@/lib/budgetErkennung';
 
 const STATUS_OPTIONS = [
   { value:'offen',          label:'Offen',          dot:'#94a3b8', bg:'#f8fafc', text:'#64748b' },
@@ -21,13 +22,12 @@ const STATUS_OPTIONS = [
   { value:'abgerechnet',    label:'Abgerechnet',     dot:'#8b5cf6', bg:'#faf5ff', text:'#5b21b6' },
 ];
 const GEWERK_OPTIONS = ['Hochbau', 'Elektro', 'Beides'];
-const EMPTY = { name:'', adresse:'', auftraggeber:'', startdatum:'', enddatum:'', status:'offen', gewerk:'Hochbau', projektleiter:'', budget:'', beschreibung:'' };
+const EMPTY = { name:'', adresse:'', auftraggeber:'', startdatum:'', enddatum:'', status:'offen', gewerk:'Hochbau', projektleiter:'', beschreibung:'', budgetInput:'' };
 
 export default function BaustellenPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
   const [dialog, setDialog] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [form, setForm] = useState<any>(EMPTY);
@@ -39,7 +39,22 @@ export default function BaustellenPage() {
 
   const save = useMutation({
     mutationFn: async () => {
-      const payload = {...form, budget:Number(form.budget)||0, fortschritt:0, startdatum:form.startdatum||null, enddatum:form.enddatum||null};
+      const erkannt = erkenneBudget(form.budgetInput);
+      const payload = {
+        name: form.name,
+        adresse: form.adresse || null,
+        auftraggeber: form.auftraggeber || null,
+        startdatum: form.startdatum || null,
+        enddatum: form.enddatum || null,
+        status: form.status,
+        gewerk: form.gewerk,
+        projektleiter: form.projektleiter || null,
+        beschreibung: form.beschreibung || null,
+        budget: erkannt?.budget ?? 0,
+        budget_typ: erkannt?.typ ?? 'festpreis',
+        budget_menge: erkannt?.menge ?? 0,
+        fortschritt: 0,
+      };
       if (editItem) { const {error}=await supabase.from('baustellen').update(payload).eq('id',editItem.id); if(error)throw error; }
       else { const {error}=await supabase.from('baustellen').insert(payload); if(error)throw error; }
     },
@@ -53,38 +68,47 @@ export default function BaustellenPage() {
   });
 
   const bs = baustellen as any[], sw = stunden as any[], mat = materialien as any[], nach = nachtraege as any[];
+  const aktiveBS = bs.filter(b => b.status !== 'abgeschlossen' && b.status !== 'abgerechnet');
 
-  const filtered = bs.filter(b => {
-    if (search && !b.name.toLowerCase().includes(search.toLowerCase()) && !(b.auftraggeber||'').toLowerCase().includes(search.toLowerCase())) return false;
-    if (statusFilter !== 'all' && b.status !== statusFilter) return false;
-    return true;
+  const filtered = aktiveBS.filter(b => {
+    if (!search) return true;
+    return b.name.toLowerCase().includes(search.toLowerCase()) || (b.auftraggeber||'').toLowerCase().includes(search.toLowerCase());
   });
 
-  const openEdit = (b:any, e:React.MouseEvent) => { e.stopPropagation(); setForm({name:b.name,adresse:b.adresse||'',auftraggeber:b.auftraggeber||'',startdatum:b.startdatum||'',enddatum:b.enddatum||'',status:b.status,gewerk:b.gewerk||'Hochbau',projektleiter:b.projektleiter||'',budget:String(b.budget||''),beschreibung:b.beschreibung||''}); setEditItem(b); setDialog(true); };
+  const openEdit = (b:any, e:React.MouseEvent) => {
+    e.stopPropagation();
+    // Budget-Input aus gespeichertem Typ wiederherstellen
+    let budgetInput = String(b.budget || '');
+    if (b.budget_typ === 'stunden' && b.budget_menge) budgetInput = `${b.budget_menge}h`;
+    else if (b.budget_typ === 'stueckzahl' && b.budget_menge) budgetInput = `${b.budget_menge}stk`;
+    setForm({ name:b.name, adresse:b.adresse||'', auftraggeber:b.auftraggeber||'', startdatum:b.startdatum||'', enddatum:b.enddatum||'', status:b.status, gewerk:b.gewerk||'Hochbau', projektleiter:b.projektleiter||'', beschreibung:b.beschreibung||'', budgetInput });
+    setEditItem(b);
+    setDialog(true);
+  };
+
+  // Live-Erkennung im Dialog
+  const erkannt = erkenneBudget(form.budgetInput);
+  const erkennungHinweis: Record<string, string> = {
+    festpreis: '💰 Festpreis erkannt',
+    stunden: '⏱ Stundenbudget erkannt',
+    stueckzahl: '📦 Stückzahl erkannt',
+  };
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 style={{fontFamily:'DM Sans',fontWeight:700,fontSize:'1.5rem',color:'#0f1f3d',letterSpacing:'-.02em'}}>Baustellen</h1>
-          <p className="text-sm mt-1" style={{color:'#6b7a99'}}>{filtered.length} von {bs.length}</p>
+          <p className="text-sm mt-1" style={{color:'#6b7a99'}}>{aktiveBS.length} aktiv</p>
         </div>
         <Button onClick={() => {setForm(EMPTY);setEditItem(null);setDialog(true);}}><Plus className="h-4 w-4" />Neue Baustelle</Button>
       </div>
 
-      {/* Filter */}
-      <div className="flex gap-2 flex-wrap">
-        <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{color:'#9ca3af'}} />
-          <Input placeholder="Name oder Auftraggeber..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-9" />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter} className="w-44">
-          <SelectOption value="all">Alle Status</SelectOption>
-          {STATUS_OPTIONS.map(s=><SelectOption key={s.value} value={s.value}>{s.label}</SelectOption>)}
-        </Select>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{color:'#9ca3af'}} />
+        <Input placeholder="Name oder Auftraggeber suchen..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-9" />
       </div>
 
-      {/* Liste */}
       <div className="space-y-3">
         {filtered.length === 0 && (
           <div className="card p-14 text-center">
@@ -97,9 +121,12 @@ export default function BaustellenPage() {
           const st = STATUS_OPTIONS.find(s=>s.value===b.status)??STATUS_OPTIONS[0];
           const k = berechneKosten(b.id, sw, mat, nach, Number(b.budget??0));
           const daysLeft = b.enddatum ? Math.round((new Date(b.enddatum).getTime()-Date.now())/86400000) : null;
-          const fristAlert = daysLeft !== null && daysLeft <= 7 && b.status !== 'abgeschlossen' && b.status !== 'abgerechnet';
+          const fristAlert = daysLeft !== null && daysLeft <= 7;
+
           return (
-            <div key={b.id} onClick={()=>navigate(`/baustellen/${b.id}`)} className="card p-5 cursor-pointer transition-all hover:shadow-md" style={{borderLeft:`3px solid ${st.dot}`}}>
+            <div key={b.id} onClick={()=>navigate(`/baustellen/${b.id}`)}
+              className="card p-5 cursor-pointer transition-all hover:shadow-md"
+              style={{borderLeft:`3px solid ${st.dot}`}}>
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{background:`${st.dot}18`}}>
                   <HardHat className="h-5 w-5" style={{color:st.dot}} />
@@ -109,30 +136,34 @@ export default function BaustellenPage() {
                     <h3 className="font-bold" style={{color:'#0f1f3d'}}>{b.name}</h3>
                     <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{background:st.bg, color:st.text}}>{st.label}</span>
                     <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'#f4f6fa', color:'#6b7a99'}}>{b.gewerk}</span>
-                    {fristAlert && <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1" style={{background:'rgba(239,68,68,.1)', color:'#dc2626'}}><AlertTriangle className="h-2.5 w-2.5" />{daysLeft<0?`${Math.abs(daysLeft)}d überfällig`:`${daysLeft}d`}</span>}
+                    {fristAlert && <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1" style={{background:'rgba(239,68,68,.1)', color:'#dc2626'}}><AlertTriangle className="h-2.5 w-2.5" />{(daysLeft??0)<0?`${Math.abs(daysLeft??0)}d überfällig`:`${daysLeft}d`}</span>}
                   </div>
                   <p className="text-sm mt-0.5" style={{color:'#9ca3af'}}>{b.auftraggeber||'–'}{b.adresse?` · ${b.adresse}`:''}</p>
 
+                  {/* Budget-Typ Anzeige */}
+                  {Number(b.budget??0) > 0 && (
+                    <p className="text-xs mt-1" style={{color:'#9ca3af'}}>
+                      Budget: <span className="font-medium" style={{color:'#6b7a99'}}>{budgetAnzeige(b)}</span>
+                    </p>
+                  )}
+
                   {k.effektivBudget > 0 && (
-                    <div className="mt-3">
+                    <div className="mt-2">
                       <div className="flex justify-between text-xs mb-1.5">
-                        <span className="flex items-center gap-1.5" style={{color:'#6b7a99'}}>
-                          <TrendingUp className="h-3 w-3" />
-                          <span className={k.overBudget ? 'font-semibold' : ''} style={{color: k.overBudget?'#ef4444':'#6b7a99'}}>
-                            {fmtEur(k.gesamtkosten)}
-                          </span>
-                          {k.nachtragGenehmigt > 0 && <span className="font-medium" style={{color:'#10b981'}}>+{fmtEur(k.nachtragGenehmigt)} Nachträge</span>}
+                        <span style={{color: k.overBudget?'#ef4444':'#6b7a99'}}>
+                          <TrendingUp className="h-3 w-3 inline mr-1" />
+                          <span className={k.overBudget?'font-semibold':''}>{fmtEur(k.gesamtkosten)}</span>
+                          {k.nachtragGenehmigt>0 && <span className="ml-1" style={{color:'#10b981'}}>+{fmtEur(k.nachtragGenehmigt)}</span>}
                         </span>
-                        <span className="font-medium" style={{color:'#0f1f3d'}}>{fmtEur(k.effektivBudget)} · {k.pct}%</span>
+                        <span className="font-medium" style={{color:'#0f1f3d'}}>{k.pct}%</span>
                       </div>
                       <div className="rounded-full overflow-hidden" style={{height:'5px', background:'#eef1f9'}}>
                         <div className="h-full rounded-full progress-bar" style={{width:`${Math.min(k.pct,100)}%`, background:k.overBudget?'#ef4444':k.pct>80?'#f59e0b':'#1e3a5f'}} />
                       </div>
-                      {(k.personalkosten > 0 || k.materialkosten > 0) && (
-                        <div className="flex gap-2 mt-2 flex-wrap">
+                      {(k.personalkosten>0||k.materialkosten>0) && (
+                        <div className="flex gap-2 mt-1.5 flex-wrap">
                           {k.personalkosten>0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'rgba(139,92,246,.08)', color:'#7c3aed'}}>Personal: {fmtEur(k.personalkosten)}</span>}
                           {k.materialkosten>0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'rgba(249,115,22,.08)', color:'#c2410c'}}>Material: {fmtEur(k.materialkosten)}</span>}
-                          {k.nachtragEingereicht>0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'rgba(59,130,246,.08)', color:'#1d4ed8'}}>⏳ {fmtEur(k.nachtragEingereicht)} ausstehend</span>}
                         </div>
                       )}
                     </div>
@@ -152,23 +183,49 @@ export default function BaustellenPage() {
 
       <Dialog open={dialog} onOpenChange={v=>{setDialog(v);if(!v){setEditItem(null);setForm(EMPTY);}}}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editItem?'Bearbeiten':'Neue Baustelle'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem?'Baustelle bearbeiten':'Neue Baustelle'}</DialogTitle></DialogHeader>
           <div className="space-y-3 pt-1">
-            <div><Label>Name *</Label><Input value={form.name} onChange={e=>setForm((f:any)=>({...f,name:e.target.value}))} autoFocus placeholder="z.B. Klinikum – Station 3 Renovierung" /></div>
+            <div><Label>Name *</Label><Input value={form.name} onChange={e=>setForm((f:any)=>({...f,name:e.target.value}))} autoFocus placeholder="z.B. Klinikum – Station 3" /></div>
             <div className="grid grid-cols-2 gap-2">
               <div><Label>Auftraggeber</Label><Input value={form.auftraggeber} onChange={e=>setForm((f:any)=>({...f,auftraggeber:e.target.value}))} /></div>
               <div><Label>Adresse / Ort</Label><Input value={form.adresse} onChange={e=>setForm((f:any)=>({...f,adresse:e.target.value}))} /></div>
             </div>
+
+            {/* Smart Budget-Eingabe */}
+            <div>
+              <Label>Budget</Label>
+              <Input
+                value={form.budgetInput}
+                onChange={e=>setForm((f:any)=>({...f,budgetInput:e.target.value}))}
+                placeholder="z.B.  5000  oder  120h  oder  50stk"
+              />
+              {/* Erkennungs-Feedback */}
+              {form.budgetInput && (
+                <div className="mt-1.5 px-3 py-2 rounded-xl text-xs flex items-center gap-2"
+                  style={erkannt ? {background:'rgba(16,185,129,.08)', color:'#065f46', border:'1px solid rgba(16,185,129,.2)'} : {background:'rgba(239,68,68,.08)', color:'#991b1b', border:'1px solid rgba(239,68,68,.2)'}}>
+                  {erkannt ? (
+                    <><Lightbulb className="h-3.5 w-3.5 flex-shrink-0" /><span><strong>{erkennungHinweis[erkannt.typ]}</strong> – {erkannt.anzeige}{erkannt.typ !== 'festpreis' && <span className="ml-1 opacity-70">(Material nicht enthalten)</span>}</span></>
+                  ) : (
+                    <><span>❓ Nicht erkannt. Beispiele: </span><code className="font-mono">5000</code><span>, </span><code className="font-mono">120h</code><span>, </span><code className="font-mono">50stk</code></>
+                  )}
+                </div>
+              )}
+              {!form.budgetInput && (
+                <p className="text-xs mt-1" style={{color:'#9ca3af'}}>
+                  Eingabe-Beispiele: <code className="font-mono">5000</code> = Festpreis · <code className="font-mono">120h</code> = Stundenbudget · <code className="font-mono">50stk</code> = Stückzahl
+                </p>
+              )}
+            </div>
+
             <div className="grid grid-cols-3 gap-2">
               <div><Label>Gewerk</Label><Select value={form.gewerk} onValueChange={v=>setForm((f:any)=>({...f,gewerk:v}))}>{GEWERK_OPTIONS.map(g=><SelectOption key={g} value={g}>{g}</SelectOption>)}</Select></div>
               <div><Label>Status</Label><Select value={form.status} onValueChange={v=>setForm((f:any)=>({...f,status:v}))}>{STATUS_OPTIONS.map(s=><SelectOption key={s.value} value={s.value}>{s.label}</SelectOption>)}</Select></div>
-              <div><Label>Budget €</Label><Input type="number" value={form.budget} onChange={e=>setForm((f:any)=>({...f,budget:e.target.value}))} placeholder="0" /></div>
+              <div><Label>Projektleiter</Label><Input value={form.projektleiter} onChange={e=>setForm((f:any)=>({...f,projektleiter:e.target.value}))} /></div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div><Label>Start</Label><Input type="date" value={form.startdatum} onChange={e=>setForm((f:any)=>({...f,startdatum:e.target.value}))} /></div>
               <div><Label>Frist</Label><Input type="date" value={form.enddatum} onChange={e=>setForm((f:any)=>({...f,enddatum:e.target.value}))} /></div>
             </div>
-            <div><Label>Projektleiter</Label><Input value={form.projektleiter} onChange={e=>setForm((f:any)=>({...f,projektleiter:e.target.value}))} /></div>
             <div><Label>Beschreibung</Label><Textarea value={form.beschreibung} onChange={e=>setForm((f:any)=>({...f,beschreibung:e.target.value}))} className="min-h-[70px]" /></div>
             <div className="flex gap-3 pt-1">
               <Button variant="outline" className="flex-1" onClick={()=>setDialog(false)}>Abbrechen</Button>
