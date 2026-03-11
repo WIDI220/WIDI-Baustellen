@@ -16,6 +16,7 @@ import FotosPage from '@/pages/FotosPage';
 import EskalationenPage from '@/pages/EskalationenPage';
 import AuftragImportPage from '@/pages/AuftragImportPage';
 import MitarbeiterPage from '@/pages/MitarbeiterPage';
+import ArchivPage from '@/pages/ArchivPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +57,7 @@ function AppRoutes() {
         <Route path="/eskalationen" element={<EskalationenPage />} />
         <Route path="/import" element={<AuftragImportPage />} />
         <Route path="/mitarbeiter" element={<MitarbeiterPage />} />
+        <Route path="/archiv" element={<ArchivPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AppLayout>
