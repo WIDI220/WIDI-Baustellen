@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { Plus, Pencil, Users, Euro, HardHat } from 'lucide-react';
 
 const GEWERK_OPTIONS = ['Hochbau', 'Elektro', 'Sanitär', 'Allgemein'];
-const EMPTY = { name: '', kuerzel: '', gewerk: 'Hochbau', stundensatz: '45', aktiv: true };
+const EMPTY = { name: '', kuerzel: '', gewerk: 'Hochbau', stundensatz: '38.08', aktiv: true };
 
 export default function MitarbeiterPage() {
   const queryClient = useQueryClient();
@@ -33,7 +33,7 @@ export default function MitarbeiterPage() {
         name: form.name.trim(),
         kuerzel: form.kuerzel.toUpperCase().trim(),
         gewerk: form.gewerk,
-        stundensatz: Number(form.stundensatz) || 45,
+        stundensatz: Number(form.stundensatz) || 38.08,
         aktiv: form.aktiv,
       };
       if (editItem) {
@@ -70,7 +70,7 @@ export default function MitarbeiterPage() {
 
   const openNew = () => { setForm(EMPTY); setEditItem(null); setDialog(true); };
   const openEdit = (e: any) => {
-    setForm({ name: e.name || '', kuerzel: e.kuerzel || '', gewerk: e.gewerk || 'Hochbau', stundensatz: String(e.stundensatz || 45), aktiv: e.aktiv !== false });
+    setForm({ name: e.name || '', kuerzel: e.kuerzel || '', gewerk: e.gewerk || 'Hochbau', stundensatz: String(e.stundensatz || 38.08), aktiv: e.aktiv !== false });
     setEditItem(e);
     setDialog(true);
   };
@@ -90,7 +90,7 @@ export default function MitarbeiterPage() {
         <p className="font-semibold text-gray-800">{e.name}</p>
         <div className="flex items-center gap-3 mt-0.5">
           <span className="flex items-center gap-1 text-xs text-gray-400"><HardHat className="h-3 w-3" />{e.gewerk || '–'}</span>
-          <span className="flex items-center gap-1 text-xs text-gray-600 font-medium"><Euro className="h-3 w-3" />{e.stundensatz || 45}/h</span>
+          <span className="flex items-center gap-1 text-xs text-gray-600 font-medium"><Euro className="h-3 w-3" />{e.stundensatz || 38.08}/h</span>
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
@@ -159,7 +159,7 @@ export default function MitarbeiterPage() {
               </div>
               <div>
                 <Label>Stundensatz €/h</Label>
-                <Input type="number" min="0" step="0.50" value={form.stundensatz} onChange={e => setForm((f: any) => ({...f, stundensatz: e.target.value}))} placeholder="45" />
+                <Input type="number" min="0" step="0.50" value={form.stundensatz} onChange={e => setForm((f: any) => ({...f, stundensatz: e.target.value}))} placeholder="38.08" />
               </div>
             </div>
             <div className="flex gap-3 pt-2">
