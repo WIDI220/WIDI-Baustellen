@@ -12,8 +12,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Euro, Clock, Package, Camera, Plus, Pencil, Trash2, Upload, TrendingUp, BarChart2 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import { fmtEur, fmtDate } from '@/lib/utils';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { exportBaustellePDF } from '@/lib/exportPDF';
 
 const STUNDEN_SATZ = 38.08;
 const STATUS_OPTIONS = [
@@ -89,7 +88,27 @@ export default function BaustelleDetail() {
     return () => { supabase.removeChannel(ch); };
   }, [id, queryClient]);
 
-  const updateStatus = useMutation({ mutationFn: async (status:string) => { const {error}=await supabase.from('baustellen').update({status}).eq('id',id!); if(error)throw error; }, onSuccess:()=>{ toast.success('Status aktualisiert'); queryClient.invalidateQueries({queryKey:['baustelle',id]}); queryClient.invalidateQueries({queryKey:['baustellen-list']}); }, onError:(e:any)=>toast.error(e.message) });
+  const updateStatus = useMutation({
+    mutationFn: async (status:string) => {
+      const archivStatus = ['abgeschlossen','abgerechnet'];
+      if (archivStatus.includes(status)) {
+        const label = status === 'abgeschlossen' ? 'Abgeschlossen' : 'Abgerechnet';
+        if (!confirm(`Baustelle als "${label}" markieren und ins Archiv verschieben?\n\nSie ist danach nicht mehr in der aktiven Liste sichtbar, aber jederzeit im Archiv abrufbar.`)) {
+          throw new Error('Abgebrochen');
+        }
+      }
+      const {error}=await supabase.from('baustellen').update({status}).eq('id',id!);
+      if(error)throw error;
+    },
+    onSuccess:()=>{
+      toast.success('Status aktualisiert');
+      queryClient.invalidateQueries({queryKey:['baustelle',id]});
+      queryClient.invalidateQueries({queryKey:['baustellen-list']});
+      queryClient.invalidateQueries({queryKey:['baustellen-archiv']});
+      queryClient.invalidateQueries({queryKey:['bs-dashboard']});
+    },
+    onError:(e:any)=>{ if(e.message !== 'Abgebrochen') toast.error(e.message); }
+  });
   const saveStunden = useMutation({ mutationFn: async () => { if(!stundenForm.mitarbeiter_id)throw new Error('Mitarbeiter wählen'); const payload={baustelle_id:id,mitarbeiter_id:stundenForm.mitarbeiter_id,datum:stundenForm.datum,stunden:parseFloat(String(stundenForm.stunden).replace(',','.')),beschreibung:stundenForm.beschreibung||null}; if(editStunden){const{error}=await supabase.from('bs_stundeneintraege').update(payload).eq('id',editStunden.id);if(error)throw error;}else{const{error}=await supabase.from('bs_stundeneintraege').insert(payload);if(error)throw error;} }, onSuccess:()=>{ toast.success('Stunden gespeichert'); setStundenDialog(false); setEditStunden(null); setStundenForm(STUNDEN_EMPTY); queryClient.invalidateQueries({queryKey:['bs-stunden',id]}); }, onError:(e:any)=>toast.error(e.message) });
   const deleteStunden = useMutation({ mutationFn: async (sid:string)=>{ const{error}=await supabase.from('bs_stundeneintraege').delete().eq('id',sid);if(error)throw error; }, onSuccess:()=>queryClient.invalidateQueries({queryKey:['bs-stunden',id]}), onError:(e:any)=>toast.error(e.message) });
   const saveMat = useMutation({ mutationFn: async ()=>{ const ep=parseFloat(String(matForm.einzelpreis).replace(',','.'))||0; const mg=parseFloat(String(matForm.menge).replace(',','.'))||1; const gp=parseFloat(String(matForm.gesamtpreis).replace(',','.'))||ep*mg; const payload={baustelle_id:id,bezeichnung:matForm.bezeichnung,menge:mg,einheit:matForm.einheit,einzelpreis:ep,gesamtpreis:gp,status:matForm.status,datum:matForm.datum}; if(editMaterial){const{error}=await supabase.from('bs_materialien').update(payload).eq('id',editMaterial.id);if(error)throw error;}else{const{error}=await supabase.from('bs_materialien').insert(payload);if(error)throw error;} }, onSuccess:()=>{ toast.success('Material gespeichert'); setMaterialDialog(false); setEditMaterial(null); setMatForm(MAT_EMPTY); queryClient.invalidateQueries({queryKey:['bs-mat',id]}); }, onError:(e:any)=>toast.error(e.message) });
@@ -122,9 +141,27 @@ export default function BaustelleDetail() {
   }).filter(x=>x.stunden>0).sort((a,b)=>b.stunden-a.stunden);
 
   // Stunden nach Woche
-  const weekMap: Record<string,number> = {};
-  sw.forEach(w => { const week = w.datum?.substring(0,7)||''; weekMap[week]=(weekMap[week]||0)+Number(w.stunden??0); });
-  const weekTrend = Object.entries(weekMap).sort(([a],[b])=>a.localeCompare(b)).slice(-8).map(([m,h])=>({monat:m, stunden:Math.round(h*10)/10}));
+  // Stunden-Verlauf: täglich wenn < 60 Tage Daten, sonst monatlich
+  const datumSet = new Set(sw.map((w:any) => w.datum?.substring(0,10)).filter(Boolean));
+  const allesDaten = Array.from(datumSet).sort();
+  const spanDays = allesDaten.length > 1 ? Math.round((new Date(allesDaten[allesDaten.length-1]).getTime() - new Date(allesDaten[0]).getTime()) / 86400000) : 0;
+  const gruppiereNachTag = spanDays < 60;
+  const trendMap: Record<string,number> = {};
+  sw.forEach((w:any) => {
+    const key = gruppiereNachTag
+      ? (w.datum?.substring(0,10)||'')
+      : (w.datum?.substring(0,7)||'');
+    if (key) trendMap[key] = (trendMap[key]||0) + Number(w.stunden??0);
+  });
+  const weekTrend = Object.entries(trendMap)
+    .sort(([a],[b]) => a.localeCompare(b))
+    .slice(-20)
+    .map(([m,h]) => ({
+      monat: gruppiereNachTag
+        ? new Date(m).toLocaleDateString('de-DE', {day:'2-digit',month:'2-digit'})
+        : new Date(m+'-01').toLocaleDateString('de-DE', {month:'short', year:'2-digit'}),
+      stunden: Math.round(h*10)/10
+    }));
 
   // Material nach Status
   const matByStatus = [
@@ -148,14 +185,7 @@ export default function BaustelleDetail() {
     } catch(e:any){toast.error(e.message);} finally{setUploading(false);}
   };
 
-  const exportPDF = () => {
-    const doc = new jsPDF(); doc.setFontSize(18); doc.text(bs.name,14,20); doc.setFontSize(10); doc.setTextColor(100);
-    doc.text(`${bs.auftraggeber||'–'} · ${st.label} · Budget: ${fmtEur(effektivBudget)} · Kosten: ${fmtEur(gesamtkosten)}`,14,30);
-    autoTable(doc,{startY:38,head:[['Mitarbeiter','Datum','Stunden','Kosten','Tätigkeit']],body:sw.map(w=>[w.employees?.name||'–',w.datum,`${w.stunden}h`,fmtEur(Number(w.stunden)*Number(w.employees?.stundensatz??STUNDEN_SATZ)),w.beschreibung||''])});
-    const y1=(doc as any).lastAutoTable.finalY+8; doc.setFontSize(13); doc.setTextColor(0); doc.text('Material',14,y1);
-    autoTable(doc,{startY:y1+4,head:[['Bezeichnung','Menge','Einzelpreis','Gesamt','Status']],body:mat.map(m=>[m.bezeichnung,`${m.menge} ${m.einheit}`,fmtEur(m.einzelpreis),fmtEur(m.gesamtpreis),m.status])});
-    doc.save(`${bs.name.replace(/\s+/g,'_')}.pdf`);
-  };
+  const exportPDF = () => exportBaustellePDF(bs, sw, mat, nach, fts);
 
   return (
     <div className="space-y-5">
