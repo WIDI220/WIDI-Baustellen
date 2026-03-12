@@ -1,216 +1,56 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   --navy: #0f1f3d;
   --navy-light: #1e3a5f;
   --accent: #3b82f6;
-  --accent-dark: #1d4ed8;
   --gold: #f59e0b;
   --success: #10b981;
   --danger: #ef4444;
-  --purple: #8b5cf6;
-  --orange: #f97316;
   --bg: #f4f6fa;
-  --card: #ffffff;
-  --border: #eef1f9;
-  --text: #0f1f3d;
-  --muted: #6b7a99;
-  --subtle: #9ca3af;
-  --radius: 14px;
-  --radius-sm: 10px;
-  --shadow-sm: 0 1px 4px rgba(15,31,61,.06), 0 2px 8px rgba(15,31,61,.04);
-  --shadow: 0 2px 12px rgba(15,31,61,.08), 0 4px 20px rgba(15,31,61,.05);
-  --shadow-lg: 0 8px 30px rgba(15,31,61,.12), 0 2px 8px rgba(15,31,61,.06);
 }
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 
 body {
   font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.5;
-  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ── Cards ─────────────────────────── */
+/* Custom card class */
 .card {
-  background: var(--card);
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-  transition: box-shadow .2s, transform .2s;
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #eef1f9;
+  box-shadow: 0 1px 4px rgba(15,31,61,.06), 0 2px 8px rgba(15,31,61,.04);
 }
-.card:hover { box-shadow: var(--shadow); }
-
-.card-interactive {
-  cursor: pointer;
-}
-.card-interactive:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
+.card:hover {
+  box-shadow: 0 2px 12px rgba(15,31,61,.08), 0 4px 20px rgba(15,31,61,.05);
 }
 
-/* ── KPI Cards ─────────────────────── */
 .kpi-card {
-  position: relative;
-  overflow: hidden;
+  transition: transform .18s, box-shadow .18s;
 }
-.kpi-card::before {
-  content: '';
-  position: absolute;
-  top: 0; right: 0;
-  width: 80px; height: 80px;
-  background: radial-gradient(circle at 80% 0%, rgba(59,130,246,.06) 0%, transparent 70%);
-  pointer-events: none;
+.kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(15,31,61,.1);
 }
 
-/* ── Progress Bars ─────────────────── */
 .progress-bar {
   transition: width .6s cubic-bezier(.4,0,.2,1);
 }
 
-/* ── Badges ────────────────────────── */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 9px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: .01em;
-}
-
-/* ── Form Elements ─────────────────── */
-input, textarea, select {
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--text);
-  background: #fff;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  outline: none;
-  transition: border-color .15s, box-shadow .15s;
-  width: 100%;
-}
-input:focus, textarea:focus, select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(59,130,246,.12);
-}
-input::placeholder, textarea::placeholder {
-  color: #c4ccdc;
-}
-
-/* ── Buttons ───────────────────────── */
-button {
-  font-family: inherit;
-  cursor: pointer;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  border: none;
-  transition: all .15s;
-  letter-spacing: .01em;
-}
-.btn-primary {
-  background: linear-gradient(135deg, #1e3a5f, #162d4a);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(30,58,95,.3);
-}
-.btn-primary:hover {
-  background: linear-gradient(135deg, #243e66, #1a3354);
-  box-shadow: 0 4px 12px rgba(30,58,95,.4);
-  transform: translateY(-1px);
-}
-.btn-outline {
-  background: #fff;
-  color: var(--text);
-  border: 1.5px solid var(--border);
-}
-.btn-outline:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(59,130,246,.04);
-}
-.btn-danger {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(239,68,68,.3);
-}
-
-/* ── Table ─────────────────────────── */
-table { width: 100%; border-collapse: collapse; }
-th {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--muted);
-  padding: 10px 12px;
-  text-align: left;
-  border-bottom: 1.5px solid var(--border);
-}
-td {
-  padding: 11px 12px;
-  font-size: 13px;
-  border-bottom: 1px solid #f4f6fa;
-  color: var(--text);
-}
-tr:hover td { background: rgba(59,130,246,.025); }
-tr:last-child td { border-bottom: none; }
-
-/* ── Dialog/Modal ──────────────────── */
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(10,20,45,.45);
-  backdrop-filter: blur(4px);
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-.dialog-content {
-  background: #fff;
-  border-radius: 18px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.2);
-  max-height: 90vh;
-  overflow-y: auto;
-  animation: dialogIn .18s cubic-bezier(.4,0,.2,1);
-}
-@keyframes dialogIn {
-  from { opacity:0; transform: scale(.96) translateY(8px); }
-  to   { opacity:1; transform: scale(1)  translateY(0);    }
-}
-
-/* ── Toast ─────────────────────────── */
-[data-sonner-toaster] {
-  font-family: 'DM Sans', sans-serif !important;
-}
-
-/* ── Scrollbar ─────────────────────── */
+/* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #d4d9e8; border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: #b8bfd4; }
 
-/* ── Animations ────────────────────── */
+/* Animations */
 @keyframes fadeIn {
-  from { opacity:0; transform: translateY(6px); }
-  to   { opacity:1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .fade-in { animation: fadeIn .22s ease; }
 
@@ -220,5 +60,4 @@ tr:last-child td { border-bottom: none; }
 }
 .pulse { animation: pulse-glow 2s infinite; }
 
-/* ── Number Mono ───────────────────── */
 .mono { font-family: 'DM Mono', monospace; }
