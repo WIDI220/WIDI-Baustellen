@@ -18,7 +18,7 @@ export default async function handler(req, res) {
         'anthropic-beta': 'pdfs-2024-09-25',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5',
+        model: 'claude-opus-4-6',
         max_tokens: 1500,
         messages: [{
           role: 'user',
@@ -29,24 +29,37 @@ export default async function handler(req, res) {
             },
             {
               type: 'text',
-              text: `Lies diesen Baustellenauftrag und extrahiere folgende Informationen.
-Antworte NUR mit einem JSON-Objekt, kein Text davor oder danach, keine Markdown-Backticks.
+              text: `Lies diesen Baustellenauftrag und extrahiere die Daten als JSON.
+Antworte NUR mit dem JSON-Objekt, kein Text, keine Backticks.
 
-WICHTIG: Das Budget-Feld IMMER auf 0 setzen - das wird manuell eingetragen.
-Extrahiere NUR: Name, Auftraggeber, Beschreibung, Gewerk, Termine, Adresse.
+REGEL 1 – BETREFF (wichtigste Regel):
+Der Baustellenname ist IMMER der Betreff des Dokuments.
+Suche nach: "Betreff:", "Re:", "Betrifft:", "Subject:", fett gedruckter Zeile nach der Anrede, oder der Überschrift des Auftrags.
+Kopiere den Betreff WÖRTLICH, genau so wie er im Dokument steht.
+Kürze ihn nicht, füge nichts hinzu. Nur wenn wirklich kein Betreff erkennbar ist: kurze Beschreibung der Tätigkeit.
+
+REGEL 2 – A-NUMMER:
+Suche nach Mustern wie: A-12345, A12345, Auftrags-Nr., Bestell-Nr., oder Nummern direkt im Betreff.
+Gibt nur die reine Zahl zurück, z.B. "20917" (ohne "A-" Präfix, ohne "Nr.").
+Wenn keine gefunden: leerer String "".
+
+REGEL 3 – BESCHREIBUNG:
+Nur Tätigkeiten beschreiben. KEINE Preise, Stundensätze, Euro-Beträge erwähnen.
+
+REGEL 4 – BUDGET:
+Immer 0. Wird manuell eingetragen.
 
 {
-  "name": "Baustellenname aus Betreff oder Titel",
-  "a_nummer": "A-Nummer oder Auftragsnummer, sonst leerer String",
-  "auftraggeber": "Auftraggeber/Kunde",
-  "beschreibung": "Beschreibung der Arbeiten (NUR die Tätigkeiten, KEINE Preise oder Stundensätze erwähnen)",
-  "budget": 0,
-  "budget_details": "",
+  "betreff_original": "Exakter Betreff-Text aus dem Dokument, oder '' wenn keiner",
+  "name": "Exakter Betreff-Text (WÖRTLICH kopiert), oder kurze Tätigkeitsbeschreibung",
+  "a_nummer": "Nur die Zahl, z.B. '20917', oder ''",
+  "auftraggeber": "Name des Auftraggebers/Kunden",
+  "beschreibung": "Beschreibung der Arbeiten – nur Tätigkeiten, keine Preise",
   "gewerk": "Hochbau oder Elektro oder Beides",
-  "startdatum": "Auftragsdatum als YYYY-MM-DD",
-  "enddatum": "Frist als YYYY-MM-DD, falls nicht angegeben 14 Tage ab heute",
-  "ansprechpartner": "Name des Ansprechpartners, sonst leerer String",
-  "adresse": "Ort oder Adresse, sonst leerer String"
+  "startdatum": "YYYY-MM-DD oder ''",
+  "enddatum": "YYYY-MM-DD oder ''",
+  "ansprechpartner": "Name oder ''",
+  "adresse": "Adresse/Ort oder ''"
 }`
             }
           ]
@@ -61,31 +74,43 @@ Extrahiere NUR: Name, Auftraggeber, Beschreibung, Gewerk, Termine, Adresse.
     const clean = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
 
-    // Fallbacks
+    // Datum-Fallbacks
     const today = new Date().toISOString().split('T')[0];
     const in14  = new Date(Date.now() + 14*24*60*60*1000).toISOString().split('T')[0];
     if (!parsed.startdatum) parsed.startdatum = today;
     if (!parsed.enddatum)   parsed.enddatum   = in14;
     if (!parsed.gewerk)     parsed.gewerk     = 'Hochbau';
 
-    // Budget immer auf 0 - wird manuell eingetragen
+    // A-Nummer bereinigen: nur Ziffern/Buchstaben, kein Präfix
+    if (parsed.a_nummer) {
+      parsed.a_nummer = parsed.a_nummer
+        .replace(/^(A[-\s]?|Nr\.?\s*:?\s*|Auftrags?[-\s]?Nr\.?\s*:?\s*)/i, '')
+        .trim();
+    }
+
+    // Name-Fallback: Betreff verwenden wenn Name leer oder generisch
+    const genericNames = ['bauauftrag', 'auftrag', 'baustelle', 'bestellung', 'auftrag erteilt'];
+    if (!parsed.name || genericNames.includes(parsed.name.trim().toLowerCase())) {
+      parsed.name = parsed.betreff_original || 'Unbenannte Baustelle';
+    }
+
+    // Budget immer 0
     parsed.budget        = 0;
     parsed.budget_details = '';
     parsed.budget_typ    = 'festpreis';
     parsed.budget_menge  = 0;
 
-    // Stundensatz-Angaben aus Beschreibung entfernen (keine falschen Werte zeigen)
+    // Euro-Angaben aus Beschreibung entfernen
     if (parsed.beschreibung) {
       parsed.beschreibung = parsed.beschreibung
-        .replace(/\d+h\s*(Arbeit(szeit)?)?\s*(à|a|x|\*)\s*\d+[,.]?\d*\s*€[^\n]*/gi, '')
-        .replace(/Budget[^\n]*(€|Euro)[^\n]*/gi, '')
+        .replace(/\d+[,.]?\d*\s*(€|Euro)(\s*\/\s*h)?[^\n]*/gi, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
     }
 
     return res.status(200).json({ success: true, data: parsed });
   } catch (e) {
-    console.error('Auftrag import error:', e);
+    console.error('Import error:', e);
     return res.status(500).json({ error: e.message || 'Fehler beim Auslesen' });
   }
 }
