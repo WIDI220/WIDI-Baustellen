@@ -1,23 +1,30 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
-import { HardHat, Euro, Clock, AlertTriangle, TrendingUp, Package, ArrowRight, CheckCircle } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { HardHat, Euro, Clock, AlertTriangle, TrendingUp, Package, ArrowRight, Flame, CheckCircle2 } from 'lucide-react';
 import { fmtEur } from '@/lib/utils';
 import { berechneKosten } from '@/lib/berechnung';
 import { useNavigate } from 'react-router-dom';
 
-const STATUS_COLORS: Record<string,string> = { offen:'#94a3b8', in_bearbeitung:'#3b82f6', pausiert:'#f59e0b', abgeschlossen:'#10b981', abgerechnet:'#8b5cf6' };
-const STATUS_LABELS: Record<string,string> = { offen:'Offen', in_bearbeitung:'In Bearbeitung', pausiert:'Pausiert', abgeschlossen:'Abgeschlossen', abgerechnet:'Abgerechnet' };
+const S: Record<string,{label:string;dot:string;bg:string;text:string;glow:string}> = {
+  offen:          {label:'Offen',          dot:'#94a3b8',bg:'#f8fafc',text:'#64748b',glow:'rgba(148,163,184,.15)'},
+  in_bearbeitung: {label:'In Bearbeitung', dot:'#3b82f6',bg:'#eff6ff',text:'#1d4ed8',glow:'rgba(59,130,246,.12)'},
+  pausiert:       {label:'Pausiert',       dot:'#f59e0b',bg:'#fffbeb',text:'#b45309',glow:'rgba(245,158,11,.12)'},
+  abgeschlossen:  {label:'Abgeschlossen',  dot:'#10b981',bg:'#f0fdf4',text:'#065f46',glow:'rgba(16,185,129,.12)'},
+  abgerechnet:    {label:'Abgerechnet',    dot:'#8b5cf6',bg:'#faf5ff',text:'#5b21b6',glow:'rgba(139,92,246,.12)'},
+};
 
-const ChartTooltip = ({ active, payload, label }: any) => {
-  if (!active || !payload?.length) return null;
+const TooltipCustom = ({active,payload,label}:any) => {
+  if(!active||!payload?.length)return null;
   return (
-    <div className="card p-3 text-xs" style={{minWidth:'140px'}}>
-      <p className="font-semibold mb-2" style={{color:'#0f1f3d'}}>{label}</p>
-      {payload.map((p: any) => (
-        <div key={p.name} className="flex justify-between gap-4">
-          <span style={{color:'#6b7a99'}}>{p.name}</span>
-          <span className="font-bold" style={{color:p.fill||p.stroke}}>{typeof p.value === 'number' && p.value > 100 ? fmtEur(p.value) : p.value}</span>
+    <div style={{background:'#0f1f3d',borderRadius:10,padding:'8px 12px',boxShadow:'0 8px 24px rgba(0,0,0,.25)'}}>
+      <p style={{color:'#8da3c9',fontSize:10,marginBottom:4}}>{label}</p>
+      {payload.map((p:any)=>(
+        <div key={p.name} style={{display:'flex',gap:12,alignItems:'center',fontSize:11}}>
+          <span style={{color:'#64748b'}}>{p.name}</span>
+          <span style={{fontWeight:700,color:p.fill||p.stroke||'#e2e8f0'}}>
+            {typeof p.value==='number'&&p.value>200?fmtEur(p.value):`${p.value}h`}
+          </span>
         </div>
       ))}
     </div>
@@ -26,225 +33,238 @@ const ChartTooltip = ({ active, payload, label }: any) => {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { data: baustellen=[] } = useQuery({queryKey:['bs-dashboard'], queryFn:async()=>{const{data}=await supabase.from('baustellen').select('*').order('created_at',{ascending:false});return data??[];}});
+  const { data: stunden=[] }    = useQuery({queryKey:['bs-stunden-dash'], queryFn:async()=>{const{data}=await supabase.from('bs_stundeneintraege').select('*,employees(stundensatz,name,kuerzel)');return data??[];}});
+  const { data: materialien=[] }= useQuery({queryKey:['bs-mat-dash'],    queryFn:async()=>{const{data}=await supabase.from('bs_materialien').select('*');return data??[];}});
+  const { data: nachtraege=[] } = useQuery({queryKey:['bs-nach-dash'],   queryFn:async()=>{const{data}=await supabase.from('bs_nachtraege').select('*');return data??[];}});
+  const { data: eskalationen=[] }=useQuery({queryKey:['bs-esk-dash'],   queryFn:async()=>{const{data}=await supabase.from('bs_eskalationen').select('*').eq('gelesen',false);return data??[];}});
 
-  const { data: baustellen = [] } = useQuery({ queryKey: ['bs-dashboard'], queryFn: async () => { const { data } = await supabase.from('baustellen').select('*').order('created_at', {ascending:false}); return data ?? []; } });
-  const { data: stunden = [] }    = useQuery({ queryKey: ['bs-stunden-dash'], queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('*, employees(stundensatz,name)'); return data ?? []; } });
-  const { data: materialien = [] }= useQuery({ queryKey: ['bs-mat-dash'],    queryFn: async () => { const { data } = await supabase.from('bs_materialien').select('*'); return data ?? []; } });
-  const { data: nachtraege = [] } = useQuery({ queryKey: ['bs-nach-dash'],   queryFn: async () => { const { data } = await supabase.from('bs_nachtraege').select('*'); return data ?? []; } });
-  const { data: eskalationen = [] }=useQuery({ queryKey: ['bs-esk-dash'],   queryFn: async () => { const { data } = await supabase.from('bs_eskalationen').select('*').eq('gelesen', false); return data ?? []; } });
+  const bs=baustellen as any[], sw=stunden as any[], mat=materialien as any[], nach=nachtraege as any[], esk=eskalationen as any[];
+  const aktive = bs.filter(b=>b.status!=='abgeschlossen'&&b.status!=='abgerechnet');
+  const archiv = bs.filter(b=>b.status==='abgeschlossen'||b.status==='abgerechnet');
+  const aktiveK = aktive.map(b=>({...b,...berechneKosten(b.id,sw,mat,nach,Number(b.budget??0))}));
 
-  const bs = baustellen as any[], sw = stunden as any[], mat = materialien as any[], nach = nachtraege as any[], esk = eskalationen as any[];
+  const gesamtBudget   = aktiveK.reduce((s,k)=>s+k.effektivBudget,0);
+  const gesamtKosten   = aktiveK.reduce((s,k)=>s+k.gesamtkosten,0);
+  const gesamtPersonal = aktiveK.reduce((s,k)=>s+k.personalkosten,0);
+  const gesamtH        = sw.reduce((s,w)=>s+Number(w.stunden??0),0);
+  const overBudget     = aktiveK.filter(k=>k.overBudget).length;
+  const kritisch       = esk.filter((e:any)=>e.schwere==='kritisch').length;
 
-  const alleKosten = bs.map(b => ({...b, ...berechneKosten(b.id, sw, mat, nach, Number(b.budget??0))}));
-  const gesamtBudget = bs.reduce((s,b) => s+Number(b.budget??0), 0);
-  const gesamtNachtraege = alleKosten.reduce((s,k) => s+k.nachtragGenehmigt, 0);
-  const effektivBudget = gesamtBudget + gesamtNachtraege;
-  const gesamtPersonal = alleKosten.reduce((s,k) => s+k.personalkosten, 0);
-  const gesamtMaterial = alleKosten.reduce((s,k) => s+k.materialkosten, 0);
-  const gesamtkosten = gesamtPersonal + gesamtMaterial;
-  const overBudgetCount = alleKosten.filter(k => k.overBudget).length;
-  const gesamtH = sw.reduce((s,w) => s+Number(w.stunden??0), 0);
-  const budgetPct = effektivBudget > 0 ? Math.min(Math.round(gesamtkosten/effektivBudget*100), 100) : 0;
-
-  // Kosten-Timeline: letzte 8 Wochen (aus Stunden-Einträgen)
-  const now = new Date();
-  const weekData = Array.from({length:8}, (_,i) => {
-    const start = new Date(now); start.setDate(start.getDate() - (7-i)*7);
-    const end = new Date(start); end.setDate(end.getDate() + 7);
-    const label = `KW${Math.ceil((start.getDate()+(new Date(start.getFullYear(), start.getMonth(),1).getDay()||7)-1)/7)}`;
-    const kosten = sw.filter(w => { const d = new Date(w.datum); return d >= start && d < end; })
-      .reduce((s,w) => s + Number(w.stunden??0)*Number(w.employees?.stundensatz??38.08), 0);
-    return { label, kosten: Math.round(kosten) };
+  const weekData = Array.from({length:8},(_,i)=>{
+    const start=new Date(); start.setDate(start.getDate()-(7-i)*7);
+    const end=new Date(start); end.setDate(end.getDate()+7);
+    const kosten=sw.filter((w:any)=>{const d=new Date(w.datum);return d>=start&&d<end;})
+      .reduce((s:number,w:any)=>s+Number(w.stunden??0)*Number(w.employees?.stundensatz??38.08),0);
+    return {label:`KW${String(i+1).padStart(2,'0')}`, kosten:Math.round(kosten)};
   });
 
-  // Budget-Vergleich Top 6
-  const budgetChart = alleKosten
-    .filter(b => Number(b.effektivBudget) > 0)
-    .sort((a,b) => Number(b.effektivBudget)-Number(a.effektivBudget))
-    .slice(0,6)
-    .map(b => ({
-      name: b.name.length>14 ? b.name.substring(0,14)+'…' : b.name,
-      Budget: Math.round(b.effektivBudget),
-      Kosten: Math.round(b.gesamtkosten),
-      over: b.overBudget,
-    }));
+  const budgetVsKosten = aktiveK.filter(b=>b.effektivBudget>0).slice(0,5).map(b=>({
+    name: b.name.length>12 ? b.name.substring(0,12)+'…' : b.name,
+    Budget: Math.round(b.effektivBudget),
+    Kosten: Math.round(b.gesamtkosten),
+  }));
 
-  // Status Pie
-  const statusPie = Object.entries(STATUS_LABELS)
-    .map(([k,v]) => ({name:v, value:bs.filter(b=>b.status===k).length, color:STATUS_COLORS[k]}))
-    .filter(d => d.value > 0);
-
-  // Aktive Baustellen
-  const aktive = alleKosten.filter(b => b.status === 'in_bearbeitung' || b.status === 'offen').slice(0,5);
-
-  const kpis = [
-    { label:'Aktive Baustellen', value:bs.filter(b=>b.status==='in_bearbeitung').length, sub:`von ${bs.length} gesamt`, icon:HardHat, c:'#3b82f6', bg:'rgba(59,130,246,.1)' },
-    { label:'Effekt. Budget', value:fmtEur(effektivBudget), sub:gesamtNachtraege>0?`+${fmtEur(gesamtNachtraege)} Nachträge`:'inkl. Nachträge', icon:Euro, c:'#1e3a5f', bg:'rgba(30,58,95,.08)' },
-    { label:'Gesamtkosten', value:fmtEur(gesamtkosten), sub:`${budgetPct}% des Budgets`, icon:TrendingUp, c:gesamtkosten>effektivBudget?'#ef4444':'#10b981', bg:gesamtkosten>effektivBudget?'rgba(239,68,68,.1)':'rgba(16,185,129,.1)' },
-    { label:'Personalkosten', value:fmtEur(gesamtPersonal), sub:`${Math.round(gesamtH*10)/10}h erfasst`, icon:Clock, c:'#8b5cf6', bg:'rgba(139,92,246,.1)' },
-    { label:'Materialkosten', value:fmtEur(gesamtMaterial), sub:`${mat.length} Positionen`, icon:Package, c:'#f97316', bg:'rgba(249,115,22,.1)' },
-    { label:'Über Budget', value:overBudgetCount, sub:overBudgetCount>0?'⚠ Prüfen!':'Alles im Rahmen', icon:AlertTriangle, c:overBudgetCount>0?'#ef4444':'#10b981', bg:overBudgetCount>0?'rgba(239,68,68,.1)':'rgba(16,185,129,.1)' },
-  ];
+  const heute = new Date();
+  const fristKritisch = aktiveK.filter(b=>{
+    if(!b.enddatum)return false;
+    const diff = Math.round((new Date(b.enddatum).getTime()-heute.getTime())/86400000);
+    return diff<=7;
+  });
 
   return (
-    <div className="space-y-6">
+    <div style={{display:'flex',flexDirection:'column',gap:20}}>
+
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <div>
-          <h1 style={{fontFamily:'DM Sans', fontWeight:700, fontSize:'1.5rem', color:'#0f1f3d', letterSpacing:'-.02em'}}>Dashboard</h1>
-          <p className="text-sm mt-1" style={{color:'#6b7a99'}}>{bs.length} Baustellen · {bs.filter(b=>b.status==='in_bearbeitung').length} aktiv</p>
+          <h1 style={{fontFamily:'DM Sans',fontWeight:800,fontSize:'1.5rem',color:'#0f1f3d',letterSpacing:'-.03em',margin:0}}>
+            Dashboard
+          </h1>
+          <p style={{color:'#6b7a99',fontSize:13,margin:'2px 0 0'}}>
+            {aktive.length} aktive Baustellen · {archiv.length} archiviert
+          </p>
         </div>
-        {esk.length > 0 && (
-          <button onClick={() => navigate('/eskalationen')} className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-all hover:scale-[1.02]"
-            style={{background:'rgba(239,68,68,.1)', color:'#dc2626', border:'1px solid rgba(239,68,68,.2)'}}>
-            <AlertTriangle className="h-4 w-4" />{esk.length} Eskalation{esk.length>1?'en':''} →
+        {esk.length>0 && (
+          <button onClick={()=>navigate('/eskalationen')}
+            style={{display:'flex',alignItems:'center',gap:6,background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.25)',borderRadius:12,padding:'7px 14px',color:'#dc2626',fontWeight:700,fontSize:12,cursor:'pointer'}}>
+            <AlertTriangle style={{width:14,height:14}}/>
+            {kritisch>0?`${kritisch} kritisch · `:''}{esk.length} Eskalation{esk.length!==1?'en':''}
           </button>
         )}
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-        {kpis.map(k => (
-          <div key={k.label} className="card kpi-card p-4">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center mb-3" style={{background:k.bg}}>
-              <k.icon className="h-4 w-4" style={{color:k.c}} />
+      {/* KPI-Leiste */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:10}}>
+        {[
+          {l:'Aktive Baustellen',v:aktive.length,      sub:`${archiv.length} archiviert`,    icon:HardHat,   c:'#3b82f6', bg:'rgba(59,130,246,.1)'},
+          {l:'Eff. Budget',      v:fmtEur(gesamtBudget),sub:'Aktive BS',                     icon:Euro,      c:'#1e3a5f', bg:'rgba(30,58,95,.08)'},
+          {l:'Gesamtkosten',     v:fmtEur(gesamtKosten),sub:`${Math.round(gesamtKosten/gesamtBudget*100)||0}% Budget`, icon:TrendingUp,c:gesamtKosten>gesamtBudget&&gesamtBudget>0?'#ef4444':'#10b981',bg:gesamtKosten>gesamtBudget&&gesamtBudget>0?'rgba(239,68,68,.1)':'rgba(16,185,129,.1)'},
+          {l:'Personalkosten',   v:fmtEur(gesamtPersonal),sub:`${Math.round(gesamtH*10)/10}h gesamt`,icon:Clock,c:'#8b5cf6',bg:'rgba(139,92,246,.1)'},
+          {l:'Über Budget',      v:overBudget,          sub:overBudget>0?'⚠ Prüfen':'Alles OK',icon:AlertTriangle,c:overBudget>0?'#ef4444':'#10b981',bg:overBudget>0?'rgba(239,68,68,.1)':'rgba(16,185,129,.1)'},
+          {l:'Frist ≤7 Tage',   v:fristKritisch.length,sub:fristKritisch.length>0?'Dringend':'Keine',icon:Flame,c:fristKritisch.length>0?'#f97316':'#10b981',bg:fristKritisch.length>0?'rgba(249,115,22,.1)':'rgba(16,185,129,.1)'},
+        ].map(k=>(
+          <div key={k.l} className="card" style={{padding:'14px 16px',cursor:'default'}}>
+            <div style={{width:32,height:32,borderRadius:10,background:k.bg,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:10}}>
+              <k.icon style={{width:15,height:15,color:k.c}}/>
             </div>
-            <p className="text-xl font-bold count-up leading-tight" style={{color:'#0f1f3d'}}>{k.value}</p>
-            <p className="text-xs mt-0.5" style={{color:'#6b7a99'}}>{k.label}</p>
-            <p className="text-[10px] mt-0.5" style={{color:'#9ca3af'}}>{k.sub}</p>
+            <div style={{fontSize:18,fontWeight:800,color:'#0f1f3d',letterSpacing:'-.02em',lineHeight:1}}>{k.v}</div>
+            <div style={{fontSize:11,color:'#6b7a99',marginTop:2}}>{k.l}</div>
+            <div style={{fontSize:10,color:'#9ca3af',marginTop:1}}>{k.sub}</div>
           </div>
         ))}
       </div>
 
-      {/* Charts Row 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Kosten Timeline */}
-        <div className="lg:col-span-2 card p-5">
-          <h3 className="text-sm font-semibold mb-0.5" style={{color:'#0f1f3d'}}>Personalkosten – letzte 8 Wochen</h3>
-          <p className="text-xs mb-4" style={{color:'#9ca3af'}}>Wochentliche Lohnkosten aller Baustellen</p>
-          <ResponsiveContainer width="100%" height={180}>
+      {/* Baustellen-Cards */}
+      <div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+          <h2 style={{fontFamily:'DM Sans',fontWeight:700,fontSize:14,color:'#0f1f3d',margin:0}}>Aktive Baustellen</h2>
+          <button onClick={()=>navigate('/baustellen')}
+            style={{display:'flex',alignItems:'center',gap:4,color:'#3b82f6',fontSize:12,fontWeight:600,background:'none',border:'none',cursor:'pointer'}}>
+            Alle anzeigen <ArrowRight style={{width:12,height:12}}/>
+          </button>
+        </div>
+
+        {aktiveK.length===0 ? (
+          <div className="card" style={{padding:40,textAlign:'center'}}>
+            <HardHat style={{width:32,height:32,color:'#e5e9f2',margin:'0 auto 8px'}}/>
+            <p style={{color:'#9ca3af',fontSize:13}}>Keine aktiven Baustellen</p>
+          </div>
+        ) : (
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))',gap:12}}>
+            {aktiveK.map((b:any)=>{
+              const st = S[b.status]||S.offen;
+              const daysLeft = b.enddatum ? Math.round((new Date(b.enddatum).getTime()-heute.getTime())/86400000) : null;
+              const fristWarn = daysLeft!==null&&daysLeft<=14;
+              const fristErr  = daysLeft!==null&&daysLeft<=0;
+              return (
+                <div key={b.id} onClick={()=>navigate(`/baustellen/${b.id}`)}
+                  style={{
+                    background:'#fff', borderRadius:16,
+                    border:`1px solid ${b.overBudget?'rgba(239,68,68,.3)':fristErr?'rgba(249,115,22,.3)':'#eef1f9'}`,
+                    borderTop:`3px solid ${st.dot}`,
+                    boxShadow:`0 2px 8px ${st.glow}`,
+                    cursor:'pointer', padding:16,
+                    transition:'all .18s',
+                  }}
+                  onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform='translateY(-2px)';(e.currentTarget as HTMLElement).style.boxShadow=`0 8px 24px ${st.glow}`;}}
+                  onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform='';(e.currentTarget as HTMLElement).style.boxShadow=`0 2px 8px ${st.glow}`;}}
+                >
+                  {/* Card-Header */}
+                  <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8,marginBottom:10}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:13,color:'#0f1f3d',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{b.name}</div>
+                      <div style={{fontSize:11,color:'#9ca3af',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{b.auftraggeber||'–'}{b.gewerk?` · ${b.gewerk}`:''}</div>
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4,flexShrink:0}}>
+                      <span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:20,background:st.bg,color:st.text}}>{st.label}</span>
+                      {fristWarn && (
+                        <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:20,background:fristErr?'rgba(239,68,68,.1)':'rgba(249,115,22,.1)',color:fristErr?'#dc2626':'#d97706'}}>
+                          {fristErr?`${Math.abs(daysLeft!)}d überfällig`:`${daysLeft}d`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Budget-Bar */}
+                  {b.effektivBudget>0 ? (
+                    <>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:10,marginBottom:5}}>
+                        <span style={{color:b.overBudget?'#ef4444':'#6b7a99',fontWeight:b.overBudget?700:400}}>{fmtEur(b.gesamtkosten)}</span>
+                        <span style={{fontWeight:800,color:b.overBudget?'#ef4444':b.pct>80?'#f59e0b':'#1e3a5f'}}>{b.pct}%</span>
+                      </div>
+                      <div style={{height:5,borderRadius:99,background:'#f0f2f8',overflow:'hidden',marginBottom:8}}>
+                        <div style={{height:'100%',borderRadius:99,background:b.overBudget?'#ef4444':b.pct>80?'#f59e0b':'#1e3a5f',width:`${Math.min(b.pct,100)}%`,transition:'width .6s ease'}}/>
+                      </div>
+                      <div style={{fontSize:10,color:'#9ca3af'}}>Budget: {fmtEur(b.effektivBudget)}</div>
+                    </>
+                  ) : (
+                    <div style={{fontSize:11,color:'#d1d5db',padding:'6px 0'}}>Kein Budget definiert</div>
+                  )}
+
+                  {/* Footer */}
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:12,paddingTop:10,borderTop:'1px solid #f0f2f8'}}>
+                    <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+                      {b.personalkosten>0 && <span style={{fontSize:10,fontWeight:600,padding:'2px 6px',borderRadius:6,background:'rgba(139,92,246,.08)',color:'#7c3aed'}}>P {fmtEur(b.personalkosten)}</span>}
+                      {b.materialkosten>0 && <span style={{fontSize:10,fontWeight:600,padding:'2px 6px',borderRadius:6,background:'rgba(249,115,22,.08)',color:'#c2410c'}}>M {fmtEur(b.materialkosten)}</span>}
+                    </div>
+                    <ArrowRight style={{width:13,height:13,color:'#cbd5e1'}}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Charts */}
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
+        {/* Timeline */}
+        <div className="card" style={{padding:20}}>
+          <h3 style={{fontFamily:'DM Sans',fontWeight:700,fontSize:13,color:'#0f1f3d',margin:'0 0 2px'}}>Personalkosten-Verlauf</h3>
+          <p style={{color:'#9ca3af',fontSize:11,margin:'0 0 16px'}}>Letzte 8 Wochen</p>
+          <ResponsiveContainer width="100%" height={150}>
             <AreaChart data={weekData}>
               <defs>
-                <linearGradient id="costGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#1e3a5f" stopOpacity={0.15}/>
-                  <stop offset="95%" stopColor="#1e3a5f" stopOpacity={0}/>
+                <linearGradient id="dg1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#1e3a5f" stopOpacity={0.18}/>
+                  <stop offset="100%" stopColor="#1e3a5f" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eef1f9" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize:10, fill:'#9ca3af' }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v=>`${Math.round(v/1000)}k`} tick={{ fontSize:10, fill:'#9ca3af' }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} />
-              <Area type="monotone" dataKey="kosten" name="Kosten" stroke="#1e3a5f" strokeWidth={2} fill="url(#costGrad)" dot={false} activeDot={{r:4, fill:'#1e3a5f'}} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f8" vertical={false}/>
+              <XAxis dataKey="label" tick={{fontSize:9,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
+              <YAxis tickFormatter={v=>`${Math.round(v/1000)}k`} tick={{fontSize:9,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
+              <Tooltip content={<TooltipCustom/>}/>
+              <Area type="monotone" dataKey="kosten" name="€" stroke="#1e3a5f" strokeWidth={2.5} fill="url(#dg1)" dot={false} activeDot={{r:4,fill:'#1e3a5f',strokeWidth:0}}/>
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Status Pie */}
-        <div className="card p-5">
-          <h3 className="text-sm font-semibold mb-0.5" style={{color:'#0f1f3d'}}>Status</h3>
-          <p className="text-xs mb-3" style={{color:'#9ca3af'}}>{bs.length} Baustellen gesamt</p>
-          {statusPie.length === 0 ? (
-            <div className="flex items-center justify-center h-40 text-sm" style={{color:'#d1d5db'}}>Keine Baustellen</div>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={130}>
-                <PieChart>
-                  <Pie data={statusPie} dataKey="value" cx="50%" cy="50%" innerRadius={35} outerRadius={60} paddingAngle={3}>
-                    {statusPie.map((d,i) => <Cell key={i} fill={d.color} />)}
-                  </Pie>
-                  <Tooltip formatter={(v:any, n:any) => [`${v}x`, n]} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-1.5 mt-1">
-                {statusPie.map(d => (
-                  <div key={d.name} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{background:d.color}} />
-                      <span className="text-xs" style={{color:'#6b7a99'}}>{d.name}</span>
+        {/* Status-Donut */}
+        <div className="card" style={{padding:20}}>
+          <h3 style={{fontFamily:'DM Sans',fontWeight:700,fontSize:13,color:'#0f1f3d',margin:'0 0 2px'}}>Status</h3>
+          <p style={{color:'#9ca3af',fontSize:11,margin:'0 0 16px'}}>{bs.length} Baustellen gesamt</p>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {Object.entries(S).map(([k,v])=>{
+              const cnt=bs.filter(b=>b.status===k).length;
+              if(cnt===0)return null;
+              const pct=Math.round(cnt/bs.length*100);
+              return (
+                <div key={k}>
+                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+                    <div style={{display:'flex',alignItems:'center',gap:6,fontSize:11,color:'#374151'}}>
+                      <div style={{width:7,height:7,borderRadius:99,background:v.dot,flexShrink:0}}/>
+                      {v.label}
                     </div>
-                    <span className="text-xs font-bold" style={{color:'#0f1f3d'}}>{d.value}</span>
+                    <span style={{fontSize:11,fontWeight:700,color:'#0f1f3d'}}>{cnt}</span>
                   </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Charts Row 2 */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Budget vs Kosten */}
-        <div className="lg:col-span-3 card p-5">
-          <h3 className="text-sm font-semibold mb-0.5" style={{color:'#0f1f3d'}}>Budget vs. Kosten</h3>
-          <p className="text-xs mb-4" style={{color:'#9ca3af'}}>Inkl. genehmigter Nachträge · Top 6</p>
-          {budgetChart.length === 0 ? (
-            <div className="flex items-center justify-center h-40 text-sm" style={{color:'#d1d5db'}}>Noch keine Daten</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={budgetChart} barGap={3}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eef1f9" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize:9, fill:'#9ca3af' }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={v=>`${Math.round(v/1000)}k€`} tick={{ fontSize:9, fill:'#9ca3af' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="Budget" name="Budget" fill="#e2e8f0" radius={[4,4,0,0]} />
-                <Bar dataKey="Kosten" name="Kosten" radius={[4,4,0,0]}
-                  fill="#1e3a5f"
-                  // red if over budget per entry handled by recharts Cell
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-
-        {/* Aktive Baustellen */}
-        <div className="lg:col-span-2 card overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b" style={{borderColor:'#eef1f9'}}>
-            <h3 className="text-sm font-semibold" style={{color:'#0f1f3d'}}>Aktive Baustellen</h3>
-            <button onClick={() => navigate('/baustellen')} className="text-xs font-medium flex items-center gap-1 hover:gap-2 transition-all" style={{color:'#3b82f6'}}>
-              Alle <ArrowRight className="h-3 w-3" />
-            </button>
-          </div>
-          <div className="divide-y divide-gray-50">
-            {aktive.length === 0 && <div className="flex items-center justify-center h-32 text-sm" style={{color:'#d1d5db'}}>Keine aktiven Baustellen</div>}
-            {aktive.map((b: any) => (
-              <div key={b.id} onClick={() => navigate(`/baustellen/${b.id}`)} className="px-5 py-3.5 cursor-pointer transition-colors hover:bg-blue-50/30">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate" style={{color:'#0f1f3d'}}>{b.name}</p>
-                    <p className="text-xs truncate" style={{color:'#9ca3af'}}>{b.auftraggeber||'–'}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-xs font-bold" style={{color: b.overBudget ? '#ef4444' : '#0f1f3d'}}>{b.pct}%</p>
-                    <p className="text-[10px]" style={{color:'#9ca3af'}}>{fmtEur(b.gesamtkosten)}</p>
+                  <div style={{height:3,borderRadius:99,background:'#f0f2f8',overflow:'hidden'}}>
+                    <div style={{height:'100%',borderRadius:99,background:v.dot,width:`${pct}%`}}/>
                   </div>
                 </div>
-                <div className="mt-2 w-full rounded-full overflow-hidden" style={{background:'#eef1f9', height:'4px'}}>
-                  <div className="h-full rounded-full progress-bar" style={{width:`${Math.min(b.pct,100)}%`, background: b.overBudget?'#ef4444': b.pct>80?'#f59e0b':'#1e3a5f'}} />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* Kosten Aufteilung */}
-      <div className="grid grid-cols-2 gap-3">
-        {[
-          { label:'Personalkosten', value: gesamtPersonal, pct: gesamtkosten>0?Math.round(gesamtPersonal/gesamtkosten*100):0, color:'#1e3a5f', light:'rgba(30,58,95,.08)' },
-          { label:'Materialkosten', value: gesamtMaterial, pct: gesamtkosten>0?Math.round(gesamtMaterial/gesamtkosten*100):0, color:'#f97316', light:'rgba(249,115,22,.08)' },
-        ].map(k => (
-          <div key={k.label} className="card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-medium" style={{color:'#6b7a99'}}>{k.label}</p>
-              <p className="text-xs font-bold px-2 py-0.5 rounded-full" style={{background:k.light, color:k.color}}>{k.pct}%</p>
-            </div>
-            <p className="text-2xl font-bold" style={{color:'#0f1f3d', fontFamily:'DM Mono, monospace'}}>{fmtEur(k.value)}</p>
-            <div className="mt-3 rounded-full overflow-hidden" style={{background:'#eef1f9', height:'6px'}}>
-              <div className="h-full rounded-full progress-bar" style={{width:`${k.pct}%`, background:k.color}} />
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Budget-Vergleich */}
+      {budgetVsKosten.length>0 && (
+        <div className="card" style={{padding:20}}>
+          <h3 style={{fontFamily:'DM Sans',fontWeight:700,fontSize:13,color:'#0f1f3d',margin:'0 0 2px'}}>Budget vs. Kosten</h3>
+          <p style={{color:'#9ca3af',fontSize:11,margin:'0 0 16px'}}>Aktive Baustellen</p>
+          <ResponsiveContainer width="100%" height={170}>
+            <BarChart data={budgetVsKosten} barGap={4} barCategoryGap="30%">
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f2f8" vertical={false}/>
+              <XAxis dataKey="name" tick={{fontSize:9,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
+              <YAxis tickFormatter={v=>`${Math.round(v/1000)}k€`} tick={{fontSize:9,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
+              <Tooltip content={<TooltipCustom/>}/>
+              <Bar dataKey="Budget" fill="#e2e8f0" radius={[5,5,0,0]}/>
+              <Bar dataKey="Kosten" fill="#1e3a5f" radius={[5,5,0,0]}/>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 }
