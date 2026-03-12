@@ -52,6 +52,12 @@ const ChartTip = ({ active, payload, label }: any) => {
   );
 };
 
+
+// A-Nummer aus Baustellenname: "[A20917] Betreff" → "20917"
+function extractANummer(name: string): string {
+  const m = (name||'').match(/^\[A(\w+)\]/);
+  return m ? m[1] : '';
+}
 export default function BaustelleDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -202,6 +208,11 @@ export default function BaustelleDetail() {
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold truncate" style={{color:'#0f1f3d', letterSpacing:'-.02em'}}>{bs.name}</h1>
             <span className="text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0" style={{background:st.bg, color:st.text}}>{st.label}</span>
+            {extractANummer(bs.name) && (
+              <span className="text-xs px-2.5 py-1 rounded-full font-mono font-bold flex-shrink-0" style={{background:'rgba(30,58,95,.1)', color:'#1e3a5f', letterSpacing:'.03em'}}>
+                A{extractANummer(bs.name)}
+              </span>
+            )}
           </div>
           <p className="text-sm mt-0.5" style={{color:'#9ca3af'}}>{bs.auftraggeber}{bs.adresse?` · ${bs.adresse}`:''}</p>
         </div>
