@@ -100,12 +100,16 @@ export default function BaustelleDetail() {
       const {error}=await supabase.from('baustellen').update({status}).eq('id',id!);
       if(error)throw error;
     },
-    onSuccess:()=>{
+    onSuccess:(_,status)=>{
       toast.success('Status aktualisiert');
       queryClient.invalidateQueries({queryKey:['baustelle',id]});
       queryClient.invalidateQueries({queryKey:['baustellen-list']});
       queryClient.invalidateQueries({queryKey:['baustellen-archiv']});
       queryClient.invalidateQueries({queryKey:['bs-dashboard']});
+      if(['abgeschlossen','abgerechnet'].includes(status)){
+        toast.success('Baustelle wurde ins Archiv verschoben');
+        setTimeout(()=>navigate('/archiv'),800);
+      }
     },
     onError:(e:any)=>{ if(e.message !== 'Abgebrochen') toast.error(e.message); }
   });
@@ -185,7 +189,7 @@ export default function BaustelleDetail() {
     } catch(e:any){toast.error(e.message);} finally{setUploading(false);}
   };
 
-  const exportPDF = () => exportBaustellePDF(bs, sw, mat, nach, fts);
+  const exportPDF = async () => await exportBaustellePDF(bs, sw, mat, nach, fts);
 
   return (
     <div className="space-y-5">
