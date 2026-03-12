@@ -201,12 +201,9 @@ export default function AuftragImportPage() {
                 <Input type="date" value={form.enddatum} onChange={e => setForm(f => f?{...f,enddatum:e.target.value}:f)} />
               </div>
             </div>
-            {form.budget_details && (
-              <div className="bg-gray-50 rounded-xl p-3">
-                <p className="text-xs text-gray-500 font-medium mb-1">Budget-Aufschlüsselung (von KI erkannt):</p>
-                <p className="text-sm text-gray-700">{form.budget_details}</p>
-              </div>
-            )}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <p className="text-xs text-amber-700 font-medium">💡 Budget bitte manuell eintragen – wird nicht automatisch berechnet</p>
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
