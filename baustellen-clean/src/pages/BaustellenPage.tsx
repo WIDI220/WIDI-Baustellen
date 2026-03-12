@@ -24,6 +24,12 @@ const STATUS_OPTIONS = [
 const GEWERK_OPTIONS = ['Hochbau', 'Elektro', 'Beides'];
 const EMPTY = { name:'', adresse:'', auftraggeber:'', startdatum:'', enddatum:'', status:'offen', gewerk:'Hochbau', projektleiter:'', beschreibung:'', budgetInput:'' };
 
+
+// A-Nummer aus Baustellenname extrahieren: "[A20917] Betreff" → "20917"
+function extractANummer(name: string): string {
+  const m = name.match(/^\[A(\w+)\]/);
+  return m ? m[1] : '';
+}
 export default function BaustellenPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -138,7 +144,14 @@ export default function BaustellenPage() {
                     <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'#f4f6fa', color:'#6b7a99'}}>{b.gewerk}</span>
                     {fristAlert && <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1" style={{background:'rgba(239,68,68,.1)', color:'#dc2626'}}><AlertTriangle className="h-2.5 w-2.5" />{(daysLeft??0)<0?`${Math.abs(daysLeft??0)}d überfällig`:`${daysLeft}d`}</span>}
                   </div>
-                  <p className="text-sm mt-0.5" style={{color:'#9ca3af'}}>{b.auftraggeber||'–'}{b.adresse?` · ${b.adresse}`:''}</p>
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                    {extractANummer(b.name) && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-mono font-semibold" style={{background:'rgba(30,58,95,.08)', color:'#1e3a5f'}}>
+                        A{extractANummer(b.name)}
+                      </span>
+                    )}
+                    <p className="text-sm" style={{color:'#9ca3af'}}>{b.auftraggeber||'–'}{b.adresse?` · ${b.adresse}`:''}</p>
+                  </div>
 
                   {/* Budget-Typ Anzeige */}
                   {Number(b.budget??0) > 0 && (
