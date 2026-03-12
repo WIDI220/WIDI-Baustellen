@@ -13,7 +13,9 @@ const STATUS_OPTIONS = [
 export default function ArchivPage() {
   const navigate = useNavigate();
 
-  const { data: baustellen = [] } = useQuery({ queryKey: ['baustellen-archiv'], queryFn: async () => { const { data } = await supabase.from('baustellen').select('*').in('status',['abgeschlossen','abgerechnet']).order('updated_at',{ascending:false}); return data??[]; } });
+  const { data: baustellen = [] } = useQuery({ queryKey: ['baustellen-archiv'],
+    staleTime: 0,
+    refetchOnMount: true, queryFn: async () => { const { data } = await supabase.from('baustellen').select('*').in('status',['abgeschlossen','abgerechnet']).order('created_at',{ascending:false}); return data??[]; } });
   const { data: stunden = [] }    = useQuery({ queryKey: ['bs-stunden-list'], queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('baustelle_id,stunden,employees(stundensatz)'); return data??[]; } });
   const { data: materialien = [] }= useQuery({ queryKey: ['bs-mat-list'],     queryFn: async () => { const { data } = await supabase.from('bs_materialien').select('baustelle_id,gesamtpreis'); return data??[]; } });
   const { data: nachtraege = [] } = useQuery({ queryKey: ['bs-nach-list'],    queryFn: async () => { const { data } = await supabase.from('bs_nachtraege').select('baustelle_id,betrag,status'); return data??[]; } });
