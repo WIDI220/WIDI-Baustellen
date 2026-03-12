@@ -5,8 +5,6 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const STUNDENSATZ = 38.08;
-
   try {
     const { pdfBase64 } = req.body;
     if (!pdfBase64) return res.status(400).json({ error: 'Keine PDF-Daten' });
@@ -31,31 +29,24 @@ export default async function handler(req, res) {
             },
             {
               type: 'text',
-              text: `Lies diesen Baustellenauftrag und extrahiere alle Informationen.
+              text: `Lies diesen Baustellenauftrag und extrahiere folgende Informationen.
 Antworte NUR mit einem JSON-Objekt, kein Text davor oder danach, keine Markdown-Backticks.
 
-WICHTIG für das Budget:
-- Falls eine Stundenanzahl angegeben ist: Stunden × ${STUNDENSATZ} Euro rechnen (KEIN Material einrechnen!)
-- Falls ein Festpreis angegeben ist: diesen direkt übernehmen
-- Falls Stückzahl angegeben: Stückzahl als Zahl angeben
-- Material gehört NICHT ins Budget
-- budget_typ: "stunden" wenn Stunden angegeben, "festpreis" wenn Festbetrag, "stueckzahl" wenn Stückzahl
-- budget_menge: die rohe Zahl (Stunden ODER Festbetrag ODER Stückzahl)
+WICHTIG: Das Budget-Feld IMMER auf 0 setzen - das wird manuell eingetragen.
+Extrahiere NUR: Name, Auftraggeber, Beschreibung, Gewerk, Termine, Adresse.
 
 {
-  "name": "Baustellenname aus dem Betreff oder Titel",
-  "a_nummer": "A-Nummer oder Auftragsnummer falls vorhanden, sonst leerer String",
-  "auftraggeber": "Kunde oder Auftraggeber",
-  "beschreibung": "Vollständige Beschreibung der Arbeiten",
-  "budget_typ": "stunden" oder "festpreis" oder "stueckzahl",
-  "budget_menge": Zahl (Stunden ODER Festbetrag ODER Stückzahl),
-  "budget": Berechnetes Budget in Euro (bei Stunden: Stunden × ${STUNDENSATZ}, bei Festpreis: direkt, bei Stückzahl: Stückzahl),
-  "budget_details": "Aufschlüsselung als Text z.B. '230h × ${STUNDENSATZ}€ = ${230*STUNDENSATZ}€ (ohne Material)'",
+  "name": "Baustellenname aus Betreff oder Titel",
+  "a_nummer": "A-Nummer oder Auftragsnummer, sonst leerer String",
+  "auftraggeber": "Auftraggeber/Kunde",
+  "beschreibung": "Beschreibung der Arbeiten (NUR die Tätigkeiten, KEINE Preise oder Stundensätze erwähnen)",
+  "budget": 0,
+  "budget_details": "",
   "gewerk": "Hochbau oder Elektro oder Beides",
   "startdatum": "Auftragsdatum als YYYY-MM-DD",
   "enddatum": "Frist als YYYY-MM-DD, falls nicht angegeben 14 Tage ab heute",
   "ansprechpartner": "Name des Ansprechpartners, sonst leerer String",
-  "adresse": "Ort oder Adresse der Baustelle, sonst leerer String"
+  "adresse": "Ort oder Adresse, sonst leerer String"
 }`
             }
           ]
@@ -73,26 +64,23 @@ WICHTIG für das Budget:
     // Fallbacks
     const today = new Date().toISOString().split('T')[0];
     const in14  = new Date(Date.now() + 14*24*60*60*1000).toISOString().split('T')[0];
-    if (!parsed.startdatum)  parsed.startdatum  = today;
-    if (!parsed.enddatum)    parsed.enddatum    = in14;
-    if (!parsed.budget_typ)  parsed.budget_typ  = 'festpreis';
-    if (!parsed.budget_menge)parsed.budget_menge= parsed.budget || 0;
-    if (!parsed.gewerk)      parsed.gewerk      = 'Hochbau';
+    if (!parsed.startdatum) parsed.startdatum = today;
+    if (!parsed.enddatum)   parsed.enddatum   = in14;
+    if (!parsed.gewerk)     parsed.gewerk     = 'Hochbau';
 
-    // Sicherheitsnetz: Budget nochmal korrekt berechnen - IMMER mit 38.08
-    if (parsed.budget_typ === 'stunden') {
-      parsed.budget = Math.round(parsed.budget_menge * STUNDENSATZ * 100) / 100;
-      parsed.budget_details = `${parsed.budget_menge}h × ${STUNDENSATZ}€ = ${parsed.budget}€ (Material nicht enthalten)`;
-    }
+    // Budget immer auf 0 - wird manuell eingetragen
+    parsed.budget        = 0;
+    parsed.budget_details = '';
+    parsed.budget_typ    = 'festpreis';
+    parsed.budget_menge  = 0;
 
-    // Stundensatz in Beschreibung korrigieren falls KI falschen Wert schreibt
+    // Stundensatz-Angaben aus Beschreibung entfernen (keine falschen Werte zeigen)
     if (parsed.beschreibung) {
       parsed.beschreibung = parsed.beschreibung
-        .replace(/à\s*45\s*€/gi, `à ${STUNDENSATZ}€`)
-        .replace(/x\s*45\s*€/gi, `× ${STUNDENSATZ}€`)
-        .replace(/\*\s*45\s*€/gi, `× ${STUNDENSATZ}€`)
-        .replace(/45\s*Euro\/h/gi, `${STUNDENSATZ} Euro/h`)
-        .replace(/Stundensatz:\s*45/gi, `Stundensatz: ${STUNDENSATZ}`);
+        .replace(/\d+h\s*(Arbeit(szeit)?)?\s*(à|a|x|\*)\s*\d+[,.]?\d*\s*€[^\n]*/gi, '')
+        .replace(/Budget[^\n]*(€|Euro)[^\n]*/gi, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
     }
 
     return res.status(200).json({ success: true, data: parsed });
