@@ -4,15 +4,15 @@ import { useAuth } from '@/contexts/AuthContext';
 import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, FileUp, Users, Building2, Archive } from 'lucide-react';
 
 const NAV = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/baustellen', icon: HardHat, label: 'Baustellen' },
-  { to: '/zeiterfassung', icon: Clock, label: 'Zeiterfassung' },
-  { to: '/material', icon: Package, label: 'Material' },
-  { to: '/nachtraege', icon: FileText, label: 'Nachträge' },
-  { to: '/fotos', icon: Camera, label: 'Fotos' },
-  { to: '/eskalationen', icon: AlertTriangle, label: 'Eskalationen' },
-  { to: '/mitarbeiter', icon: Users, label: 'Mitarbeiter' },
-  { to: '/import', icon: FileUp, label: 'Import' },
+  { to: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/baustellen',  icon: HardHat,         label: 'Baustellen' },
+  { to: '/zeiterfassung',icon: Clock,           label: 'Zeiterfassung' },
+  { to: '/material',    icon: Package,          label: 'Material' },
+  { to: '/nachtraege',  icon: FileText,         label: 'Nachträge' },
+  { to: '/fotos',       icon: Camera,           label: 'Fotos' },
+  { to: '/eskalationen',icon: AlertTriangle,    label: 'Eskalationen' },
+  { to: '/mitarbeiter', icon: Users,            label: 'Mitarbeiter' },
+  { to: '/import',      icon: FileUp,           label: 'Import' },
 ];
 
 function NavItem({ to, icon: Icon, label, collapsed }: { to: string; icon: any; label: string; collapsed: boolean }) {
@@ -20,14 +20,21 @@ function NavItem({ to, icon: Icon, label, collapsed }: { to: string; icon: any; 
   const active = location.pathname === to || location.pathname.startsWith(to + '/');
   return (
     <NavLink to={to}
-      className={`flex items-center gap-3 rounded-xl transition-all text-sm font-medium
-        ${collapsed ? 'justify-center px-0 py-2.5' : 'px-3 py-2.5'}
-        ${active ? 'nav-active' : 'hover:text-white'}`}
-      style={active ? {background:'rgba(59,130,246,.18)', color:'#93c5fd'} : {color:'rgba(255,255,255,.45)'}}
+      style={({ isActive }) => ({
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: collapsed ? '9px 0' : '9px 12px',
+        borderRadius: 12, fontSize: 13, fontWeight: 500,
+        textDecoration: 'none', transition: 'all .15s',
+        justifyContent: collapsed ? 'center' : 'flex-start',
+        background: active ? 'rgba(255,255,255,.10)' : 'transparent',
+        color: active ? '#fff' : 'rgba(255,255,255,.42)',
+        boxShadow: active ? 'inset 1px 0 0 rgba(255,255,255,.15)' : 'none',
+      })}
       title={collapsed ? label : undefined}
     >
-      <Icon className="h-4 w-4 flex-shrink-0" />
-      {!collapsed && <span className="truncate">{label}</span>}
+      <Icon style={{width:15,height:15,flexShrink:0,opacity:active?1:.75}}/>
+      {!collapsed && <span style={{letterSpacing:'.01em'}}>{label}</span>}
+      {!collapsed && active && <div style={{marginLeft:'auto',width:4,height:4,borderRadius:99,background:'#60a5fa'}}/>}
     </NavLink>
   );
 }
@@ -37,62 +44,89 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{background:'#f4f6fa'}}>
-      <aside className={`${collapsed ? 'w-[60px]' : 'w-[220px]'} flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out`}
-        style={{background:'linear-gradient(180deg, #0d1d3a 0%, #142c52 100%)', borderRight:'1px solid rgba(255,255,255,.06)'}}>
+    <div style={{display:'flex',height:'100vh',overflow:'hidden',background:'#f4f6fa'}}>
+      {/* Sidebar */}
+      <aside style={{
+        width: collapsed ? 60 : 220,
+        flexShrink: 0, display: 'flex', flexDirection: 'column',
+        transition: 'width .25s cubic-bezier(.4,0,.2,1)',
+        background: 'linear-gradient(180deg, #0b1830 0%, #0f2345 60%, #0d1e3b 100%)',
+        borderRight: '1px solid rgba(255,255,255,.06)',
+        boxShadow: '2px 0 20px rgba(0,0,0,.25)',
+      }}>
 
         {/* Logo */}
-        <div className={`flex items-center gap-3 px-4 py-5 ${collapsed ? 'justify-center' : ''}`}
-          style={{borderBottom:'1px solid rgba(255,255,255,.07)'}}>
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{background:'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', boxShadow:'0 2px 8px rgba(59,130,246,.4)'}}>
-            <Building2 className="h-4 w-4 text-white" />
+        <div style={{
+          display:'flex', alignItems:'center', gap:10,
+          padding: collapsed ? '18px 0' : '18px 16px',
+          justifyContent: collapsed ? 'center' : 'flex-start',
+          borderBottom: '1px solid rgba(255,255,255,.07)',
+          flexShrink: 0,
+        }}>
+          <div style={{
+            width:34, height:34, borderRadius:11, flexShrink:0,
+            background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+            display:'flex', alignItems:'center', justifyContent:'center',
+            boxShadow: '0 3px 10px rgba(59,130,246,.5)',
+          }}>
+            <Building2 style={{width:17,height:17,color:'#fff'}}/>
           </div>
           {!collapsed && (
             <div>
-              <p className="text-white font-bold text-sm leading-none tracking-wide">WIDI</p>
-              <p className="text-xs mt-0.5 font-medium" style={{color:'rgba(255,255,255,.35)', letterSpacing:'.05em'}}>BAUSTELLEN</p>
+              <p style={{color:'#fff',fontWeight:800,fontSize:14,lineHeight:1,fontFamily:'DM Sans',letterSpacing:'.02em'}}>WIDI</p>
+              <p style={{color:'rgba(255,255,255,.3)',fontSize:10,marginTop:2,letterSpacing:'.12em',fontWeight:600}}>BAUSTELLEN</p>
             </div>
           )}
         </div>
 
-        {/* Haupt-Navigation */}
-        <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
-          {NAV.map(item => <NavItem key={item.to} {...item} collapsed={collapsed} />)}
+        {/* Nav */}
+        <nav style={{flex:1, padding:'10px 8px', overflowY:'auto', display:'flex', flexDirection:'column', gap:2}}>
+          {NAV.map(item => <NavItem key={item.to} {...item} collapsed={collapsed}/>)}
         </nav>
 
-        {/* Archiv – eigener Bereich vor den Buttons */}
-        <div className="px-2" style={{borderTop:'1px solid rgba(255,255,255,.07)'}}>
+        {/* Archiv */}
+        <div style={{padding:'0 8px', borderTop:'1px solid rgba(255,255,255,.06)', paddingTop:8}}>
           {!collapsed && (
-            <p className="text-[10px] font-semibold px-3 pt-3 pb-1.5 tracking-widest" style={{color:'rgba(255,255,255,.2)'}}>ABSCHLUSS</p>
+            <p style={{fontSize:9,fontWeight:700,color:'rgba(255,255,255,.18)',letterSpacing:'.14em',padding:'8px 12px 4px'}}>ABSCHLUSS</p>
           )}
-          {collapsed && <div className="pt-2" />}
-          <NavItem to="/archiv" icon={Archive} label="Archiv" collapsed={collapsed} />
-          <div className="pb-2" />
+          {collapsed && <div style={{height:12}}/>}
+          <NavItem to="/archiv" icon={Archive} label="Archiv" collapsed={collapsed}/>
+          <div style={{height:8}}/>
         </div>
 
-        {/* Einklappen + Abmelden */}
-        <div className="p-2 space-y-1" style={{borderTop:'1px solid rgba(255,255,255,.07)'}}>
-          <button onClick={() => setCollapsed(!collapsed)}
-            className={`w-full flex items-center gap-3 rounded-xl py-2 transition-all text-sm ${collapsed ? 'justify-center px-0' : 'px-3'}`}
-            style={{color:'rgba(255,255,255,.35)'}}
-            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.7)')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.35)')}>
-            {collapsed ? <ChevronRight className="h-4 w-4" /> : <><ChevronLeft className="h-4 w-4" /><span>Einklappen</span></>}
+        {/* Bottom Buttons */}
+        <div style={{padding:'8px',borderTop:'1px solid rgba(255,255,255,.06)',display:'flex',flexDirection:'column',gap:2}}>
+          <button onClick={()=>setCollapsed(!collapsed)} style={{
+            display:'flex', alignItems:'center', gap:10, width:'100%',
+            padding: collapsed ? '9px 0' : '9px 12px',
+            borderRadius:11, fontSize:12, cursor:'pointer',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            background:'transparent', border:'none', color:'rgba(255,255,255,.28)',
+            transition:'color .15s',
+          }}
+          onMouseEnter={e=>(e.currentTarget.style.color='rgba(255,255,255,.6)')}
+          onMouseLeave={e=>(e.currentTarget.style.color='rgba(255,255,255,.28)')}>
+            {collapsed?<ChevronRight style={{width:14,height:14}}/>:<><ChevronLeft style={{width:14,height:14}}/><span>Einklappen</span></>}
           </button>
-          <button onClick={signOut}
-            className={`w-full flex items-center gap-3 rounded-xl py-2 transition-all text-sm ${collapsed ? 'justify-center px-0' : 'px-3'}`}
-            style={{color:'rgba(255,255,255,.35)'}}
-            onMouseEnter={e => (e.currentTarget.style.color = '#fca5a5')}
-            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.35)')}>
-            <LogOut className="h-4 w-4 flex-shrink-0" />
+          <button onClick={signOut} style={{
+            display:'flex', alignItems:'center', gap:10, width:'100%',
+            padding: collapsed ? '9px 0' : '9px 12px',
+            borderRadius:11, fontSize:12, cursor:'pointer',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            background:'transparent', border:'none', color:'rgba(255,255,255,.28)',
+            transition:'color .15s',
+          }}
+          onMouseEnter={e=>(e.currentTarget.style.color='#fca5a5')}
+          onMouseLeave={e=>(e.currentTarget.style.color='rgba(255,255,255,.28)')}>
+            <LogOut style={{width:14,height:14,flexShrink:0}}/>
             {!collapsed && <span>Abmelden</span>}
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto p-6 lg:p-8">
+      {/* Content */}
+      <main style={{flex:1, overflowY:'auto', background:'#f4f6fa'}}>
+        <div style={{maxWidth:1400, margin:'0 auto', padding:'28px 32px'}}>
           {children}
         </div>
       </main>
