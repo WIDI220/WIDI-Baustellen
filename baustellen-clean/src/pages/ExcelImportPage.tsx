@@ -2,9 +2,6 @@ import { useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { useMonth } from '@/contexts/MonthContext';
-import { parseExcelFile, ParsedTicketRow } from '@/lib/excel-parser';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, Info } from 'lucide-react';
@@ -16,7 +13,7 @@ export default function ExcelImportPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [parseResult, setParseResult] = useState<{
-    rows: ParsedTicketRow[];
+    rows: any[];
     errors: string[];
     warnings: string[];
   } | null>(null);
@@ -142,14 +139,14 @@ export default function ExcelImportPage() {
 
   return (
     <div className="space-y-6 animate-fade-in max-w-3xl">
-      <Card>
-        <CardHeader>
+      <div style={{background:'#fff',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 3px rgba(0,0,0,.06)'}}>
+        <div>
           <CardTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5" />
             Excel-Import
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          </h2>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
           <div className="flex items-center gap-2 bg-blue-50 text-blue-800 rounded-lg px-4 py-2 text-sm">
             <Info className="h-4 w-4 shrink-0" />
             <span>Tickets werden in <strong>{monthName}</strong> importiert (Monat in der Sidebar ändern)</span>
@@ -243,8 +240,8 @@ export default function ExcelImportPage() {
               {report.failed > 0 && <p className="text-sm text-red-600">❌ {report.failed} fehlgeschlagen – siehe Browser-Konsole</p>}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
