@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// Select inline
 
 const OCR_URL = 'https://widi-220-ticketflow-control.vercel.app/api/ocr';
 const MAX_AUTO_STUNDEN = 5.0;
@@ -488,14 +488,7 @@ export default function PdfRuecklauf() {
                   <div className="space-y-2">
                     {item.mitarbeiter_edit.map((m, mIdx) => (
                       <div key={mIdx} className="flex gap-2">
-                        <Select value={m.id} onValueChange={v => setReviewItems(prev => prev.map((r, i) => i === idx ? {
-                          ...r, mitarbeiter_edit: r.mitarbeiter_edit.map((me, mi) => mi === mIdx ? { ...me, id: v, name: (employees as any[]).find((e: any) => e.id === v)?.name ?? '' } : me)
-                        } : r))}>
-                          <SelectTrigger className="h-8 rounded-xl flex-1 text-xs"><SelectValue placeholder="Mitarbeiter wählen..." /></SelectTrigger>
-                          <SelectContent>
-                            {(employees as any[]).map((e: any) => <SelectItem key={e.id} value={e.id}>{e.kuerzel} – {e.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <select value={m.id} onChange={e => setReviewItems(prev => prev.map((r, i) => i === idx ? {...r, mitarbeiter_edit: r.mitarbeiter_edit.map((me, mi) => mi === mIdx ? { ...me, id: e.target.value, name: (employees as any[]).find((em: any) => em.id === e.target.value)?.name ?? '' } : me)} : r))} style={{flex:1,padding:'4px 8px',borderRadius:'8px',border:'1px solid #e5e9f2',fontSize:'12px'}}>{(employees as any[]).map((e: any) => <option key={e.id} value={e.id}>{e.kuerzel} – {e.name}</option>)}</select>
                         <button onClick={() => setReviewItems(prev => prev.map((r, i) => i === idx ? {
                           ...r, mitarbeiter_edit: r.mitarbeiter_edit.filter((_, mi) => mi !== mIdx)
                         } : r))} className="p-1.5 rounded-lg hover:bg-red-100 text-red-400 transition-colors">
