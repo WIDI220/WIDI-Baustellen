@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useState as useMonthState } from 'react';
+import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis } from 'recharts';
 import { TrendingUp, Clock, Ticket, Users, FileDown, Award, Target, Zap, BarChart2 } from 'lucide-react';
 
@@ -17,6 +17,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function AnalysePage() {
+  const [activeMonth, setActiveMonth] = useState(new Date().toISOString().slice(0,7));
   const [year, month] = activeMonth.split('-');
   const from = `${year}-${month}-01`;
   const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
