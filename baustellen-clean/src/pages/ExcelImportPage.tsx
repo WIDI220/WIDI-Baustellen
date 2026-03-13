@@ -141,7 +141,7 @@ export default function ExcelImportPage() {
     <div className="space-y-6 animate-fade-in max-w-3xl">
       <div style={{background:'#fff',borderRadius:'16px',padding:'24px',boxShadow:'0 1px 3px rgba(0,0,0,.06)'}}>
         <div>
-          <CardTitle className="flex items-center gap-2">
+          <h2 style={{fontSize:"16px",fontWeight:"600",color:"#0f1f3d",margin:0,display:"flex",alignItems:"center",gap:"8px"}}>
             <FileSpreadsheet className="h-5 w-5" />
             Excel-Import
           </h2>
