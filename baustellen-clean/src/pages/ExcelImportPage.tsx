@@ -1,250 +1,314 @@
-import { useState, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { useMonth } from '@/contexts/MonthContext';
-import { parseExcelFile, ParsedTicketRow } from '@/lib/excel-parser';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
-import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, Info } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis } from 'recharts';
+import { TrendingUp, Clock, Ticket, Users, FileDown, Award, Target, Zap, BarChart2 } from 'lucide-react';
 
-export default function ExcelImportPage() {
-  const { user } = useAuth();
+const COLORS = ['#1e3a5f','#0ea5e9','#f97316','#8b5cf6','#22c55e','#ec4899','#14b8a6','#f59e0b','#6366f1'];
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-lg px-3 py-2 text-sm">
+      <p className="font-semibold text-gray-800 mb-1">{label}</p>
+      {payload.map((p: any, i: number) => <p key={i} style={{ color: p.color }} className="font-medium">{typeof p.value === 'number' ? p.value.toFixed(2) : p.value} {p.name}</p>)}
+    </div>
+  );
+};
+
+export default function AnalysePage() {
   const { activeMonth } = useMonth();
-  const queryClient = useQueryClient();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [parseResult, setParseResult] = useState<{
-    rows: ParsedTicketRow[];
-    errors: string[];
-    warnings: string[];
-  } | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [report, setReport] = useState<any>(null);
-  const [fileName, setFileName] = useState('');
-
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
-    setReport(null);
-    setParseResult(null);
-
-    try {
-      const buffer = await file.arrayBuffer();
-      const result = parseExcelFile(buffer, activeMonth);
-      setParseResult(result);
-      const neu = result.rows.filter(r => !r.isDuplicate).length;
-      toast.success(`${neu} neue Tickets erkannt, ${result.rows.filter(r => r.isDuplicate).length} Duplikate`);
-    } catch (err: any) {
-      toast.error(`Parse-Fehler: ${err.message}`);
-    }
-  };
-
-  const doImport = async () => {
-    if (!parseResult || !user) return;
-    setImporting(true);
-    const validRows = parseResult.rows.filter(r => !r.isDuplicate);
-    let inserted = 0, updated = 0, skipped = 0, failed = 0;
-
-    try {
-      // Import-Run erstellen
-      const { data: importRun, error: runError } = await supabase
-        .from('import_runs')
-        .insert({
-          typ: 'excel',
-          filename: fileName,
-          rows_total: validRows.length,
-          created_by: user.id,
-        })
-        .select()
-        .single();
-
-      if (runError) {
-        console.error('Import run Fehler:', runError);
-        toast.error('Import-Run konnte nicht erstellt werden: ' + runError.message);
-        setImporting(false);
-        return;
-      }
-
-      // Tickets einzeln einfügen
-      for (const row of validRows) {
-        try {
-          const eingangsdatum = row.eingangsdatum?.toISOString().split('T')[0] ?? null;
-
-          const { data: existing, error: checkError } = await supabase
-            .from('tickets')
-            .select('id, eingangsdatum')
-            .eq('a_nummer', row.a_nummer)
-            .maybeSingle();
-
-          if (checkError) {
-            console.error('Check error:', checkError);
-            failed++;
-            continue;
-          }
-
-          if (existing) {
-            if (eingangsdatum && !existing.eingangsdatum) {
-              await supabase.from('tickets').update({ eingangsdatum }).eq('id', existing.id);
-            }
-            updated++;
-          } else {
-            const { error: insertError } = await supabase.from('tickets').insert({
-              a_nummer: row.a_nummer,
-              gewerk: row.gewerk,
-              status: 'in_bearbeitung',
-              eingangsdatum,
-            });
-            if (insertError) {
-              console.error('Insert error:', insertError);
-              failed++;
-              continue;
-            }
-            inserted++;
-          }
-        } catch (err) {
-          console.error('Row error:', err);
-          failed++;
-        }
-      }
-
-      skipped = parseResult.rows.filter(r => r.isDuplicate).length;
-
-      // Import-Run aktualisieren
-      await supabase.from('import_runs').update({
-        inserted, updated, skipped_duplicates: skipped, failed,
-      }).eq('id', importRun.id);
-
-      setReport({ inserted, updated, skipped, failed });
-      queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
-      queryClient.invalidateQueries({ queryKey: ['tickets'] });
-
-      if (inserted > 0) {
-        toast.success(`✅ ${inserted} Tickets für ${activeMonth} importiert!`);
-      } else if (updated > 0) {
-        toast.success(`🔄 ${updated} Tickets aktualisiert`);
-      } else {
-        toast.info('Alle Tickets bereits vorhanden');
-      }
-    } catch (err: any) {
-      console.error('Import Fehler:', err);
-      toast.error('Import fehlgeschlagen: ' + err.message);
-    } finally {
-      setImporting(false);
-    }
-  };
-
   const [year, month] = activeMonth.split('-');
-  const monthName = new Date(parseInt(year), parseInt(month) - 1, 1)
-    .toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+  const from = `${year}-${month}-01`;
+  const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
+  const to = `${year}-${month}-${String(lastDay).padStart(2,'0')}`;
+  const monthName = new Date(parseInt(year), parseInt(month)-1, 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+
+  const { data: employees = [] } = useQuery({ queryKey: ['employees'], queryFn: async () => { const { data } = await supabase.from('employees').select('*').eq('aktiv', true); return data ?? []; } });
+  const { data: worklogs = [] } = useQuery({ queryKey: ['worklogs-analyse', activeMonth], queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('*, employees(id,name,kuerzel,gewerk), tickets(a_nummer,gewerk,status)').gte('leistungsdatum', from).lte('leistungsdatum', to); return data ?? []; } });
+  const { data: tickets = [] } = useQuery({ queryKey: ['tickets-analyse', activeMonth], queryFn: async () => { const { data } = await supabase.from('tickets').select('*').gte('eingangsdatum', from).lte('eingangsdatum', to); return data ?? []; } });
+  const { data: allWorklogs = [] } = useQuery({ queryKey: ['all-worklogs'], queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('*, employees(id,name,kuerzel,gewerk)'); return data ?? []; } });
+
+  // Statistiken pro Mitarbeiter
+  const empStats = (employees as any[]).map((emp: any) => {
+    const logs = (worklogs as any[]).filter((w: any) => w.employee_id === emp.id);
+    const stunden = logs.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+    const ticketIds = new Set(logs.map((w: any) => w.ticket_id));
+    const avgStunden = ticketIds.size > 0 ? stunden / ticketIds.size : 0;
+
+    // Alle Monate für Trend
+    const allLogs = (allWorklogs as any[]).filter((w: any) => w.employee_id === emp.id);
+    const allStunden = allLogs.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+
+    return {
+      name: emp.kuerzel,
+      fullName: emp.name,
+      stunden: Math.round(stunden * 100) / 100,
+      tickets: ticketIds.size,
+      gewerk: emp.gewerk,
+      avgStunden: Math.round(avgStunden * 100) / 100,
+      allStunden: Math.round(allStunden * 100) / 100,
+      efficiency: ticketIds.size > 0 ? Math.round((ticketIds.size / Math.max(stunden, 0.25)) * 100) / 100 : 0,
+    };
+  }).sort((a: any, b: any) => b.stunden - a.stunden);
+
+  const activeEmp = empStats.filter((e: any) => e.stunden > 0);
+  const totalH = activeEmp.reduce((s: any, e: any) => s + e.stunden, 0);
+  const totalTickets = (tickets as any[]).length;
+  const erledigtT = (tickets as any[]).filter((t: any) => ['erledigt','abrechenbar','abgerechnet'].includes(t.status)).length;
+  const avgHperTicket = erledigtT > 0 ? totalH / erledigtT : 0;
+  const erledigungsQuote = totalTickets > 0 ? Math.round(erledigtT / totalTickets * 100) : 0;
+
+  // Tagesverlauf
+  const tagMap: Record<string, number> = {};
+  (worklogs as any[]).forEach((w: any) => { if (w.leistungsdatum) tagMap[w.leistungsdatum] = (tagMap[w.leistungsdatum] ?? 0) + Number(w.stunden ?? 0); });
+  const tagData = Object.entries(tagMap).map(([d, s]) => ({ datum: d.slice(5), stunden: Math.round(Number(s)*10)/10 })).sort((a, b) => a.datum.localeCompare(b.datum));
+
+  // Gewerk
+  const hochbauH = (worklogs as any[]).filter((w: any) => w.employees?.gewerk === 'Hochbau').reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+  const elektroH = (worklogs as any[]).filter((w: any) => w.employees?.gewerk === 'Elektro').reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+  const gewerkData = [
+    { name: 'Hochbau', stunden: Math.round(hochbauH*10)/10, tickets: (tickets as any[]).filter((t: any) => t.gewerk === 'Hochbau').length },
+    { name: 'Elektro', stunden: Math.round(elektroH*10)/10, tickets: (tickets as any[]).filter((t: any) => t.gewerk === 'Elektro').length },
+  ];
+
+  // Top Performer
+  const topPerformer = [...activeEmp].sort((a: any, b: any) => b.tickets - a.tickets)[0];
+  const mostHours = [...activeEmp].sort((a: any, b: any) => b.stunden - a.stunden)[0];
+
+  // Radar Daten (normalisiert 0-100)
+  const maxStunden = Math.max(...activeEmp.map((e: any) => e.stunden), 1);
+  const maxTickets = Math.max(...activeEmp.map((e: any) => e.tickets), 1);
+  const radarData = activeEmp.slice(0, 6).map((e: any) => ({
+    name: e.name,
+    Stunden: Math.round(e.stunden / maxStunden * 100),
+    Tickets: Math.round(e.tickets / maxTickets * 100),
+    Effizienz: Math.min(Math.round(e.efficiency * 20), 100),
+  }));
+
+  const kpis = [
+    { icon: Clock, label: 'Stunden gesamt', value: `${totalH.toFixed(1)}h`, sub: `Ø ${avgHperTicket.toFixed(2)}h/Ticket`, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
+    { icon: Users, label: 'Aktive Mitarbeiter', value: activeEmp.length, sub: `von ${(employees as any[]).length} gesamt`, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100' },
+    { icon: Ticket, label: 'Tickets erledigt', value: `${erledigtT}/${totalTickets}`, sub: `${erledigungsQuote}% Quote`, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100' },
+    { icon: Target, label: 'Erledigungsquote', value: `${erledigungsQuote}%`, sub: erledigungsQuote >= 80 ? '🟢 Sehr gut' : erledigungsQuote >= 60 ? '🟡 Gut' : '🔴 Ausbaufähig', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
+    { icon: Award, label: 'Top Tickets', value: topPerformer?.name ?? '–', sub: `${topPerformer?.tickets ?? 0} Tickets`, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' },
+    { icon: Zap, label: 'Meiste Stunden', value: mostHours?.name ?? '–', sub: `${mostHours?.stunden ?? 0}h`, color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-100' },
+  ];
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-3xl">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileSpreadsheet className="h-5 w-5" />
-            Excel-Import
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-2 bg-blue-50 text-blue-800 rounded-lg px-4 py-2 text-sm">
-            <Info className="h-4 w-4 shrink-0" />
-            <span>Tickets werden in <strong>{monthName}</strong> importiert (Monat in der Sidebar ändern)</span>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Analyse</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{monthName}</p>
+        </div>
+        <button
+          onClick={() => window.open(`https://widi-220-ticketflow-control.vercel.app/api/monatsbericht?month=${activeMonth}`, '_blank')}
+          className="flex items-center gap-2 px-4 py-2 bg-[#1e3a5f] text-white rounded-xl text-sm font-medium hover:bg-[#162d4a] transition-colors shadow-sm"
+        >
+          <FileDown className="h-4 w-4" /> Monatsbericht PDF
+        </button>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+        {kpis.map(({ icon: Icon, label, value, sub, color, bg, border }) => (
+          <div key={label} className={`bg-white rounded-2xl border ${border} shadow-sm p-4`}>
+            <div className={`w-8 h-8 ${bg} rounded-xl flex items-center justify-center mb-2`}>
+              <Icon className={`h-4 w-4 ${color}`} />
+            </div>
+            <p className="text-xl font-bold text-gray-900 leading-tight">{value}</p>
+            <p className="text-xs font-medium text-gray-600 mt-0.5">{label}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+          </div>
+        ))}
+      </div>
+
+      {activeEmp.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-16 text-center text-gray-400">
+          Keine Stundenbuchungen für {monthName}
+        </div>
+      ) : (<>
+        {/* Charts Reihe 1 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h2 className="text-sm font-semibold text-gray-700 mb-1">Stunden pro Mitarbeiter</h2>
+            <p className="text-xs text-gray-400 mb-4">Gesamtstunden im Monat</p>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={activeEmp}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="stunden" name="Stunden" radius={[6,6,0,0]}>
+                  {activeEmp.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
 
-          {/* Upload */}
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-colors"
-          >
-            <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground">Excel-Datei hier ablegen oder klicken</p>
-            {fileName && <p className="text-xs text-primary mt-1">{fileName}</p>}
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h2 className="text-sm font-semibold text-gray-700 mb-1">Tickets pro Mitarbeiter</h2>
+            <p className="text-xs text-gray-400 mb-4">Anzahl bearbeiteter Tickets</p>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={activeEmp}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="tickets" name="Tickets" radius={[6,6,0,0]}>
+                  {activeEmp.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Charts Reihe 2 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h2 className="text-sm font-semibold text-gray-700 mb-1">Ø Stunden pro Ticket</h2>
+            <p className="text-xs text-gray-400 mb-4">Effizienzindikator – niedriger = effizienter</p>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={activeEmp.filter((e: any) => e.tickets > 0)}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="avgStunden" name="Ø Std/Ticket" radius={[6,6,0,0]} fill="#8b5cf6" />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
 
-          {/* Vorschau */}
-          {parseResult && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-4 text-sm">
-                <span className="text-green-600 font-medium">
-                  {parseResult.rows.filter(r => !r.isDuplicate).length} neue Tickets
-                </span>
-                <span className="text-muted-foreground">
-                  {parseResult.rows.filter(r => r.isDuplicate).length} Duplikate übersprungen
-                </span>
-              </div>
+          {tagData.length > 1 ? (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-gray-700 mb-1">Stunden Tagesverlauf</h2>
+              <p className="text-xs text-gray-400 mb-4">Arbeitslast über den Monat</p>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={tagData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis dataKey="datum" tick={{ fontSize: 10, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Line type="monotone" dataKey="stunden" name="Stunden" stroke="#1e3a5f" strokeWidth={2.5} dot={{ r: 3, fill: '#1e3a5f' }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-gray-700 mb-1">Gewerk-Vergleich</h2>
+              <p className="text-xs text-gray-400 mb-4">Stunden und Tickets nach Gewerk</p>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={gewerkData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                  <XAxis type="number" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                  <YAxis dataKey="name" type="category" width={60} tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+                  <Bar dataKey="stunden" name="Stunden" fill="#1e3a5f" radius={[0,6,6,0]} />
+                  <Bar dataKey="tickets" name="Tickets" fill="#f97316" radius={[0,6,6,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
 
-              {parseResult.warnings.length > 0 && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                  <h4 className="text-xs font-medium text-yellow-800 mb-1 flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" /> {parseResult.warnings.length} Warnungen
-                  </h4>
-                  <div className="text-xs space-y-0.5 max-h-24 overflow-y-auto">
-                    {parseResult.warnings.slice(0, 10).map((w, i) => (
-                      <p key={i} className="text-yellow-700">{w}</p>
-                    ))}
-                    {parseResult.warnings.length > 10 && <p className="text-yellow-600">...und {parseResult.warnings.length - 10} weitere</p>}
+        {/* Radar + Gesamtstunden */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {radarData.length >= 3 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-gray-700 mb-1">Team Performance Radar</h2>
+              <p className="text-xs text-gray-400 mb-4">Stunden · Tickets · Effizienz (normalisiert 0–100)</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <RadarChart data={radarData}>
+                  <PolarGrid stroke="#f3f4f6" />
+                  <PolarAngleAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} />
+                  <Radar name="Stunden" dataKey="Stunden" stroke="#1e3a5f" fill="#1e3a5f" fillOpacity={0.15} />
+                  <Radar name="Tickets" dataKey="Tickets" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.15} />
+                  <Legend />
+                  <Tooltip content={<CustomTooltip />} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h2 className="text-sm font-semibold text-gray-700 mb-1">Gesamtstunden aller Zeiten</h2>
+            <p className="text-xs text-gray-400 mb-4">Kumuliert über alle Monate</p>
+            <div className="space-y-2.5">
+              {empStats.filter((e: any) => e.allStunden > 0).sort((a: any, b: any) => b.allStunden - a.allStunden).map((e: any, i: number) => {
+                const maxAll = Math.max(...empStats.map((x: any) => x.allStunden), 1);
+                return (
+                  <div key={e.name} className="flex items-center gap-3">
+                    <span className="text-xs text-gray-400 w-4 text-right font-mono">{i+1}</span>
+                    <span className="font-mono font-bold text-xs w-8" style={{ color: COLORS[i % COLORS.length] }}>{e.name}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-2">
+                      <div className="h-2 rounded-full transition-all" style={{ width: `${(e.allStunden/maxAll)*100}%`, backgroundColor: COLORS[i % COLORS.length] }} />
+                    </div>
+                    <span className="text-xs font-mono font-semibold text-gray-700 w-14 text-right">{e.allStunden}h</span>
                   </div>
-                </div>
-              )}
-
-              {/* Tabelle */}
-              <div className="overflow-x-auto max-h-48 border rounded-lg">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-muted">
-                    <tr>
-                      <th className="py-1.5 px-3 text-left">Zeile</th>
-                      <th className="py-1.5 px-3 text-left">A-Nummer</th>
-                      <th className="py-1.5 px-3 text-left">Gewerk</th>
-                      <th className="py-1.5 px-3 text-left">Datum</th>
-                      <th className="py-1.5 px-3 text-left">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {parseResult.rows.slice(0, 30).map(r => (
-                      <tr key={r.rowIndex} className={`border-t ${r.isDuplicate ? 'opacity-40 bg-muted/30' : ''}`}>
-                        <td className="py-1 px-3">{r.rowIndex}</td>
-                        <td className="py-1 px-3 font-mono">{r.a_nummer}</td>
-                        <td className="py-1 px-3">{r.gewerk}</td>
-                        <td className="py-1 px-3">{r.eingangsdatum?.toLocaleDateString('de-DE') ?? '–'}</td>
-                        <td className="py-1 px-3">{r.isDuplicate ? '⚠ Duplikat' : '✓ Neu'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <Button
-                onClick={doImport}
-                disabled={importing || parseResult.rows.filter(r => !r.isDuplicate).length === 0}
-                className="w-full"
-                size="lg"
-              >
-                {importing
-                  ? `Importiere... (bitte warten)`
-                  : `${parseResult.rows.filter(r => !r.isDuplicate).length} Tickets in ${monthName} importieren`}
-              </Button>
+                );
+              })}
             </div>
-          )}
+          </div>
+        </div>
 
-          {/* Bericht */}
-          {report && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-1">
-              <h4 className="font-medium flex items-center gap-2 text-green-800">
-                <CheckCircle className="h-4 w-4" /> Import abgeschlossen
-              </h4>
-              <p className="text-sm text-green-700">✅ {report.inserted} neu importiert</p>
-              <p className="text-sm text-green-700">🔄 {report.updated} aktualisiert</p>
-              <p className="text-sm text-muted-foreground">⏭ {report.skipped} Duplikate übersprungen</p>
-              {report.failed > 0 && <p className="text-sm text-red-600">❌ {report.failed} fehlgeschlagen – siehe Browser-Konsole</p>}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        {/* Detail Tabelle */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart2 className="h-4 w-4 text-gray-400" />
+            <h2 className="text-sm font-semibold text-gray-700">Detailübersicht · {monthName}</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">#</th>
+                  <th className="text-left py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Mitarbeiter</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Stunden</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Tickets</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Ø Std/Ticket</th>
+                  <th className="text-right py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Tickets/h</th>
+                  <th className="py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Anteil</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeEmp.map((e: any, i: number) => (
+                  <tr key={e.name} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                    <td className="py-3 px-3 text-xs text-gray-400 font-mono">{i+1}</td>
+                    <td className="py-3 px-3">
+                      <span className="font-mono font-bold mr-2 text-sm" style={{ color: COLORS[i % COLORS.length] }}>{e.name}</span>
+                      <span className="text-gray-500 text-xs">{e.fullName}</span>
+                      <span className="ml-2 text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-md">{e.gewerk}</span>
+                    </td>
+                    <td className="py-3 px-3 text-right font-mono font-semibold text-gray-800">{e.stunden}h</td>
+                    <td className="py-3 px-3 text-right text-gray-600 font-medium">{e.tickets}</td>
+                    <td className="py-3 px-3 text-right font-mono text-gray-600">{e.avgStunden}h</td>
+                    <td className="py-3 px-3 text-right font-mono text-gray-500">{e.efficiency}</td>
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                          <div className="rounded-full h-1.5" style={{ width: `${totalH > 0 ? e.stunden/totalH*100 : 0}%`, backgroundColor: COLORS[i % COLORS.length] }} />
+                        </div>
+                        <span className="text-xs text-gray-400 w-8 text-right">{totalH > 0 ? Math.round(e.stunden/totalH*100) : 0}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                <tr className="bg-gray-50">
+                  <td className="py-2.5 px-3"></td>
+                  <td className="py-2.5 px-3 text-xs font-bold text-gray-600">GESAMT</td>
+                  <td className="py-2.5 px-3 text-right font-mono font-bold text-gray-800">{totalH.toFixed(1)}h</td>
+                  <td className="py-2.5 px-3 text-right font-bold text-gray-800">{activeEmp.reduce((s: number, e: any) => s + e.tickets, 0)}</td>
+                  <td className="py-2.5 px-3 text-right font-mono text-gray-600">{avgHperTicket.toFixed(2)}h</td>
+                  <td className="py-2.5 px-3"></td>
+                  <td className="py-2.5 px-3"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </>)}
     </div>
   );
 }
