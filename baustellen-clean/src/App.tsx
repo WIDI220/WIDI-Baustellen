@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { MonthProvider } from '@/contexts/MonthContext';
 
 // Layouts
 import AppLayoutBaustellen from '@/components/AppLayout';
@@ -88,6 +89,7 @@ function AppRoutes() {
 
       {/* ── Ticket-Bereich ─────────────────────────────── */}
       <Route path="/tickets/*" element={
+        <MonthProvider>
         <AppLayoutTickets>
             <Routes>
               <Route path="dashboard" element={<TicketsDashboard />} />
@@ -101,6 +103,7 @@ function AppRoutes() {
               <Route path="*" element={<Navigate to="dashboard" replace />} />
             </Routes>
           </AppLayoutTickets>
+        </MonthProvider>
       } />
 
       {/* ── Auswertungs-Bereich ────────────────────────── */}
