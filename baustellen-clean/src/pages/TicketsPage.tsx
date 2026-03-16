@@ -172,7 +172,7 @@ export default function TicketsPage() {
             onClick={() => { setEmailSubject(`Rückmeldung zu ${selected.size} Ticket(s)`); setShowEmail(true); }}>
             <Mail className="h-4 w-4 mr-1" />{selected.size} per E-Mail
           </Button>
-          <Button variant="destructive" size="sm" className="h-9 rounded-xl"
+          <Button variant="danger" size="sm" className="h-9 rounded-xl"
             onClick={() => { if (confirm(`${selected.size} löschen?`)) deleteMutation.mutate(Array.from(selected)); }}
             disabled={deleteMutation.isPending}>
             <Trash2 className="h-4 w-4 mr-1" />{selected.size} löschen
@@ -257,7 +257,7 @@ export default function TicketsPage() {
           <p className="text-sm text-gray-500">Diese Aktion löscht alle Tickets unwiderruflich!</p>
           <div className="flex gap-3 pt-2">
             <Button variant="outline" className="flex-1" onClick={() => setShowDeleteAll(false)}>Abbrechen</Button>
-            <Button variant="destructive" className="flex-1" onClick={() => deleteAllMutation.mutate()} disabled={deleteAllMutation.isPending}>
+            <Button variant="danger" className="flex-1" onClick={() => deleteAllMutation.mutate()} disabled={deleteAllMutation.isPending}>
               {deleteAllMutation.isPending ? 'Löscht...' : 'Ja, alle löschen'}
             </Button>
           </div>
@@ -448,7 +448,7 @@ function TicketDetail({ ticket, onClose, userId }: { ticket: any; onClose: () =>
             </div>
           </div>
           <div className="pt-2 border-t border-gray-100">
-            <Button variant="destructive" size="sm" className="rounded-xl"
+            <Button variant="danger" size="sm" className="rounded-xl"
               onClick={() => { if (confirm('Ticket löschen?')) deleteTicket.mutate(); }}
               disabled={deleteTicket.isPending}>
               <Trash2 className="h-4 w-4 mr-1" />Ticket löschen
