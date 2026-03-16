@@ -130,7 +130,7 @@ export default function BaustellenPage() {
           const fristAlert = daysLeft !== null && daysLeft <= 7;
 
           return (
-            <div key={b.id} onClick={()=>navigate(`/baustellen/${b.id}`)}
+            <div key={b.id} onClick={()=>navigate(`/baustellen/liste/${b.id}`)}
               className="card p-5 cursor-pointer transition-all hover:shadow-md"
               style={{borderLeft:`3px solid ${st.dot}`}}>
               <div className="flex items-start gap-4">
