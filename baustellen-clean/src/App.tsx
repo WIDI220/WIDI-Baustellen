@@ -33,13 +33,14 @@ import TicketsDashboard from '@/pages/TicketsDashboard';
 import TicketsPage from '@/pages/TicketsPage';
 import TicketZeiterfassungPage from '@/pages/TicketZeiterfassungPage';
 import AnalysePage from '@/pages/AnalysePage';
-import TicketMitarbeiterPage from '@/pages/TicketMitarbeiterPage';
+import TicketMitarbeiterPage from '@/pages/TicketMitarbeiterPage'; // Ticket-Mitarbeiter
 import TicketEskalationenPage from '@/pages/TicketEskalationenPage';
 import PdfRuecklauf from '@/pages/PdfRuecklauf';
 import ExcelImportPage from '@/pages/ExcelImportPage';
 
 // ── Auswertung ────────────────────────────────────────────────
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
+import AufgabenPage from '@/pages/AufgabenPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -94,8 +95,8 @@ function AppRoutes() {
             <Routes>
               <Route path="dashboard" element={<TicketsDashboard />} />
               <Route path="liste" element={<TicketsPage />} />
-              <Route path="zeiterfassung" element={<TicketZeiterfassungPage />} />
               <Route path="analyse" element={<AnalysePage />} />
+              <Route path="aufgaben" element={<AufgabenPage />} />
               <Route path="mitarbeiter" element={<TicketMitarbeiterPage />} />
               <Route path="eskalationen" element={<TicketEskalationenPage />} />
               <Route path="pdf-ruecklauf" element={<PdfRuecklauf />} />
