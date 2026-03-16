@@ -125,11 +125,11 @@ export default function ZeiterfassungPage() {
 
       {/* Filter */}
       <div className="flex gap-2 flex-wrap">
-        <Select value={filterMa} onValueChange={setFilterMa} className="flex-1 min-w-40">
+        <Select value={filterMa} onValueChange={setFilterMa}>
           <SelectOption value="all">Alle Mitarbeiter</SelectOption>
           {emps.map((e:any) => <SelectOption key={e.id} value={e.id}>{e.name}</SelectOption>)}
         </Select>
-        <Select value={filterBs} onValueChange={setFilterBs} className="flex-1 min-w-40">
+        <Select value={filterBs} onValueChange={setFilterBs}>
           <SelectOption value="all">Alle Baustellen</SelectOption>
           {bs.map((b:any) => <SelectOption key={b.id} value={b.id}>{b.name}</SelectOption>)}
         </Select>
