@@ -1,105 +1,142 @@
-import { useState } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { ReactNode } from 'react';
+import { useLocation, Link } from 'react-router-dom';
+import { useMonth } from '@/contexts/MonthContext';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Ticket, Clock, BarChart2, Users, AlertTriangle, FileDown, FileUp, LogOut, ChevronLeft, ChevronRight, Home } from 'lucide-react';
+import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, Building2, ClipboardCheck } from 'lucide-react';
 
-const NAV = [
-  { to: '/tickets/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/tickets/liste', icon: Ticket, label: 'Tickets' },
-  { to: '/tickets/zeiterfassung', icon: Clock, label: 'Zeiterfassung' },
-  { to: '/tickets/analyse', icon: BarChart2, label: 'Analyse' },
-  { to: '/tickets/mitarbeiter', icon: Users, label: 'Mitarbeiter' },
-  { to: '/tickets/eskalationen', icon: AlertTriangle, label: 'Eskalationen' },
-  { to: '/tickets/pdf-ruecklauf', icon: FileDown, label: 'PDF-Rücklauf' },
-  { to: '/tickets/import', icon: FileUp, label: 'Excel-Import' },
-];
+function MonthStepper() {
+  const { activeMonth, setActiveMonth } = useMonth();
+  const [year, month] = activeMonth.split('-').map(Number);
 
-export default function AppLayoutTickets({ children }: { children: React.ReactNode }) {
-  const { signOut } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
-  const location = useLocation();
-  const navigate = useNavigate();
+  const prev = () => {
+    const d = new Date(year, month - 2, 1);
+    setActiveMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+  const next = () => {
+    const d = new Date(year, month, 1);
+    setActiveMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  const label = new Date(year, month - 1, 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f0f2f5' }}>
+    <div className="mx-3 mb-2">
+      <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold px-1 mb-1">Zeitraum</p>
+      <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl px-2 py-1.5">
+        <button onClick={prev} className="p-1 hover:bg-white/10 rounded-lg transition-colors">
+          <ChevronLeft className="h-3 w-3 text-white/60" />
+        </button>
+        <span className="text-xs font-semibold flex-1 text-center text-white/90 tracking-tight">{label}</span>
+        <button onClick={next} className="p-1 hover:bg-white/10 rounded-lg transition-colors">
+          <ChevronRight className="h-3 w-3 text-white/60" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const NAV_ITEMS = [
+  { to: '/tickets/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/tickets/liste', icon: Ticket, label: 'Tickets' },
+  { to: '/tickets/import', icon: FileSpreadsheet, label: 'Excel-Import' },
+  { to: '/tickets/pdf-ruecklauf', icon: FileText, label: 'PDF-Rücklauf' },
+  { to: '/tickets/mitarbeiter', icon: Users, label: 'Mitarbeiter' },
+  { to: '/tickets/analyse', icon: TrendingUp, label: 'Analyse' },
+  { to: '/tickets/aufgaben', icon: ClipboardCheck, label: 'Begehungen' },
+];
+
+function SidebarNavLink({ to, icon: Icon, children }: { to: string; icon: any; children: string }) {
+  const location = useLocation();
+  const active = location.pathname === to || (to !== '/tickets/dashboard' && location.pathname.startsWith(to));
+
+  return (
+    <Link
+      to={to}
+      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 group
+        ${active
+          ? 'bg-white/15 text-white shadow-sm'
+          : 'text-white/55 hover:text-white/90 hover:bg-white/8'
+        }`}
+    >
+      <Icon className={`h-4 w-4 shrink-0 transition-colors ${active ? 'text-white' : 'text-white/40 group-hover:text-white/70'}`} />
+      <span className="truncate">{children}</span>
+      {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-sky-400" />}
+    </Link>
+  );
+}
+
+export default function AppLayout({ children }: { children: ReactNode }) {
+  const { user, signOut } = useAuth();
+
+  return (
+    <div className="flex min-h-screen bg-[#f0f2f5]">
       {/* Sidebar */}
-      <aside style={{
-        width: collapsed ? '64px' : '224px',
-        background: '#107A57',
-        display: 'flex', flexDirection: 'column',
-        transition: 'width .3s', flexShrink: 0,
-      }}>
+      <aside
+        className="w-52 flex flex-col shrink-0 fixed top-0 left-0 h-screen z-20"
+        style={{ background: 'linear-gradient(160deg, #1a3356 0%, #0f2440 60%, #0a1a30 100%)' }}
+      >
         {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '20px 16px', borderBottom: '1px solid rgba(255,255,255,.1)' }}>
-          <div style={{ width: '32px', height: '32px', background: 'rgba(255,255,255,.2)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '16px' }}>🎫</div>
-          {!collapsed && <div><p style={{ color: '#fff', fontWeight: '700', fontSize: '14px', margin: 0, lineHeight: 1 }}>WIDI</p><p style={{ color: 'rgba(255,255,255,.5)', fontSize: '10px', margin: 0, marginTop: '2px' }}>Ticketsystem</p></div>}
+        <div className="px-4 pt-5 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center shrink-0">
+              <Building2 className="h-4 w-4 text-sky-400" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white leading-tight">WIDI</p>
+              <p className="text-[10px] text-white/40 leading-tight">Controlling</p>
+            </div>
+          </div>
         </div>
 
+        {/* Divider */}
+        <div className="mx-4 mb-3 h-px bg-white/8" />
+
+        {/* Month Stepper */}
+        <MonthStepper />
+
+        {/* Divider */}
+        <div className="mx-4 mb-3 h-px bg-white/8" />
+
         {/* Nav */}
-        <nav style={{ flex: 1, padding: '12px 8px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          {NAV.map(({ to, icon: Icon, label }) => {
-            const active = location.pathname === to || location.pathname.startsWith(to + '/');
-            return (
-              <NavLink
-                key={to} to={to}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '12px',
-                  padding: '10px 12px', borderRadius: '10px',
-                  textDecoration: 'none', fontSize: '14px',
-                  background: active ? 'rgba(255,255,255,.18)' : 'transparent',
-                  color: active ? '#fff' : 'rgba(255,255,255,.6)',
-                  fontWeight: active ? '500' : '400',
-                  transition: 'all .15s',
-                }}
-                onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.1)'; }}
-                onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-              >
-                <Icon size={16} style={{ flexShrink: 0 }} />
-                {!collapsed && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>}
-              </NavLink>
-            );
-          })}
+        <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold px-4 mb-1">Navigation</p>
+        <nav className="flex-1 px-2 space-y-0.5 overflow-y-auto">
+          {NAV_ITEMS.map(({ to, icon, label }) => (
+            <SidebarNavLink key={to} to={to} icon={icon}>{label}</SidebarNavLink>
+          ))}
         </nav>
 
-        {/* Bottom */}
-        <div style={{ padding: '8px', borderTop: '1px solid rgba(255,255,255,.1)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          {/* Startseite */}
-          <button
-            onClick={() => navigate('/')}
-            style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 12px', borderRadius: '10px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,.4)', fontSize: '13px', width: '100%', textAlign: 'left', transition: 'color .15s' }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.8)'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.4)'}
-          >
-            <Home size={15} style={{ flexShrink: 0 }} />
-            {!collapsed && <span>← Startseite</span>}
-          </button>
-
-          {/* Einklappen */}
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 12px', borderRadius: '10px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,.4)', fontSize: '13px', width: '100%', textAlign: 'left' }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.8)'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.4)'}
-          >
-            {collapsed ? <ChevronRight size={15} /> : <><ChevronLeft size={15} />{!collapsed && <span>Einklappen</span>}</>}
-          </button>
-
-          {/* Abmelden */}
+        {/* Footer */}
+        <div className="mx-4 mb-4 mt-3">
+          <div className="h-px bg-white/8 mb-3" />
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-6 h-6 rounded-full bg-sky-500/20 border border-sky-400/20 flex items-center justify-center shrink-0">
+              <span className="text-[10px] font-bold text-sky-400">{user?.email?.[0]?.toUpperCase()}</span>
+            </div>
+            <p className="text-[11px] text-white/40 truncate flex-1">{user?.email}</p>
+          </div>
           <button
             onClick={signOut}
-            style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 12px', borderRadius: '10px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,.4)', fontSize: '13px', width: '100%', textAlign: 'left' }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = '#fca5a5'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.4)'}
+            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs text-white/40 hover:text-white/70 hover:bg-white/8 transition-all"
           >
-            <LogOut size={15} style={{ flexShrink: 0 }} />
-            {!collapsed && <span>Abmelden</span>}
+            <LogOut className="h-3.5 w-3.5" />
+            Abmelden
           </button>
         </div>
       </aside>
 
-      {/* Main */}
-      <main style={{ flex: 1, overflowY: 'auto' }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '24px' }}>
+      {/* Main Content */}
+      <main className="flex-1 ml-52 min-h-screen">
+        {/* Top bar */}
+        <div className="sticky top-0 z-10 bg-[#f0f2f5]/80 backdrop-blur-sm border-b border-black/5 px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs text-gray-500 font-medium">Live</span>
+          </div>
+          <span className="text-xs text-gray-400">WIDI Gebäudeservice GmbH</span>
+        </div>
+
+        <div className="p-6 max-w-7xl mx-auto">
           {children}
         </div>
       </main>
