@@ -58,7 +58,7 @@ export default function FotosPage() {
 
       {/* Filter */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-2">
-        <Select value={bsFilter} onValueChange={setBsFilter} className="w-48">
+        <Select value={bsFilter} onValueChange={setBsFilter}>
           <SelectOption value="all">Alle Baustellen</SelectOption>
           {bs.map((b:any) => <SelectOption key={b.id} value={b.id}>{b.name}</SelectOption>)}
         </Select>
