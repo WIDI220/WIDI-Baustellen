@@ -1,9 +1,8 @@
 import { ReactNode } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useMonth } from '@/contexts/MonthContext';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, Building2, ClipboardCheck } from 'lucide-react';
+import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home } from 'lucide-react';
 
 function MonthStepper() {
   const { activeMonth, setActiveMonth } = useMonth();
@@ -21,15 +20,21 @@ function MonthStepper() {
   const label = new Date(year, month - 1, 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
 
   return (
-    <div className="mx-3 mb-2">
-      <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold px-1 mb-1">Zeitraum</p>
-      <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl px-2 py-1.5">
-        <button onClick={prev} className="p-1 hover:bg-white/10 rounded-lg transition-colors">
-          <ChevronLeft className="h-3 w-3 text-white/60" />
+    <div style={{ margin: '0 12px 8px' }}>
+      <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,.3)', fontWeight: 600, marginBottom: 6, paddingLeft: 4 }}>Zeitraum</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 12, padding: '6px 8px' }}>
+        <button onClick={prev} style={{ padding: '4px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, display: 'flex', alignItems: 'center', transition: 'background .15s' }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.1)'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}
+        >
+          <ChevronLeft style={{ width: 12, height: 12, color: 'rgba(255,255,255,.6)' }} />
         </button>
-        <span className="text-xs font-semibold flex-1 text-center text-white/90 tracking-tight">{label}</span>
-        <button onClick={next} className="p-1 hover:bg-white/10 rounded-lg transition-colors">
-          <ChevronRight className="h-3 w-3 text-white/60" />
+        <span style={{ fontSize: 11, fontWeight: 600, flex: 1, textAlign: 'center', color: 'rgba(255,255,255,.9)', letterSpacing: '-.01em' }}>{label}</span>
+        <button onClick={next} style={{ padding: '4px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, display: 'flex', alignItems: 'center', transition: 'background .15s' }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.1)'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}
+        >
+          <ChevronRight style={{ width: 12, height: 12, color: 'rgba(255,255,255,.6)' }} />
         </button>
       </div>
     </div>
@@ -38,107 +43,104 @@ function MonthStepper() {
 
 const NAV_ITEMS = [
   { to: '/tickets/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/tickets/liste', icon: Ticket, label: 'Tickets' },
-  { to: '/tickets/import', icon: FileSpreadsheet, label: 'Excel-Import' },
-  { to: '/tickets/pdf-ruecklauf', icon: FileText, label: 'PDF-Rücklauf' },
-  { to: '/tickets/mitarbeiter', icon: Users, label: 'Mitarbeiter' },
-  { to: '/tickets/analyse', icon: TrendingUp, label: 'Analyse' },
-  { to: '/tickets/aufgaben', icon: ClipboardCheck, label: 'Begehungen' },
+  { to: '/tickets/liste',     icon: Ticket,          label: 'Tickets' },
+  { to: '/tickets/import',    icon: FileSpreadsheet, label: 'Excel-Import' },
+  { to: '/tickets/pdf-ruecklauf', icon: FileText,    label: 'PDF-Rücklauf' },
+  { to: '/tickets/mitarbeiter',   icon: Users,       label: 'Mitarbeiter' },
+  { to: '/tickets/analyse',       icon: TrendingUp,  label: 'Analyse' },
+  { to: '/tickets/aufgaben',      icon: ClipboardCheck, label: 'Begehungen' },
 ];
 
-function SidebarNavLink({ to, icon: Icon, children }: { to: string; icon: any; children: string }) {
+function NavLink({ to, icon: Icon, children }: { to: string; icon: any; children: string }) {
   const location = useLocation();
   const active = location.pathname === to || (to !== '/tickets/dashboard' && location.pathname.startsWith(to));
 
   return (
-    <Link
-      to={to}
-      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150 group
-        ${active
-          ? 'bg-white/15 text-white shadow-sm'
-          : 'text-white/55 hover:text-white/90 hover:bg-white/8'
-        }`}
+    <Link to={to} style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+      borderRadius: 12, textDecoration: 'none', fontSize: 13, fontWeight: 500,
+      transition: 'all .15s',
+      background: active ? 'rgba(16,185,129,.2)' : 'transparent',
+      color: active ? '#fff' : 'rgba(255,255,255,.55)',
+      borderLeft: active ? '3px solid #10b981' : '3px solid transparent',
+    }}
+      onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.06)'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.9)'; }}
+      onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.55)'; } }}
     >
-      <Icon className={`h-4 w-4 shrink-0 transition-colors ${active ? 'text-white' : 'text-white/40 group-hover:text-white/70'}`} />
-      <span className="truncate">{children}</span>
-      {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-sky-400" />}
+      <Icon style={{ width: 15, height: 15, flexShrink: 0 }} />
+      {children}
     </Link>
   );
 }
 
-export default function AppLayout({ children }: { children: ReactNode }) {
-  const { user, signOut } = useAuth();
+export default function AppLayoutTickets({ children }: { children: ReactNode }) {
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
 
   return (
-    <div className="flex min-h-screen bg-[#f0f2f5]">
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f0f4f8', fontFamily: "'Inter', system-ui, sans-serif" }}>
       {/* Sidebar */}
-      <aside
-        className="w-52 flex flex-col shrink-0 fixed top-0 left-0 h-screen z-20"
-        style={{ background: 'linear-gradient(160deg, #1a3356 0%, #0f2440 60%, #0a1a30 100%)' }}
-      >
+      <aside style={{
+        width: 220, background: 'linear-gradient(180deg, #064e3b 0%, #065f46 100%)',
+        display: 'flex', flexDirection: 'column', flexShrink: 0,
+        boxShadow: '4px 0 20px rgba(0,0,0,.15)',
+      }}>
         {/* Logo */}
-        <div className="px-4 pt-5 pb-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center shrink-0">
-              <Building2 className="h-4 w-4 text-sky-400" />
-            </div>
+        <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ width: 34, height: 34, background: 'linear-gradient(135deg, #10b981, #059669)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, boxShadow: '0 4px 12px rgba(16,185,129,.3)' }}>🎫</div>
             <div>
-              <p className="text-sm font-bold text-white leading-tight">WIDI</p>
-              <p className="text-[10px] text-white/40 leading-tight">Controlling</p>
+              <p style={{ color: '#fff', fontWeight: 800, fontSize: 14, margin: 0, letterSpacing: '-.01em' }}>WIDI</p>
+              <p style={{ color: 'rgba(255,255,255,.4)', fontSize: 10, margin: 0, letterSpacing: '.04em' }}>Controlling</p>
             </div>
           </div>
+          {/* Startseite Button */}
+          <button onClick={() => navigate('/')} style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+            padding: '7px 10px', background: 'rgba(255,255,255,.08)',
+            border: '1px solid rgba(255,255,255,.12)', borderRadius: 10,
+            color: 'rgba(255,255,255,.7)', fontSize: 12, fontWeight: 500,
+            cursor: 'pointer', transition: 'all .15s',
+          }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.14)'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.08)'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.7)'; }}
+          >
+            <Home size={13} /> ← Startseite
+          </button>
         </div>
 
-        {/* Divider */}
-        <div className="mx-4 mb-3 h-px bg-white/8" />
-
         {/* Month Stepper */}
-        <MonthStepper />
-
-        {/* Divider */}
-        <div className="mx-4 mb-3 h-px bg-white/8" />
+        <div style={{ padding: '12px 0 4px' }}>
+          <MonthStepper />
+        </div>
 
         {/* Nav */}
-        <p className="text-[10px] uppercase tracking-widest text-white/30 font-semibold px-4 mb-1">Navigation</p>
-        <nav className="flex-1 px-2 space-y-0.5 overflow-y-auto">
+        <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,.25)', fontWeight: 600, padding: '8px 16px 4px', margin: 0 }}>Navigation</p>
+        <nav style={{ flex: 1, padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
           {NAV_ITEMS.map(({ to, icon, label }) => (
-            <SidebarNavLink key={to} to={to} icon={icon}>{label}</SidebarNavLink>
+            <NavLink key={to} to={to} icon={icon}>{label}</NavLink>
           ))}
         </nav>
 
         {/* Footer */}
-        <div className="mx-4 mb-4 mt-3">
-          <div className="h-px bg-white/8 mb-3" />
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-6 h-6 rounded-full bg-sky-500/20 border border-sky-400/20 flex items-center justify-center shrink-0">
-              <span className="text-[10px] font-bold text-sky-400">{user?.email?.[0]?.toUpperCase()}</span>
-            </div>
-            <p className="text-[11px] text-white/40 truncate flex-1">{user?.email}</p>
-          </div>
-          <button
-            onClick={signOut}
-            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs text-white/40 hover:text-white/70 hover:bg-white/8 transition-all"
+        <div style={{ padding: '12px 8px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
+          <button onClick={() => signOut()} style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+            padding: '8px 12px', background: 'none', border: 'none',
+            color: 'rgba(255,255,255,.4)', fontSize: 12, fontWeight: 500,
+            cursor: 'pointer', borderRadius: 10, transition: 'all .15s',
+          }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,.15)'; (e.currentTarget as HTMLElement).style.color = '#fca5a5'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.4)'; }}
           >
-            <LogOut className="h-3.5 w-3.5" />
-            Abmelden
+            <LogOut size={14} /> Abmelden
           </button>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 ml-52 min-h-screen">
-        {/* Top bar */}
-        <div className="sticky top-0 z-10 bg-[#f0f2f5]/80 backdrop-blur-sm border-b border-black/5 px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs text-gray-500 font-medium">Live</span>
-          </div>
-          <span className="text-xs text-gray-400">WIDI Gebäudeservice GmbH</span>
-        </div>
-
-        <div className="p-6 max-w-7xl mx-auto">
-          {children}
-        </div>
+      {/* Main */}
+      <main style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
+        {children}
       </main>
     </div>
   );
