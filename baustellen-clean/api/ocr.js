@@ -20,10 +20,13 @@ export default async function handler(req, res) {
 - Tarik Alkan (Kürzel: TA)
 - Timo Bartelt (Kürzel: TB)
 - Matthias Kubista (Kürzel: MK)
-- Christoph Epe (Kürzel: CE)
+- Caspar Epe (Kürzel: CE)
 - Christoph Reitz (Kürzel: CR)
 - Sigrid Büter (Kürzel: SB)
-- Stefan Giesmann (Kürzel: SG)`;
+- Stefan Giesmann (Kürzel: SG)
+- Timur Van der Werf (Kürzel: TW)
+- Paredis Pascal (Kürzel: PP)
+- Marcel Münch (Kürzel: MM)`;
 
     const prompt = `Du analysierst einen gescannten Arbeitsauftrag (Ticket) der Märkischen Kliniken GmbH.
 
