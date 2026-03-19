@@ -69,14 +69,42 @@ export default function PdfRuecklauf() {
 
   function findEmployee(name: string | null): string | null {
     if (!name) return null;
-    const lower = name.toLowerCase().trim();
+    const input = name.toLowerCase().trim();
+    if (!input) return null;
+
+    // Runde 1: Exakter Kürzel-Match (höchste Priorität, z.B. "TB", "SG", "TW")
     for (const emp of employees as any[]) {
-      const el = emp.name.toLowerCase();
-      if (lower === el) return emp.id;
-      const last = el.split(' ').pop() ?? '';
-      if (last.length > 3 && lower.includes(last)) return emp.id;
-      if (lower === emp.kuerzel.toLowerCase()) return emp.id;
+      if (input === (emp.kuerzel ?? '').toLowerCase()) return emp.id;
     }
+
+    // Runde 2: Exakter Name-Match
+    for (const emp of employees as any[]) {
+      if (input === emp.name.toLowerCase()) return emp.id;
+    }
+
+    // Runde 3: Input enthält den vollen Namen
+    for (const emp of employees as any[]) {
+      if (input.includes(emp.name.toLowerCase())) return emp.id;
+    }
+
+    // Runde 4: Alle Namensbestandteile im Input vorhanden (z.B. "kubista" → "Matthias Kubista")
+    for (const emp of employees as any[]) {
+      const parts = emp.name.toLowerCase().split(' ').filter((p: string) => p.length > 2);
+      if (parts.length > 0 && parts.every((p: string) => input.includes(p))) return emp.id;
+    }
+
+    // Runde 5: Mindestens ein Namensteil matcht (min. 4 Zeichen)
+    for (const emp of employees as any[]) {
+      const parts = emp.name.toLowerCase().split(' ').filter((p: string) => p.length >= 4);
+      if (parts.some((p: string) => input.includes(p) || p.includes(input))) return emp.id;
+    }
+
+    // Runde 6: Kürzel als Wort im Input (z.B. "tb i tw")
+    for (const emp of employees as any[]) {
+      const kuerzel = (emp.kuerzel ?? '').toLowerCase();
+      if (kuerzel.length >= 2 && new RegExp('\\b' + kuerzel + '\\b').test(input)) return emp.id;
+    }
+
     return null;
   }
 
