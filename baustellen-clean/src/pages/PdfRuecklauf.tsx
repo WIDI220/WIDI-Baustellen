@@ -407,7 +407,7 @@ export default function PdfRuecklauf() {
               {pages.find(p => p.status === 'processing')?.imageBase64 ? (
                 <>
                   <img
-                    src={`data:image/png;base64,${pages.find(p => p.status === 'processing')!.imageBase64}`}
+                    src={`data:image/jpeg;base64,${pages.find(p => p.status === 'processing')!.imageBase64}`}
                     alt="Aktuelles Ticket"
                     className="w-full h-full object-contain opacity-90"
                     style={{ maxHeight: '420px' }}
@@ -616,7 +616,7 @@ export default function PdfRuecklauf() {
                 <p className="text-xs font-semibold text-gray-400 mb-2">📄 ORIGINAL — Seite {currentReview.page}</p>
                 <div className="flex-1 bg-gray-50 rounded-xl overflow-hidden flex items-start justify-center">
                   {currentReview.imageBase64 ? (
-                    <img src={`data:image/png;base64,${currentReview.imageBase64}`} alt={`Seite ${currentReview.page}`}
+                    <img src={`data:image/jpeg;base64,${currentReview.imageBase64}`} alt={`Seite ${currentReview.page}`}
                       className="w-full h-full object-contain" style={{ maxHeight: '70vh' }} />
                   ) : (
                     <div className="flex items-center justify-center h-32 text-gray-400 text-sm">Kein Bild verfügbar</div>
