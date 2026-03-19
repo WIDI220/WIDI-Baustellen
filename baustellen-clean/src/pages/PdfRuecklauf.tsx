@@ -497,7 +497,7 @@ export default function PdfRuecklauf() {
       {/* Split-View Review Dialog */}
       <Dialog open={showReview} onOpenChange={setShowReview}>
         <DialogContent className="max-w-5xl max-h-[95vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="shrink-0 px-6 pt-5 pb-3 border-b border-gray-100">
+          <div className="shrink-0 px-6 pt-5 pb-3 border-b border-gray-100">
             <DialogTitle className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-5 w-5 text-amber-500" />
@@ -515,7 +515,7 @@ export default function PdfRuecklauf() {
                 </button>
               </div>
             </DialogTitle>
-          </DialogHeader>
+          </div>
 
           {currentReview && (
             <div className="flex flex-1 overflow-hidden min-h-0">
