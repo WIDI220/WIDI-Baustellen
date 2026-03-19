@@ -22,7 +22,7 @@ function copyBuffer(buffer: ArrayBuffer): ArrayBuffer {
 export async function renderPdfPageToBase64(
   pdfBuffer: ArrayBuffer,
   pageIndex: number,
-  scale: number = 2.0
+  scale: number = 1.5
 ): Promise<string> {
   const pdfjsLib = await getPdfjs();
   // WICHTIG: Immer eine Kopie nutzen!
@@ -37,7 +37,8 @@ export async function renderPdfPageToBase64(
   const context = canvas.getContext('2d')!;
   await page.render({ canvasContext: context, viewport }).promise;
   
-  const dataUrl = canvas.toDataURL('image/png');
+  // JPEG statt PNG: ~60% kleinere Dateigröße → weniger API-Kosten
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
   return dataUrl.split(',')[1];
 }
 
