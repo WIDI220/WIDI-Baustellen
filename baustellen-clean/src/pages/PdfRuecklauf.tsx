@@ -382,45 +382,137 @@ export default function PdfRuecklauf() {
         <p className="text-sm text-gray-500 mt-0.5">OCR erkennt A-Nummer, Mitarbeiter und Stunden automatisch</p>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div onClick={() => !isProcessing && fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-10 text-center transition-all ${isProcessing ? 'border-blue-200 bg-blue-50/50 cursor-not-allowed' : 'border-gray-200 hover:border-[#1e3a5f]/40 hover:bg-gray-50 cursor-pointer'}`}>
-          <div className={`w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center ${isProcessing ? 'bg-blue-100' : 'bg-gray-100'}`}>
-            {isProcessing ? <RefreshCw className="h-7 w-7 text-blue-600 animate-spin" /> : <Upload className="h-7 w-7 text-gray-400" />}
+      {/* Upload oder Scanner-Ansicht */}
+      {!isProcessing && phase !== 'scanning' ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div onClick={() => fileInputRef.current?.click()}
+            className="border-2 border-dashed rounded-xl p-10 text-center transition-all border-gray-200 hover:border-[#1e3a5f]/40 hover:bg-gray-50 cursor-pointer">
+            <div className="w-14 h-14 rounded-2xl bg-gray-100 mx-auto mb-4 flex items-center justify-center">
+              <Upload className="h-7 w-7 text-gray-400" />
+            </div>
+            <p className="text-sm font-semibold text-gray-700">PDF hier ablegen oder klicken</p>
+            <p className="text-xs text-gray-400 mt-1">Stunden ≤ 5h werden automatisch importiert · alles andere zur Prüfung</p>
+            {fileName && phase === 'done' && <p className="text-xs text-[#1e3a5f] font-medium mt-2">📄 {fileName}</p>}
           </div>
-          {isProcessing ? (
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-blue-700">Scanne {fileName}</p>
-              <p className="text-xs text-blue-500">Seite {currentPage} von {totalPages}</p>
-              <div className="w-full max-w-xs mx-auto bg-blue-100 rounded-full h-2">
-                <div className="bg-blue-500 rounded-full h-2 transition-all duration-300" style={{ width: `${progress}%` }} />
-              </div>
-              <p className="text-xs text-blue-400 font-mono">{progress}%</p>
-            </div>
-          ) : (
-            <div>
-              <p className="text-sm font-semibold text-gray-700">PDF hier ablegen oder klicken</p>
-              <p className="text-xs text-gray-400 mt-1">Stunden ≤ 5h werden automatisch importiert · alles andere zur Prüfung</p>
-              {fileName && phase === 'done' && <p className="text-xs text-[#1e3a5f] font-medium mt-2">📄 {fileName}</p>}
-            </div>
-          )}
           <input ref={fileInputRef} type="file" accept=".pdf" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ''; }} disabled={isProcessing} />
+            onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ''; }} />
         </div>
-      </div>
+      ) : (
+        /* Scanner-Visualisierung */
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-2 gap-0 min-h-[420px]">
 
-      {/* Live-Log */}
-      {(isProcessing || (phase === 'done' && liveLog.length > 0)) && (
-        <div className="bg-gray-950 rounded-2xl p-4 font-mono text-xs max-h-52 overflow-y-auto space-y-0.5">
-          <p className="text-gray-500 mb-2 font-sans text-xs font-semibold non-italic">
-            {isProcessing ? '⚙️ OCR läuft...' : '📋 Protokoll'}
-          </p>
-          {liveLog.map((log, i) => (
-            <div key={i} className={log.type === 'ok' ? 'text-emerald-400' : log.type === 'warn' ? 'text-amber-400' : log.type === 'error' ? 'text-red-400' : 'text-gray-400'}>
-              {log.message}
+            {/* LINKS: aktuelles Ticket als Bild mit Scanner-Animation */}
+            <div className="relative bg-gray-950 flex items-center justify-center overflow-hidden">
+              {pages.find(p => p.status === 'processing')?.imageBase64 ? (
+                <>
+                  <img
+                    src={`data:image/png;base64,${pages.find(p => p.status === 'processing')!.imageBase64}`}
+                    alt="Aktuelles Ticket"
+                    className="w-full h-full object-contain opacity-90"
+                    style={{ maxHeight: '420px' }}
+                  />
+                  {/* Scanner-Balken Animation */}
+                  <div
+                    className="absolute left-0 right-0 h-1 bg-blue-400 opacity-80 shadow-lg"
+                    style={{
+                      boxShadow: '0 0 12px 4px rgba(96,165,250,0.6)',
+                      animation: 'scanLine 1.8s ease-in-out infinite',
+                    }}
+                  />
+                  {/* Overlay oben mit Seiten-Info */}
+                  <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                    <span className="bg-black/60 text-white text-xs px-2 py-1 rounded-lg font-mono">
+                      Seite {currentPage} / {totalPages}
+                    </span>
+                    <span className="bg-blue-500/80 text-white text-xs px-2 py-1 rounded-lg animate-pulse">
+                      ⚙️ Scanne...
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-3 text-gray-500">
+                  <RefreshCw className="h-10 w-10 animate-spin text-blue-400" />
+                  <p className="text-xs">Bereite Seite vor...</p>
+                </div>
+              )}
+
+              {/* CSS für Scanner-Linie */}
+              <style>{`
+                @keyframes scanLine {
+                  0% { top: 5%; }
+                  50% { top: 92%; }
+                  100% { top: 5%; }
+                }
+              `}</style>
             </div>
-          ))}
-          {isProcessing && <div className="text-blue-400 animate-pulse">▋</div>}
+
+            {/* RECHTS: Live-Ergebnisse als Cards */}
+            <div className="flex flex-col bg-gray-50">
+              {/* Fortschritt oben */}
+              <div className="p-4 border-b border-gray-100 bg-white">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-600">{fileName}</span>
+                  <span className="text-xs font-mono text-gray-400">{progress}%</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2">
+                  <div
+                    className="bg-blue-500 rounded-full h-2 transition-all duration-500"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <div className="flex gap-3 mt-2 text-xs text-gray-400">
+                  <span className="text-emerald-600 font-medium">✅ {pages.filter(p => p.imported).length}</span>
+                  <span className="text-amber-500 font-medium">🟡 {pages.filter(p => p.needsReview && p.ticket_id).length}</span>
+                  <span className="text-red-500 font-medium">❌ {pages.filter(p => p.status === 'error' && !p.ticket_id).length}</span>
+                </div>
+              </div>
+
+              {/* Letzte Ergebnisse als Cards */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {[...pages]
+                  .filter(p => p.status !== 'pending')
+                  .slice(-8)
+                  .reverse()
+                  .map(p => (
+                  <div key={p.page} className={`rounded-xl px-3 py-2.5 border text-xs transition-all
+                    ${p.imported ? 'bg-emerald-50 border-emerald-200' :
+                      p.status === 'processing' ? 'bg-blue-50 border-blue-200 animate-pulse' :
+                      p.needsReview && p.ticket_id ? 'bg-amber-50 border-amber-200' :
+                      p.status === 'duplicate' ? 'bg-gray-50 border-gray-200' :
+                      'bg-red-50 border-red-200'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400 font-mono w-6 shrink-0">#{p.page}</span>
+                      {p.imported && <span className="text-emerald-600 text-base">✅</span>}
+                      {p.status === 'processing' && <RefreshCw className="h-3.5 w-3.5 text-blue-500 animate-spin shrink-0" />}
+                      {p.needsReview && p.ticket_id && <span className="text-amber-500 text-base">🟡</span>}
+                      {p.status === 'duplicate' && <span className="text-gray-400 text-base">🔁</span>}
+                      {p.status === 'error' && !p.ticket_id && <span className="text-red-500 text-base">❌</span>}
+                      {p.status === 'no_match' && <span className="text-orange-500 text-base">🔍</span>}
+                      <div className="flex-1 min-w-0">
+                        {p.imported && (
+                          <div>
+                            <span className="font-mono font-bold text-emerald-800">{p.a_nummer}</span>
+                            <span className="text-emerald-600 ml-1">{p.mitarbeiter_namen?.join(', ')} · {p.stunden_valid}h</span>
+                          </div>
+                        )}
+                        {p.status === 'processing' && <span className="text-blue-600">Analysiere...</span>}
+                        {p.needsReview && p.ticket_id && (
+                          <div>
+                            <span className="font-mono font-bold text-amber-700">{p.a_nummer}</span>
+                            <span className="text-amber-600 ml-1 truncate">{p.reviewReasons[0]}</span>
+                          </div>
+                        )}
+                        {p.status === 'no_match' && <span className="text-orange-600">{p.error}</span>}
+                        {p.status === 'error' && !p.ticket_id && <span className="text-red-600 truncate">{p.error}</span>}
+                        {p.status === 'duplicate' && <span className="text-gray-400">Duplikat</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
