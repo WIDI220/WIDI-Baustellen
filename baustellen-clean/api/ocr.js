@@ -44,20 +44,21 @@ Suche nach "Werkstatt:" — typische Werte: "Hochbau", "Elektrotechnik", "HLS"
 Exakt übernehmen.
 
 ━━━ FELD 3: mitarbeiter_namen (ARRAY) ━━━
-Das Formular hat einen Abschnitt "Durchführung" mit dem Feld "Name:".
-Dieses Feld kann EINEN oder MEHRERE Namen enthalten — übereinander, nebeneinander oder beide.
-LIES ALLE Namen die dort stehen. Schaue auch auf den "Erledigungsvermerk".
+Schaue AUSSCHLIESSLICH auf das Feld "Name:" rechts neben "Bearbeiter: WIDI Gebäudeservice GmbH (LÜD)".
+NUR was in diesem Feld steht zählt. Ignoriere Erledigungsvermerk, Beschreibung und alle anderen Felder.
+
+Das Name-Feld kann einen oder zwei Namen enthalten — übereinander oder nebeneinander.
+LIES ALLE Namen die direkt in diesem Feld stehen.
 
 MATCHING-REGELN:
-- Voller Name (z.B. "Stefan Giesmann") → direkt übernehmen, exakt so wie in der Liste
-- Nachname allein (z.B. "Giesmann") → suche in der Liste welcher Mitarbeiter diesen Nachnamen hat
+- Voller Name (z.B. "Stefan Giesmann") → direkt aus der Mitarbeiterliste übernehmen
+- Nachname allein (z.B. "Giesmann") → passenden Mitarbeiter aus Liste suchen
 - Abkürzung + Nachname (z.B. "St. Giesmann") → Nachname matchen → Stefan Giesmann
-- Kürzel (z.B. "SG", "TB", "FW") → EXAKT gegen die Kürzel in der Liste matchen, keine Verwechslung
-- Unbekannter Name → trotzdem zurückgeben wie geschrieben
+- Kürzel (z.B. "SG", "TB", "TW") → EXAKT gegen Kürzel in der Liste matchen
+- NIEMALS: SG mit SB verwechseln, TB mit TW verwechseln
 
-WICHTIG: Kürzel sind EXAKT 2 Buchstaben. SG ist Stefan Giesmann, NICHT Sigrid Büter (SB).
-WICHTIG: Lies das Feld vollständig — wenn zwei Namen übereinander stehen, gib beide zurück.
-WICHTIG: Gib IMMER einen nicht-leeren Array zurück wenn irgendetwas erkennbar ist.
+WICHTIG: Wenn nur EIN Name im Feld steht → gib nur EINEN zurück. Nicht erfinden.
+WICHTIG: Gib nur Namen zurück die du wirklich im Name-Feld siehst.
 
 ━━━ FELD 4: mitarbeiter_name ━━━
 Der erste Mitarbeiter aus mitarbeiter_namen als einzelner String.
