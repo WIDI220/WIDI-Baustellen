@@ -29,86 +29,86 @@ export default async function handler(req, res) {
 - Marcel Münch (Kürzel: MM)`;
 
     const prompt = `Du analysierst einen gescannten Arbeitsauftrag (Ticket) der Märkischen Kliniken GmbH.
+Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, kein Text davor oder danach.
 
-MITARBEITERLISTE – NUR diese Personen kommen vor:
+MITARBEITERLISTE – nur diese Personen sind möglich:
 ${empList}
 
-═══════════════════════════════════════════════════════
-AUFGABE: Extrahiere die folgenden 7 Felder präzise.
-Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, kein Text davor oder danach.
-═══════════════════════════════════════════════════════
-
 ━━━ FELD 1: a_nummer ━━━
-Suche nach "Auftragsnr." oder "Auftrags-Nr." auf dem Formular.
-Format ist immer: A26-XXXXX oder A25-XXXXX (Buchstabe A, 2-stellige Jahreszahl, Bindestrich, 5 Ziffern).
-Beispiele: "A26-01284", "A25-00891"
+Suche nach "Auftragsnr." oben links auf dem Formular.
+Format: A26-XXXXX oder A25-XXXXX
 Wenn nicht lesbar: null
 
 ━━━ FELD 2: werkstatt ━━━
-Suche nach "Werkstatt:" auf dem Formular.
-Typische Werte: "Hochbau", "Elektrotechnik", "Elektro", "HLS"
-Exakt übernehmen was dort steht.
+Suche nach "Werkstatt:" — typische Werte: "Hochbau", "Elektrotechnik", "HLS"
+Exakt übernehmen.
 
 ━━━ FELD 3: mitarbeiter_namen (ARRAY) ━━━
-Finde ALLE Mitarbeiter die auf diesem Ticket stehen.
-Schaue an diesen Stellen: Feld "Name:", Stempel, handschriftliche Einträge, Kürzel in der Tabelle.
+Das Formular hat einen Abschnitt "Durchführung" mit dem Feld "Name:".
+Dieses Feld kann EINEN oder MEHRERE Namen enthalten — übereinander, nebeneinander oder beide.
+LIES ALLE Namen die dort stehen. Schaue auch auf den "Erledigungsvermerk".
 
-ERKENNUNGSREGELN (in Priorität):
-1. Stempel mit Kürzel (SG, TA, FW, UG, TB, MK, CE, CR, SB) → direkt aus Liste zuordnen, sehr sicher
-2. Nachname allein (Werner, Giesmann, Alkan...) → aus Liste zuordnen  
-3. Voller Name → direkt übernehmen
-4. Ähnelt einem Kürzel → best-match aus Liste
+MATCHING-REGELN:
+- Voller Name (z.B. "Stefan Giesmann") → direkt übernehmen, exakt so wie in der Liste
+- Nachname allein (z.B. "Giesmann") → suche in der Liste welcher Mitarbeiter diesen Nachnamen hat
+- Abkürzung + Nachname (z.B. "St. Giesmann") → Nachname matchen → Stefan Giesmann
+- Kürzel (z.B. "SG", "TB", "FW") → EXAKT gegen die Kürzel in der Liste matchen, keine Verwechslung
+- Unbekannter Name → trotzdem zurückgeben wie geschrieben
 
-PFLICHT: Gib IMMER einen nicht-leeren Array zurück wenn irgendetwas erkennbar ist.
-Bei 2 Mitarbeitern (z.B. "SG / TA"): ["Stefan Giesmann", "Tarik Alkan"]
+WICHTIG: Kürzel sind EXAKT 2 Buchstaben. SG ist Stefan Giesmann, NICHT Sigrid Büter (SB).
+WICHTIG: Lies das Feld vollständig — wenn zwei Namen übereinander stehen, gib beide zurück.
+WICHTIG: Gib IMMER einen nicht-leeren Array zurück wenn irgendetwas erkennbar ist.
 
 ━━━ FELD 4: mitarbeiter_name ━━━
-Der ERSTE Mitarbeiter aus mitarbeiter_namen als einzelner String.
+Der erste Mitarbeiter aus mitarbeiter_namen als einzelner String.
 
 ━━━ FELD 5: leistungsdatum ━━━
-Das handschriftliche Datum in der Tabelle unter "Datum:".
-IMMER umwandeln zu Format YYYY-MM-DD.
-
-Häufige Schreibweisen auf diesen Formularen:
-- "06.01.26" → "2026-01-06"
-- "6.1.26" → "2026-01-06"  
-- "15.12.25" → "2025-12-15"
-- "3.3.26" → "2026-03-03"
-- Zweistellige Jahreszahl: 25 = 2025, 26 = 2026, 27 = 2027
-
-Bei mehreren Datumszeilen: das FRÜHESTE Datum nehmen.
-Wenn kein Datum erkennbar: null
+Das handschriftliche Datum aus der Arbeitstabelle unter "Datum:".
+Wenn mehrere Zeilen ausgefüllt sind: nimm das SPÄTESTE (= letzte) Datum.
+Format YYYY-MM-DD. Zweistelliges Jahr: 25=2025, 26=2026.
+Beispiele: "06.01.26" → "2026-01-06", "5.1.26" → "2026-01-06"
+Wenn kein Datum: null
 
 ━━━ FELD 6: stunden_gesamt ━━━
-Die Zahl(en) in der Spalte "Std./Stk." (Stunden/Stück) der Arbeitstabelle.
+Die Arbeitstabelle hat genau diese Spalten von links nach rechts:
+  [Datum] | [Von (Uhrzeit)] | [Bis (Uhrzeit)] | [Std./Stk.] | [Ausgeführte Arbeiten]
 
-KRITISCHE LESEREGELN für Handschrift:
-• Komma ist IMMER Dezimaltrennzeichen: "1,5" = 1.5, "0,5" = 0.5, "2,5" = 2.5
-• Gültige Stundenwerte auf diesen Formularen: 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0
-• Stunden sind FAST NIE über 8.0 für eine einzelne Zeile
-• Bei mehreren ausgefüllten Zeilen: ALLE addieren
+SCHRITT 1 — Finde die Spalte "Std./Stk.":
+Sie ist die 4. Spalte, steht NACH Von/Bis und VOR der Beschreibung. Oft schmal.
+Nur in dieser Spalte stehen Stundenwerte wie: 0,25 / 0,5 / 0,75 / 1,0 / 1,5 / 2,0 / 2,5 usw.
+
+SCHRITT 2 — Lies JEDE Zeile der Std./Stk. Spalte einzeln:
+• Komma = Dezimaltrennzeichen: "2,0"=2.0 "0,5"=0.5 "1,5"=1.5 "0,25"=0.25 "1,75"=1.75
+• Handschrift ohne Komma: "20" in Std./Stk. ist fast immer "2,0"=2.0, "15"=1.5, "10"=1.0, "05"=0.5
+• Wenn Von/Bis ergibt z.B. 2.0h aber Std./Stk. zeigt 0.75h → nimm Von/Bis (Std./Stk. falsch gelesen)
+• Mehrere ausgefüllte Zeilen → ALLE Werte aus Std./Stk. addieren → das ist stunden_gesamt
+• Es ist normal dass mehrere Zeilen = mehrere Tage bedeuten — alle addieren
 • Leere Zeilen ignorieren
 
-HÄUFIGE LESEFEHLER VERMEIDEN:
-✗ "1,0" wird fälschlich als "10" gelesen → RICHTIG: 1.0
-✗ "1,5" wird fälschlich als "15" gelesen → RICHTIG: 1.5
-✗ "0,5" wird fälschlich als "05" gelesen → RICHTIG: 0.5
-✗ "2,0" wird fälschlich als "20" gelesen → RICHTIG: 2.0
-✗ "1,75" wird fälschlich als "175" gelesen → RICHTIG: 1.75
+SCHRITT 3 — Was NIEMALS Stunden sind:
+• Uhrzeiten mit Doppelpunkt (14:00, 7:45, 9:10) → das sind Von/Bis Zeiten, KEINE Stunden
+• Datumswerte (05.01, 6.1.26, 29.12) → das ist das Datum, KEINE Stunden
+• Zahlen aus der Beschreibungsspalte → ignorieren
 
-WENN du eine Zahl über 8 siehst: Lies nochmal – fast sicher ein Lesefehler.
-Teile durch 10 wenn es Sinn macht: 15 → 1.5, 25 → 2.5, 10 → 1.0
+SCHRITT 4 — Plausibilitätsprüfung mit Von/Bis:
+Berechne für JEDE Zeile die Differenz Bis minus Von, dann alle addieren.
+Beispiel: Zeile 1: 14:00–14:45 = 0.75h + Zeile 2: 7:45–9:15 = 1.5h → Summe = 2.25h
+• Weichen Std./Stk. Summe und Von/Bis Summe um mehr als 0.5h ab → nimm Von/Bis Summe
+• Std./Stk. leer oder unleserlich → berechne komplett aus Von/Bis
+• Von/Bis nicht ausgefüllt → nimm nur Std./Stk.
 
-━━━ FELD 7: konfidenz ━━━
-Gesamtsicherheit von 0.0 bis 1.0:
-- Stempel + klare Schrift: 0.95
-- Klare Handschrift: 0.85  
-- Leicht unleserlich: 0.75
-- Schwer lesbar: 0.65
-- Fast unleserlich: 0.55
+━━━ FELD 7: arbeitszeit_von ━━━
+Uhrzeit aus der Spalte "Von:" der ersten Zeile. Format "HH:MM". Sonst null.
 
-Antworte NUR mit diesem JSON (kein Text davor/danach):
-{"a_nummer":"A26-01284","werkstatt":"Hochbau","mitarbeiter_namen":["Stefan Giesmann"],"mitarbeiter_name":"Stefan Giesmann","leistungsdatum":"2026-01-06","stunden_gesamt":1.5,"konfidenz":0.9}`;
+━━━ FELD 8: arbeitszeit_bis ━━━
+Uhrzeit aus der Spalte "Bis:" der ersten Zeile. Format "HH:MM". Sonst null.
+
+━━━ FELD 9: konfidenz ━━━
+0.0–1.0 — wie sicher bist du bei Mitarbeiter UND Stunden zusammen?
+Klare Handschrift: 0.85–0.95. Unleserlich: 0.55–0.70.
+
+Antworte NUR mit diesem JSON:
+{"a_nummer":"A26-01284","werkstatt":"Hochbau","mitarbeiter_namen":["Stefan Giesmann","Frank Werner"],"mitarbeiter_name":"Stefan Giesmann","leistungsdatum":"2026-01-06","stunden_gesamt":1.5,"arbeitszeit_von":"09:00","arbeitszeit_bis":"10:30","konfidenz":0.9}`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
