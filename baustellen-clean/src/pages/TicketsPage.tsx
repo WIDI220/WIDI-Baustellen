@@ -142,15 +142,35 @@ export default function TicketsPage() {
     }
   };
 
+  const STATUS_COLORS: Record<string,{color:string;bg:string}> = {
+    in_bearbeitung: {color:'#2563eb',bg:'#eff6ff'},
+    erledigt:       {color:'#10b981',bg:'#f0fdf4'},
+    zur_unterschrift:{color:'#f59e0b',bg:'#fffbeb'},
+    abrechenbar:    {color:'#f97316',bg:'#fff7ed'},
+    abgerechnet:    {color:'#6b7280',bg:'#f9fafb'},
+  };
+
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Tickets</h1>
-        <p className="text-sm text-gray-500 mt-0.5">{totalCount} Tickets gefunden</p>
+    <div style={{ display:'flex', flexDirection:'column', gap:20, paddingBottom:32, fontFamily:"'Inter',system-ui,sans-serif" }}>
+      <style>{`
+        @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .tickets-header { animation: fadeUp 0.3s ease forwards; }
+        .ticket-row:hover { background: #f8fafc !important; }
+        .ticket-row.selected { background: #eff6ff !important; }
+      `}</style>
+
+      {/* Header */}
+      <div className="tickets-header" style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end' }}>
+        <div>
+          <h1 style={{ fontSize:24, fontWeight:800, color:'#0f172a', margin:0, letterSpacing:'-.03em' }}>
+            Tickets <span style={{ color:'#10b981' }}>{totalCount > 0 && `(${totalCount})`}</span>
+          </h1>
+          <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>{totalCount} Tickets gefunden</p>
+        </div>
       </div>
 
       {/* Filter Bar */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-2 items-center">
+      <div style={{ background:'#fff', borderRadius:16, border:'1px solid #f1f5f9', padding:'12px 16px', display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' }}>
         <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input placeholder="A-Nummer suchen..." value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} className="pl-9 h-9 border-gray-200 rounded-xl" />
@@ -185,52 +205,73 @@ export default function TicketsPage() {
       </div>
 
       {/* Tabelle */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+      <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', overflow:'hidden' }}>
+        <div style={{ overflowX:'auto' }}>
+          <table style={{ width:'100%', fontSize:13, borderCollapse:'collapse' }}>
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="py-3 px-4 w-10"><Checkbox checked={allSelected} onCheckedChange={toggleAll} /></th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500 text-xs uppercase tracking-wide">A-Nummer</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500 text-xs uppercase tracking-wide">Gewerk</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500 text-xs uppercase tracking-wide">Status</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500 text-xs uppercase tracking-wide">Eingang</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-500 text-xs uppercase tracking-wide">Mitarbeiter</th>
-                <th className="text-right py-3 px-4 font-medium text-gray-500 text-xs uppercase tracking-wide">Stunden</th>
-                <th className="py-3 px-4 w-10"></th>
+              <tr style={{ borderBottom:'1px solid #f1f5f9', background:'#fafafa' }}>
+                <th style={{ padding:'12px 16px', width:40 }}><Checkbox checked={allSelected} onCheckedChange={toggleAll} /></th>
+                <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>A-Nummer</th>
+                <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Gewerk</th>
+                <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Status</th>
+                <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Eingang</th>
+                <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Mitarbeiter</th>
+                <th style={{ textAlign:'right', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Stunden</th>
+                <th style={{ width:40 }}></th>
               </tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={8} className="py-12 text-center text-gray-400">Lädt...</td></tr>}
+              {isLoading && <tr><td colSpan={8} style={{ padding:'48px', textAlign:'center', color:'#cbd5e1' }}>Lädt...</td></tr>}
               {tickets.map((t: any) => {
                 const wl = t.ticket_worklogs ?? [];
                 const totalH = wl.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
                 const ma = [...new Set(wl.map((w: any) => w.employees?.kuerzel).filter(Boolean))].join(', ');
                 const st = STATUS_OPTIONS.find(s => s.value === t.status);
+                const sc = STATUS_COLORS[t.status] ?? {color:'#94a3b8',bg:'#f1f5f9'};
+                const isSelected = selected.has(t.id);
                 return (
-                  <tr key={t.id} className={`border-b border-gray-50 hover:bg-gray-50/70 cursor-pointer transition-colors ${selected.has(t.id) ? 'bg-blue-50/40' : ''}`}
-                    onClick={() => setSelectedTicket(t)}>
-                    <td className="py-3 px-4" onClick={e => e.stopPropagation()}>
-                      <Checkbox checked={selected.has(t.id)} onCheckedChange={() => toggleOne(t.id)} />
+                  <tr key={t.id}
+                    className={`ticket-row ${isSelected ? 'selected' : ''}`}
+                    onClick={() => setSelectedTicket(t)}
+                    style={{ borderBottom:'1px solid #f8fafc', cursor:'pointer', transition:'background .1s', background: isSelected ? '#eff6ff' : 'transparent' }}>
+                    <td style={{ padding:'11px 16px' }} onClick={e => e.stopPropagation()}>
+                      <Checkbox checked={isSelected} onCheckedChange={() => toggleOne(t.id)} />
                     </td>
-                    <td className="py-3 px-4 font-mono font-bold text-gray-800">{t.a_nummer}</td>
-                    <td className="py-3 px-4 text-gray-500">{t.gewerk}</td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${st?.bg} ${st?.text}`}>{st?.label}</span>
+                    <td style={{ padding:'11px 16px', fontFamily:'monospace', fontWeight:800, color:'#0f172a', fontSize:13 }}>{t.a_nummer}</td>
+                    <td style={{ padding:'11px 16px' }}>
+                      <span style={{ fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:20,
+                        background: t.gewerk==='Hochbau'?'#eff6ff':'#f0fdf4',
+                        color: t.gewerk==='Hochbau'?'#1d4ed8':'#065f46' }}>
+                        {t.gewerk}
+                      </span>
                     </td>
-                    <td className="py-3 px-4 text-gray-500">{t.eingangsdatum ? new Date(t.eingangsdatum).toLocaleDateString('de-DE') : '–'}</td>
-                    <td className="py-3 px-4">{ma ? <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded-lg text-gray-600">{ma}</span> : <span className="text-gray-300">–</span>}</td>
-                    <td className="py-3 px-4 text-right font-mono font-semibold text-gray-700">{totalH > 0 ? `${totalH}h` : <span className="text-gray-300">–</span>}</td>
-                    <td className="py-3 px-4" onClick={e => e.stopPropagation()}>
-                      <button className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600" onClick={() => setSelectedTicket(t)}>
-                        <Pencil className="h-3.5 w-3.5" />
+                    <td style={{ padding:'11px 16px' }}>
+                      <span style={{ fontSize:11, fontWeight:600, padding:'3px 10px', borderRadius:20, background:sc.bg, color:sc.color }}>
+                        {st?.label}
+                      </span>
+                    </td>
+                    <td style={{ padding:'11px 16px', color:'#64748b', fontSize:12 }}>{t.eingangsdatum ? new Date(t.eingangsdatum).toLocaleDateString('de-DE') : '–'}</td>
+                    <td style={{ padding:'11px 16px' }}>
+                      {ma
+                        ? <span style={{ fontFamily:'monospace', fontSize:11, fontWeight:700, background:'#f1f5f9', padding:'3px 8px', borderRadius:6, color:'#374151' }}>{ma}</span>
+                        : <span style={{ color:'#e2e8f0' }}>–</span>}
+                    </td>
+                    <td style={{ padding:'11px 16px', textAlign:'right', fontFamily:'monospace', fontWeight:700, color: totalH>0?'#0f172a':'#e2e8f0' }}>
+                      {totalH > 0 ? `${totalH}h` : '–'}
+                    </td>
+                    <td style={{ padding:'11px 16px' }} onClick={e => e.stopPropagation()}>
+                      <button style={{ padding:'6px', borderRadius:8, border:'none', background:'transparent', cursor:'pointer', color:'#cbd5e1', transition:'all .15s' }}
+                        onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#f1f5f9';(e.currentTarget as HTMLElement).style.color='#374151';}}
+                        onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='transparent';(e.currentTarget as HTMLElement).style.color='#cbd5e1';}}
+                        onClick={() => setSelectedTicket(t)}>
+                        <Pencil size={13} />
                       </button>
                     </td>
                   </tr>
                 );
               })}
               {tickets.length === 0 && !isLoading && (
-                <tr><td colSpan={8} className="py-12 text-center text-gray-400">Keine Tickets gefunden</td></tr>
+                <tr><td colSpan={8} style={{ padding:'48px', textAlign:'center', color:'#cbd5e1', fontSize:14 }}>Keine Tickets gefunden</td></tr>
               )}
             </tbody>
           </table>
@@ -239,13 +280,19 @@ export default function TicketsPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <button className="p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 transition-colors" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
-            <ChevronLeft className="h-4 w-4 text-gray-600" />
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+          <button style={{ padding:'8px', borderRadius:10, border:'1px solid #e2e8f0', background:'#fff', cursor:'pointer', transition:'all .15s', opacity: page===0?0.4:1 }}
+            disabled={page === 0} onClick={() => setPage(p => p - 1)}
+            onMouseEnter={e=>{if(page>0)(e.currentTarget as HTMLElement).style.background='#f8fafc';}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#fff';}}>
+            <ChevronLeft size={16} style={{ color:'#374151' }} />
           </button>
-          <span className="text-sm text-gray-500 px-2">Seite {page + 1} von {totalPages}</span>
-          <button className="p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-40 transition-colors" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
-            <ChevronRight className="h-4 w-4 text-gray-600" />
+          <span style={{ fontSize:13, color:'#64748b', padding:'0 8px' }}>Seite {page + 1} von {totalPages}</span>
+          <button style={{ padding:'8px', borderRadius:10, border:'1px solid #e2e8f0', background:'#fff', cursor:'pointer', transition:'all .15s', opacity: page>=totalPages-1?0.4:1 }}
+            disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}
+            onMouseEnter={e=>{if(page<totalPages-1)(e.currentTarget as HTMLElement).style.background='#f8fafc';}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#fff';}}>
+            <ChevronRight size={16} style={{ color:'#374151' }} />
           </button>
         </div>
       )}
