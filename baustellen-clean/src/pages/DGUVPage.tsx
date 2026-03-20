@@ -378,6 +378,7 @@ export default function DGUVPage() {
       URL.revokeObjectURL(url);
 
       setErgebnis({
+        rows: [],
         zeilen: [],
         aenderungen: data.aenderungen ?? [],
         neuePrueoflinge: [],
