@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -94,6 +95,9 @@ interface Aenderung {
 interface VerarbResult {
   rows: Record<string, string>[];
   aenderungen: Aenderung[];
+  zeilen?: Record<string, string>[];
+  neuePrueoflinge?: Record<string, string>[];
+  stats?: { gesamt: number; auto: number; bezeichnung: number; raum: number; kunde: number; neu: number; };
 }
 
 function verarbeite(rohdaten: Record<string, string>[]): VerarbResult {
@@ -183,6 +187,7 @@ function roadmapColor(dateStr: string): string {
 // GESAMTLISTE IMPORT
 // ═══════════════════════════════════════
 function GesamtlisteImport({ onImported }: { onImported: () => void }) {
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<'idle'|'loading'|'done'|'error'>('idle');
   const [count, setCount] = useState(0);
@@ -280,8 +285,10 @@ type Tab = typeof TABS[number];
 // HAUPTKOMPONENTE
 // ═══════════════════════════════════════
 export default function DGUVPage() {
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('Verarbeitung');
+  const location = useLocation();
+  const activeTab: Tab = location.pathname.includes('roadmap') ? 'Roadmap' : location.pathname.includes('auswertung') ? 'Auswertung' : 'Verarbeitung';
   const [isProcessing, setIsProcessing] = useState(false);
   const [ergebnis, setErgebnis] = useState<VerarbResult | null>(null);
   const [dateiname, setDateiname] = useState('');
@@ -313,6 +320,20 @@ export default function DGUVPage() {
 
   const totalGeraete = (roadmapRaw as any[]).length;
   const maxMonat = roadmapData.reduce((m, d) => d.count > (m?.count ?? 0) ? d : m, roadmapData[0]);
+
+  // Roadmap nach Standort: WO + BIS WANN + WIE VIEL
+  const roadmapByLocation = (() => {
+    const grouped: Record<string, { gebaeude: string; liegenschaft: string; count: number; deadline: string; color: string }> = {};
+    (roadmapRaw as any[]).forEach((r: any) => {
+      if (!r.naechste_pruefung || !r.gebaeude) return;
+      const key = `${r.gebaeude}__${r.naechste_pruefung.slice(0,7)}`;
+      if (!grouped[key]) {
+        grouped[key] = { gebaeude: r.gebaeude, liegenschaft: r.liegenschaft ?? '', count: 0, deadline: r.naechste_pruefung.slice(0,7) + '-01', color: roadmapColor(r.naechste_pruefung) };
+      }
+      grouped[key].count++;
+    });
+    return Object.values(grouped).sort((a, b) => a.deadline.localeCompare(b.deadline));
+  })();
 
   // Prüfer-Stats
   const prueferStats = ergebnis ? (() => {
@@ -408,17 +429,6 @@ export default function DGUVPage() {
       {/* Gesamtliste Status */}
       <GesamtlisteImport onImported={() => setRoadmapRefresh(r => r + 1)} />
 
-      {/* Tabs */}
-      <div style={{ display:'flex', gap:3, background:'#f1f5f9', borderRadius:14, padding:4, width:'fit-content' }}>
-        {TABS.map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} style={{
-            padding:'8px 22px', borderRadius:11, border:'none', cursor:'pointer', fontSize:13, fontWeight:600, transition:'all .15s',
-            background: activeTab === t ? '#fff' : 'transparent',
-            color: activeTab === t ? '#0f172a' : '#94a3b8',
-            boxShadow: activeTab === t ? '0 2px 8px rgba(0,0,0,.07)' : 'none',
-          }}>{t}</button>
-        ))}
-      </div>
 
       {/* ═══ VERARBEITUNG ═══ */}
       {activeTab === 'Verarbeitung' && (
@@ -538,26 +548,56 @@ export default function DGUVPage() {
               </div>
             ))}
           </div>
-          <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:24 }}>
-            <h3 style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Fälligkeits-Roadmap</h3>
-            <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 20px' }}>Anzahl Geräte die geprüft werden müssen — live aus Gesamtliste</p>
-            {roadmapData.length === 0 ? (
-              <div style={{ height:200, display:'flex', alignItems:'center', justifyContent:'center', color:'#cbd5e1', fontSize:13 }}>
-                Gesamtliste noch nicht importiert
+          <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', overflow:'hidden' }}>
+            <div style={{ padding:'14px 20px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8 }}>
+              <div>
+                <p style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:0 }}>Prüfstandorte — Wo · bis Wann · Wie viele</p>
+                <p style={{ fontSize:11, color:'#94a3b8', margin:'2px 0 0' }}>Sortiert nach Deadline · live aus Gesamtliste26</p>
+              </div>
+              <div style={{ display:'flex', gap:8, fontSize:11 }}>
+                {[['#ef4444','Überfällig'],['#f59e0b','Bald'],['#10b981','Geplant'],['#2563eb','2026+']].map(([c,l]) => (
+                  <div key={l} style={{ display:'flex', alignItems:'center', gap:4 }}>
+                    <div style={{ width:8, height:8, borderRadius:2, background:c }} />
+                    <span style={{ color:'#64748b' }}>{l}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {roadmapByLocation.length === 0 ? (
+              <div style={{ padding:'40px', textAlign:'center', color:'#94a3b8', fontSize:13 }}>
+                Gesamtliste noch nicht importiert — lade Gesamtliste26.csv hoch
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={roadmapData} barCategoryGap="25%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" vertical={false} />
-                  <XAxis dataKey="monat" tick={{ fontSize:11, fill:'#94a3b8' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(v:any) => [`${Number(v).toLocaleString('de-DE')} Geräte`, 'Fällig']}
-                    contentStyle={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, fontSize:12 }} />
-                  <Bar dataKey="count" radius={[5,5,0,0]}>
-                    {roadmapData.map((entry,i) => <Cell key={i} fill={entry.color} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <div style={{ maxHeight:560, overflowY:'auto' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                  <thead style={{ position:'sticky', top:0, zIndex:1, background:'#f8fafc' }}>
+                    <tr style={{ borderBottom:'1px solid #f1f5f9' }}>
+                      {['Deadline','Gebäude / Standort','Liegenschaft','Geräte','Umfang'].map(h => (
+                        <th key={h} style={{ padding:'10px 16px', textAlign: h==='Geräte' ? 'right' : 'left', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em', whiteSpace:'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roadmapByLocation.map((d:any, i:number) => (
+                      <tr key={i} style={{ borderBottom:'1px solid #f8fafc', transition:'background .1s' }}
+                        onMouseEnter={e=>(e.currentTarget as HTMLElement).style.background='#f8fafc'}
+                        onMouseLeave={e=>(e.currentTarget as HTMLElement).style.background='transparent'}>
+                        <td style={{ padding:'10px 16px', fontWeight:700, color:d.color, whiteSpace:'nowrap' }}>
+                          {new Date(d.deadline).toLocaleDateString('de-DE',{month:'short',year:'numeric'})}
+                        </td>
+                        <td style={{ padding:'10px 16px', fontWeight:600, color:'#0f172a' }}>{d.gebaeude}</td>
+                        <td style={{ padding:'10px 16px', color:'#64748b', fontSize:12 }}>{d.liegenschaft}</td>
+                        <td style={{ padding:'10px 16px', textAlign:'right', fontFamily:'monospace', fontWeight:700, color:d.color }}>{d.count.toLocaleString('de-DE')}</td>
+                        <td style={{ padding:'10px 16px', width:120 }}>
+                          <div style={{ height:5, background:'#f1f5f9', borderRadius:99, overflow:'hidden' }}>
+                            <div style={{ height:'100%', width:`${Math.min((d.count/(maxMonat?.count??1))*100,100)}%`, background:d.color, borderRadius:99 }} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         </div>
