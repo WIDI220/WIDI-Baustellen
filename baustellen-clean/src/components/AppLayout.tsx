@@ -73,8 +73,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
+        {/* Startseite Button — oben */}
+        <div style={{ padding:'8px 8px 2px' }}>
+          <button onClick={() => navigate('/')}
+            style={{ display:'flex', alignItems:'center', gap:collapsed?0:8, justifyContent:collapsed?'center':'flex-start', width:'100%', padding:collapsed?'9px 0':'7px 12px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:500, cursor:'pointer', transition:'all .15s' }}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.12)';(e.currentTarget as HTMLElement).style.color='#fff';}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.06)';(e.currentTarget as HTMLElement).style.color='rgba(255,255,255,0.5)';}}>
+            <Home size={13} />
+            {!collapsed && <span>Startseite</span>}
+          </button>
+        </div>
+
         {/* Nav */}
-        <nav style={{ flex: 1, padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
+        <nav style={{ flex: 1, padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
           {!collapsed && (
             <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,0.2)', fontWeight: 600, padding: '6px 8px 4px', margin: 0 }}>Navigation</p>
           )}
@@ -105,18 +116,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Bottom */}
         <div style={{ padding: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <button onClick={() => navigate('/')}
-            className="collapse-btn"
-            style={{
-              display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 8,
-              justifyContent: collapsed ? 'center' : 'flex-start',
-              width: '100%', padding: collapsed ? '10px 0' : '8px 12px',
-              background: 'none', border: 'none', borderRadius: 10,
-              color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-            }}>
-            <Home size={14} />
-            {!collapsed && <span>Startseite</span>}
-          </button>
+
           <button onClick={() => setCollapsed(!collapsed)}
             className="collapse-btn"
             style={{
