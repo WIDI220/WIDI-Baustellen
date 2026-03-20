@@ -78,6 +78,8 @@ export default function PdfRuecklauf() {
   const [importing, setImporting] = useState(false);
   const [liveLog, setLiveLog] = useState<LogEntry[]>([]);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
+  const [scanField, setScanField] = useState<string | null>(null); // welches Feld gerade gelesen wird
+  const [scanResult, setScanResult] = useState<{a_nummer:string|null, mitarbeiter:string|null, stunden:string|null, datum:string|null}>({a_nummer:null,mitarbeiter:null,stunden:null,datum:null});
 
   const { data: employees = [] } = useQuery({
     queryKey: ['employees'],
@@ -133,6 +135,8 @@ export default function PdfRuecklauf() {
     setFileName(file.name);
     setLiveLog([]);
     setCurrentImage(null);
+    setScanField(null);
+    setScanResult({a_nummer:null,mitarbeiter:null,stunden:null,datum:null});
     const results: OcrPageResult[] = [];
 
     try {
@@ -153,6 +157,8 @@ export default function PdfRuecklauf() {
           const imageBase64 = await renderPdfPageToBase64(buffer, i);
           result.imageBase64 = imageBase64;
           setCurrentImage(imageBase64);
+          setScanResult({a_nummer:null,mitarbeiter:null,stunden:null,datum:null});
+          setScanField('a_nummer');
 
           const ocrResult = await new Promise<any>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
@@ -194,6 +200,8 @@ export default function PdfRuecklauf() {
               addLog(i + 1, 'error', `Seite ${i + 1} — Keine A-Nummer`);
             } else {
               result.a_nummer = ocr.a_nummer;
+              setScanResult(prev => ({...prev, a_nummer: ocr.a_nummer}));
+              setScanField('mitarbeiter');
               const { data: ticket } = await supabase.from('tickets').select('id, a_nummer, status').eq('a_nummer', ocr.a_nummer).maybeSingle();
 
               if (!ticket) {
@@ -228,6 +236,8 @@ export default function PdfRuecklauf() {
                 });
 
                 result.mitarbeiter_namen = korrigierteNamen;
+                setScanResult(prev => ({...prev, mitarbeiter: korrigierteNamen.join(', ') || null}));
+                setScanField('stunden');
                 const { ids, allFound } = parseEmployees(korrigierteNamen);
                 result.mitarbeiter_ids = ids;
 
@@ -266,6 +276,8 @@ export default function PdfRuecklauf() {
                 }
 
                 result.leistungsdatum = ocr.leistungsdatum ?? new Date().toISOString().split('T')[0];
+                setScanResult(prev => ({...prev, datum: result.leistungsdatum ?? null}));
+                setScanField(null);
                 result.status = 'ok';
 
                 const empNames = ids.map(id => (employees as any[]).find((e: any) => e.id === id)?.name ?? '?').join(', ') || uniqueNamen.join(', ');
@@ -410,22 +422,20 @@ export default function PdfRuecklauf() {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-5 max-w-6xl">
       <style>{`
-        @keyframes scanBeam {
-          0% { top: 0%; opacity: 0; }
-          5% { opacity: 1; }
-          95% { opacity: 1; }
-          100% { top: 100%; opacity: 0; }
+        @keyframes dotPulse {
+          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+          40% { transform: scale(1); opacity: 1; }
         }
         @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
+          from { opacity: 0; transform: translateY(4px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
-        .fade-up { animation: fadeUp 0.25s ease forwards; }
-        .scan-beam { animation: scanBeam 2s ease-in-out infinite; position: absolute; left: 0; right: 0; }
+        .fade-up { animation: fadeUp 0.2s ease forwards; }
       `}</style>
 
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">PDF-Rücklauf</h1>
@@ -433,21 +443,23 @@ export default function PdfRuecklauf() {
         </div>
         {(phase === 'done' || phase === 'verifying') && (
           <button onClick={() => { setPages([]); setPhase('idle'); setFileName(''); setLiveLog([]); setVerifyItems([]); }}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-            <Upload className="h-4 w-4" /> Neue Datei
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
+            <Upload className="h-3.5 w-3.5" /> Neue Datei
           </button>
         )}
       </div>
 
-      {/* IDLE */}
+      {/* IDLE — Upload */}
       {phase === 'idle' && (
         <div onClick={() => fileInputRef.current?.click()}
-          className="group border-2 border-dashed border-gray-200 rounded-2xl p-16 text-center cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-all duration-300">
-          <div className="w-16 h-16 rounded-2xl bg-gray-100 group-hover:bg-blue-100 mx-auto mb-5 flex items-center justify-center transition-colors">
-            <Upload className="h-7 w-7 text-gray-400 group-hover:text-blue-500 transition-colors" />
+          className="group relative border border-gray-200 rounded-2xl bg-white cursor-pointer hover:border-gray-300 hover:shadow-sm transition-all duration-200 overflow-hidden">
+          <div className="px-8 py-14 text-center">
+            <div className="w-12 h-12 rounded-xl bg-gray-50 group-hover:bg-blue-50 border border-gray-100 mx-auto mb-4 flex items-center justify-center transition-colors">
+              <Upload className="h-5 w-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
+            </div>
+            <p className="text-sm font-semibold text-gray-700 mb-1">PDF hochladen</p>
+            <p className="text-xs text-gray-400">Alle Seiten werden einzeln zur Bestätigung angezeigt</p>
           </div>
-          <p className="text-base font-semibold text-gray-700">PDF hier ablegen oder klicken</p>
-          <p className="text-sm text-gray-400 mt-1.5">Alle Seiten werden zur Bestätigung angezeigt bevor importiert wird</p>
           <input ref={fileInputRef} type="file" accept=".pdf" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ''; }} />
         </div>
@@ -455,77 +467,154 @@ export default function PdfRuecklauf() {
 
       {/* SCANNING */}
       {phase === 'scanning' && (
-        <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-lg bg-white" style={{ minHeight: '500px' }}>
-          <div className="grid grid-cols-5 h-full" style={{ minHeight: '500px' }}>
-            {/* Links: Ticket-Bild */}
-            <div className="col-span-3 relative bg-gray-950 overflow-hidden flex items-center justify-center">
-              {currentImage ? (
-                <>
-                  <img key={currentPage} src={`data:image/png;base64,${currentImage}`}
-                    alt="Ticket" className="w-full h-full object-contain fade-up" style={{ maxHeight: '500px', opacity: 0.9 }} />
-                  <div className="scan-beam pointer-events-none">
-                    <div className="h-0.5 bg-blue-400" style={{ boxShadow: '0 0 20px 8px rgba(96,165,250,0.6)' }} />
+        <div className="grid grid-cols-5 gap-4" style={{ height: '500px' }}>
+
+          {/* Links 3/5 — Ticket mit Fokus-Ring */}
+          <div className="col-span-3 relative bg-gray-950 rounded-2xl overflow-hidden flex items-center justify-center" style={{ height: '500px' }}>
+            {currentImage ? (
+              <div className="relative w-full h-full flex items-center justify-center">
+                <img
+                  key={currentPage}
+                  src={`data:image/png;base64,${currentImage}`}
+                  alt="Ticket"
+                  id="scanTicketImg"
+                  className="object-contain"
+                  style={{ maxWidth: '85%', maxHeight: '460px', opacity: 0.92, display: 'block' }}
+                />
+                {/* Fokus-Ring: zeigt welches Feld gerade gelesen wird */}
+                {scanField && (
+                  <div
+                    className="absolute pointer-events-none"
+                    style={{
+                      border: '1.5px solid rgba(96,165,250,0.95)',
+                      borderRadius: '3px',
+                      boxShadow: '0 0 0 3px rgba(96,165,250,0.15)',
+                      transition: 'all 0.4s cubic-bezier(0.4,0,0.2,1)',
+                      ...(scanField === 'a_nummer'   ? { top: '8%',  left: '10%', width: '35%', height: '5%' } :
+                          scanField === 'mitarbeiter' ? { top: '68%', left: '30%', width: '55%', height: '6%' } :
+                          scanField === 'stunden'     ? { top: '75%', left: '45%', width: '15%', height: '5%' } :
+                          scanField === 'datum'       ? { top: '75%', left: '5%',  width: '25%', height: '5%' } :
+                          { opacity: 0 })
+                    }}
+                  />
+                )}
+                {/* KI-Punkte unten im Bild */}
+                {scanField && (
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5">
+                    {[0,1,2].map(i => (
+                      <div key={i} className="w-1.5 h-1.5 rounded-full bg-blue-400"
+                        style={{ animation: `dotPulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
+                    ))}
                   </div>
-                  <div className="absolute inset-0 pointer-events-none"
-                    style={{ background: 'linear-gradient(180deg,rgba(0,0,0,0.25) 0%,transparent 12%,transparent 88%,rgba(0,0,0,0.25) 100%)' }} />
-                  <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-full font-mono">
-                    <Scan className="h-3 w-3 text-blue-400" />
-                    {currentPage} / {totalPages}
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2.5">
+                <RefreshCw className="h-7 w-7 text-blue-400/60 animate-spin" />
+                <p className="text-gray-600 text-xs">Lade Seite...</p>
+              </div>
+            )}
+            {/* Top badges */}
+            <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
+              <div className="flex items-center gap-1.5 bg-black/55 text-white/85 text-xs px-2.5 py-1 rounded-lg font-mono">
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                {scanField ? {
+                  a_nummer: 'A-Nummer lesen...',
+                  mitarbeiter: 'Mitarbeiter erkennen...',
+                  stunden: 'Stunden lesen...',
+                  datum: 'Datum lesen...'
+                }[scanField] : 'Analysiere...'}
+              </div>
+              <span className="bg-black/55 text-white/60 text-xs px-2.5 py-1 rounded-lg font-mono">
+                {currentPage} / {totalPages}
+              </span>
+            </div>
+            {/* Progress */}
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/5">
+              <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+
+          {/* Rechts 2/5 */}
+          <div className="col-span-2 flex flex-col gap-3" style={{ height: '500px' }}>
+
+            {/* Aktuell erkannte Felder */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Erkannt</p>
+              <div className="space-y-2.5">
+                {[
+                  { label: 'A-Nummer', value: scanResult.a_nummer, field: 'a_nummer' },
+                  { label: 'Mitarbeiter', value: scanResult.mitarbeiter, field: 'mitarbeiter' },
+                  { label: 'Stunden', value: scanResult.stunden, field: 'stunden' },
+                  { label: 'Datum', value: scanResult.datum, field: 'datum' },
+                ].map(row => (
+                  <div key={row.field} className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">{row.label}</span>
+                    <span className={`text-xs font-mono font-medium transition-all duration-300
+                      ${scanField === row.field ? 'text-blue-500' :
+                        row.value ? 'text-gray-900' : 'text-gray-300'}`}>
+                      {scanField === row.field ? (
+                        <span className="flex gap-0.5">
+                          {[0,1,2].map(i => (
+                            <span key={i} className="inline-block w-1 h-1 rounded-full bg-blue-400"
+                              style={{ animation: `dotPulse 1s ease-in-out ${i*0.15}s infinite` }} />
+                          ))}
+                        </span>
+                      ) : (row.value ?? '—')}
+                    </span>
                   </div>
-                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-800">
-                    <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${progress}%` }} />
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-col items-center gap-3">
-                  <RefreshCw className="h-8 w-8 text-blue-400 animate-spin" />
-                  <p className="text-gray-500 text-sm">Bereite vor...</p>
-                </div>
-              )}
+                ))}
+              </div>
             </div>
 
-            {/* Rechts: Live-Feed */}
-            <div className="col-span-2 flex flex-col bg-gray-50 border-l border-gray-100">
-              <div className="px-5 py-4 bg-white border-b border-gray-100">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-blue-500" />
-                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Live</span>
-                  </div>
-                  <span className="text-xs font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md">{progress}%</span>
+            {/* Fortschritt */}
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Fortschritt</span>
+                <span className="text-xs font-mono text-gray-400">{progress}%</span>
+              </div>
+              <div className="bg-gray-100 rounded-full h-1.5 mb-3">
+                <div className="bg-blue-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
+              </div>
+              <div className="grid grid-cols-3 text-center gap-0">
+                <div>
+                  <p className="text-lg font-semibold text-emerald-600">{pages.filter(p => p.status === 'ok' && !p.needsReview).length}</p>
+                  <p className="text-[10px] text-gray-400">OK</p>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-emerald-50 rounded-xl p-2.5 text-center">
-                    <p className="text-lg font-bold text-emerald-700">{pages.filter(p => p.status === 'ok' && !p.needsReview).length}</p>
-                    <p className="text-[10px] text-emerald-500 font-medium">Klar</p>
-                  </div>
-                  <div className="bg-amber-50 rounded-xl p-2.5 text-center">
-                    <p className="text-lg font-bold text-amber-700">{pages.filter(p => p.needsReview && p.ticket_id).length}</p>
-                    <p className="text-[10px] text-amber-500 font-medium">Prüfung</p>
-                  </div>
-                  <div className="bg-red-50 rounded-xl p-2.5 text-center">
-                    <p className="text-lg font-bold text-red-700">{pages.filter(p => !p.ticket_id && p.status !== 'pending' && p.status !== 'processing').length}</p>
-                    <p className="text-[10px] text-red-400 font-medium">Fehler</p>
-                  </div>
+                <div className="border-x border-gray-100">
+                  <p className="text-lg font-semibold text-amber-500">{pages.filter(p => p.needsReview && p.ticket_id).length}</p>
+                  <p className="text-[10px] text-gray-400">Prüfung</p>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold text-red-400">{pages.filter(p => !p.ticket_id && p.status !== 'pending' && p.status !== 'processing').length}</p>
+                  <p className="text-[10px] text-gray-400">Fehler</p>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-                {[...liveLog].reverse().map((log, i) => (
-                  <div key={i} className={`fade-up flex items-start gap-2 px-3 py-2 rounded-xl text-xs
-                    ${log.type === 'ok' ? 'bg-emerald-50 text-emerald-700' :
-                      log.type === 'warn' ? 'bg-amber-50 text-amber-700' :
-                      log.type === 'error' ? 'bg-red-50 text-red-600' :
-                      'bg-white text-gray-500 border border-gray-100'}`}>
-                    <span className="shrink-0">{log.type === 'ok' ? '✓' : log.type === 'warn' ? '⚠' : log.type === 'error' ? '✕' : '·'}</span>
+            </div>
+
+            {/* Log — wächst nach oben, feste Höhe */}
+            <div className="flex-1 bg-white rounded-2xl border border-gray-100 overflow-hidden flex flex-col min-h-0">
+              <div className="px-4 py-2.5 border-b border-gray-50 flex-shrink-0">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Verlauf</p>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2.5 flex flex-col-reverse gap-1 min-h-0">
+                {isProcessing && (
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-blue-400 flex-shrink-0">
+                    <RefreshCw className="h-3 w-3 animate-spin shrink-0" />
+                    <span>Seite {currentPage}...</span>
+                  </div>
+                )}
+                {[...liveLog].map((log, i) => (
+                  <div key={i} className={`flex items-baseline gap-2 px-2.5 py-1.5 rounded-lg text-xs flex-shrink-0
+                    ${log.type === 'ok'    ? 'text-emerald-600' :
+                      log.type === 'warn'  ? 'text-amber-600'  :
+                      log.type === 'error' ? 'text-red-500'    : 'text-gray-400'}`}>
+                    <span className="font-semibold shrink-0">
+                      {log.type === 'ok' ? '✓' : log.type === 'warn' ? '!' : log.type === 'error' ? '✕' : '·'}
+                    </span>
                     <span>{log.message}</span>
                   </div>
                 ))}
-                {isProcessing && (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-xl text-xs text-blue-500">
-                    <RefreshCw className="h-3 w-3 animate-spin shrink-0" />
-                    <span>Analysiere Seite {currentPage}...</span>
-                  </div>
-                )}
               </div>
             </div>
           </div>
