@@ -12,6 +12,8 @@ import AppLayoutAuswertung from '@/components/AppLayoutAuswertung';
 // Startseite
 import StartPage from '@/pages/StartPage';
 import AdminLogPage from '@/pages/AdminLogPage';
+import DGUVPage from '@/pages/DGUVPage';
+import AppLayoutDGUV from '@/components/AppLayoutDGUV';
 
 // Auth
 import AuthPage from '@/pages/AuthPage';
@@ -69,6 +71,13 @@ function AppRoutes() {
       {/* ── Startseite ─────────────────────────────────── */}
       <Route path="/" element={<StartPage />} />
       <Route path="/admin/log" element={<AdminLogPage />} />
+
+      {/* ── DGUV-Bereich ───────────────────────────────── */}
+      <Route path="/dguv/*" element={
+        <AppLayoutDGUV>
+          <DGUVPage />
+        </AppLayoutDGUV>
+      } />
 
       {/* ── Baustellen-Bereich ─────────────────────────── */}
       <Route path="/baustellen/*" element={
