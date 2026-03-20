@@ -114,32 +114,49 @@ export default function MitarbeiterAuswertungPage() {
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 40 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, paddingBottom: 40, fontFamily:"'Inter',system-ui,sans-serif" }}>
+      <style>{`
+        @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+        .ma-kpi { animation:fadeUp 0.4s ease forwards; opacity:0; }
+        .ma-kpi:nth-child(1){animation-delay:0.05s}
+        .ma-kpi:nth-child(2){animation-delay:0.1s}
+        .ma-kpi:nth-child(3){animation-delay:0.15s}
+        .ma-kpi:nth-child(4){animation-delay:0.2s}
+        .ma-row:hover { background:#f8fafc !important; }
+      `}</style>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexWrap:'wrap', gap:12 }}>
         <div>
-          <h1 style={{ fontSize: 26, fontWeight: 800, color: '#0f172a', margin: '0 0 4px', letterSpacing: '-.03em' }}>
-            Mitarbeiter <span style={{ color: '#8b5cf6' }}>Auswertung</span>
+          <h1 style={{ fontSize:24, fontWeight:800, color:'#0f172a', margin:'0 0 4px', letterSpacing:'-.03em' }}>
+            Mitarbeiter <span style={{ color:'#8b5cf6' }}>Auswertung</span>
           </h1>
-          <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>Kombinierte Auswertung Tickets + Baustellen</p>
+          <p style={{ fontSize:13, color:'#94a3b8', margin:0 }}>Kombinierte Auswertung Tickets + Baustellen</p>
         </div>
         {/* Monatsnavigation */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '8px 12px', boxShadow: '0 2px 8px rgba(0,0,0,.04)' }}>
-          <button onClick={prevMonth} style={{ padding: '4px 8px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b', display: 'flex' }}><ChevronLeft size={14} /></button>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', minWidth: 140, textAlign: 'center' }}>{monatLabel}</span>
-          <button onClick={nextMonth} style={{ padding: '4px 8px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b', display: 'flex' }}><ChevronRight size={14} /></button>
+        <div style={{ display:'flex', alignItems:'center', gap:8, background:'#fff', border:'1px solid #e2e8f0', borderRadius:14, padding:'8px 12px' }}>
+          <button onClick={prevMonth} style={{ padding:'5px 9px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, cursor:'pointer', color:'#64748b', display:'flex', transition:'all .15s' }}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#f1f5f9';}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#f8fafc';}}>
+            <ChevronLeft size={14} />
+          </button>
+          <span style={{ fontSize:14, fontWeight:700, color:'#0f172a', minWidth:150, textAlign:'center' }}>{monatLabel}</span>
+          <button onClick={nextMonth} style={{ padding:'5px 9px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, cursor:'pointer', color:'#64748b', display:'flex', transition:'all .15s' }}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#f1f5f9';}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#f8fafc';}}>
+            <ChevronRight size={14} />
+          </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 14, padding: 4, width: 'fit-content' }}>
+      <div style={{ display:'flex', gap:3, background:'#f1f5f9', borderRadius:14, padding:4, width:'fit-content' }}>
         {TABS.map(t => (
           <button key={t} onClick={() => setActiveTab(t)} style={{
-            padding: '8px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, transition: 'all .15s',
+            padding:'8px 22px', borderRadius:11, border:'none', cursor:'pointer', fontSize:13, fontWeight:600, transition:'all .15s',
             background: activeTab === t ? '#fff' : 'transparent',
-            color: activeTab === t ? '#0f172a' : '#64748b',
-            boxShadow: activeTab === t ? '0 2px 8px rgba(0,0,0,.08)' : 'none',
+            color: activeTab === t ? '#0f172a' : '#94a3b8',
+            boxShadow: activeTab === t ? '0 2px 8px rgba(0,0,0,.07)' : 'none',
           }}>{t}</button>
         ))}
       </div>
@@ -149,25 +166,21 @@ export default function MitarbeiterAuswertungPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
           {/* KPIs */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
             {[
-              { label: 'Aktive Mitarbeiter', value: aktivMA, sub: `von ${emps.length} gesamt`, icon: Users, color: '#8b5cf6', bg: 'linear-gradient(135deg,#faf5ff,#ede9fe)' },
-              { label: 'Stunden gesamt', value: `${fmt(totalH)}h`, sub: monatLabel, icon: Clock, color: '#3b82f6', bg: 'linear-gradient(135deg,#eff6ff,#dbeafe)' },
-              { label: 'Personalkosten', value: fmtEur(totalKosten), sub: 'inkl. alle MA', icon: Euro, color: '#10b981', bg: 'linear-gradient(135deg,#f0fdf4,#dcfce7)' },
-              { label: 'Top Performer', value: topMA?.kuerzel ?? '–', sub: topMA ? `${fmt(topMA.gesamt)}h` : '', icon: Award, color: '#f59e0b', bg: 'linear-gradient(135deg,#fffbeb,#fef3c7)' },
+              { label:'Aktive Mitarbeiter', value:aktivMA, sub:`von ${emps.length} gesamt`, icon:Users, color:'#8b5cf6', border:'#ddd6fe' },
+              { label:'Stunden gesamt', value:`${fmt(totalH)}h`, sub:monatLabel, icon:Clock, color:'#2563eb', border:'#bfdbfe' },
+              { label:'Personalkosten', value:fmtEur(totalKosten), sub:'inkl. alle MA', icon:Euro, color:'#10b981', border:'#bbf7d0' },
+              { label:'Top Performer', value:topMA?.kuerzel??'–', sub:topMA?`${fmt(topMA.gesamt)}h`:'', icon:Award, color:'#f59e0b', border:'#fde68a' },
             ].map(k => (
-              <div key={k.label} style={{ background: k.bg, borderRadius: 16, padding: '18px 20px', border: '1px solid rgba(0,0,0,.04)', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: -8, right: -8, width: 50, height: 50, borderRadius: '50%', background: k.color, opacity: .1 }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 6px' }}>{k.label}</p>
-                    <p style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: '0 0 3px', letterSpacing: '-.02em' }}>{k.value}</p>
-                    <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{k.sub}</p>
-                  </div>
-                  <div style={{ width: 34, height: 34, borderRadius: 10, background: k.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <k.icon size={16} style={{ color: '#fff' }} />
-                  </div>
+              <div key={k.label} className="ma-kpi" style={{ background:'#fff', borderRadius:18, padding:'20px', border:`1px solid ${k.border}`, position:'relative', overflow:'hidden' }}>
+                <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color, borderRadius:'18px 18px 0 0' }} />
+                <div style={{ width:38, height:38, background:`${k.color}15`, border:`1px solid ${k.color}25`, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
+                  <k.icon size={18} style={{ color:k.color }} />
                 </div>
+                <p style={{ fontSize:26, fontWeight:900, color:'#0f172a', margin:'0 0 2px', letterSpacing:'-.04em' }}>{k.value}</p>
+                <p style={{ fontSize:12, fontWeight:600, color:'#64748b', margin:'0 0 3px' }}>{k.label}</p>
+                <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{k.sub}</p>
               </div>
             ))}
           </div>
@@ -204,9 +217,7 @@ export default function MitarbeiterAuswertungPage() {
                 <tbody>
                   {maStats.map((e, i) => (
                     <tr key={e.id} onClick={() => { setSelectedMA(e.id); setActiveTab('Einzelperson'); }}
-                      style={{ borderBottom: '1px solid #f8fafc', cursor: 'pointer', transition: 'background .1s' }}
-                      onMouseEnter={el => (el.currentTarget as HTMLElement).style.background = '#f8fafc'}
-                      onMouseLeave={el => (el.currentTarget as HTMLElement).style.background = 'transparent'}
+                      className="ma-row" style={{ borderBottom:'1px solid #f8fafc', cursor:'pointer', transition:'background .1s' }}
                     >
                       <td style={{ padding: '12px 12px', fontWeight: 600, color: '#0f172a' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
