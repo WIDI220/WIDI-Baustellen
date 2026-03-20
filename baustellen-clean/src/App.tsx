@@ -41,7 +41,6 @@ import ExcelImportPage from '@/pages/ExcelImportPage';
 
 // ── Auswertung ────────────────────────────────────────────────
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
-import AdminLogPage from '@/pages/AdminLogPage';
 import AufgabenPage from '@/pages/AufgabenPage';
 
 const queryClient = new QueryClient({
@@ -111,7 +110,6 @@ function AppRoutes() {
       } />
 
       {/* ── Auswertungs-Bereich ────────────────────────── */}
-      <Route path="/admin/log" element={<AdminLogPage />} />
 
       <Route path="/auswertung/*" element={
         <AppLayoutAuswertung>
