@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, Users, BarChart3, CheckCircle, Clock } from 'lucide-react';
+import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -20,192 +20,156 @@ export default function StartPage() {
     queryKey: ['start-employees'],
     queryFn: async () => { const { data } = await supabase.from('employees').select('id').eq('aktiv', true); return data ?? []; }
   });
-  const { data: worklogs = [] } = useQuery({
-    queryKey: ['start-worklogs'],
-    queryFn: async () => {
-      const now = new Date();
-      const from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
-      const { data } = await supabase.from('ticket_worklogs').select('stunden').gte('leistungsdatum', from);
-      return data ?? [];
-    }
-  });
 
   const t = tickets as any[];
   const b = baustellen as any[];
-  const w = worklogs as any[];
-  const totalH = w.reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
 
   const BEREICHE = [
     {
       path: '/baustellen/dashboard',
       color: '#2563eb',
-      darkColor: '#1d4ed8',
-      lightColor: '#eff6ff',
+      border: 'rgba(37,99,235,0.25)',
+      glow: 'rgba(37,99,235,0.08)',
       icon: HardHat,
       titel: 'Baustellen',
       sub: 'Controlling & Management',
       stat: b.filter(x => x.status !== 'abgerechnet').length,
       statLabel: 'aktive Projekte',
-      punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'],
+      punkte: ['Budget & Kosten', 'Zeiterfassung & Material', 'Aufträge importieren', 'Eskalationen & Fotos'],
     },
     {
       path: '/tickets/dashboard',
       color: '#10b981',
-      darkColor: '#059669',
-      lightColor: '#f0fdf4',
+      border: 'rgba(16,185,129,0.25)',
+      glow: 'rgba(16,185,129,0.08)',
       icon: Ticket,
       titel: 'Ticketsystem',
       sub: 'WIDI Controlling',
       stat: t.filter(x => x.status === 'in_bearbeitung').length,
-      statLabel: 'offen',
-      punkte: ['Tickets erfassen', 'PDF-Rücklauf OCR', 'Excel-Import', 'Monatsanalyse'],
+      statLabel: 'Tickets offen',
+      punkte: ['Tickets erfassen & verwalten', 'PDF-Rücklauf mit OCR', 'Excel-Import', 'Monatsauswertungen'],
     },
     {
       path: '/auswertung',
       color: '#8b5cf6',
-      darkColor: '#7c3aed',
-      lightColor: '#faf5ff',
+      border: 'rgba(139,92,246,0.25)',
+      glow: 'rgba(139,92,246,0.08)',
       icon: TrendingUp,
       titel: 'MA-Auswertung',
       sub: 'Mitarbeiter & Statistik',
       stat: (employees as any[]).length,
       statLabel: 'Mitarbeiter',
-      punkte: ['Stunden & Kosten', 'Monatsvergleich', 'Tickets + Baustellen', 'Trends'],
+      punkte: ['Stunden & Personalkosten', 'Tickets + Baustellen kombiniert', 'Monatsvergleich & Trends', 'Einzelperson-Analyse'],
     },
   ];
 
   return (
     <div style={{ minHeight:'100vh', background:'#0f172a', fontFamily:"'Inter',system-ui,sans-serif", display:'flex', flexDirection:'column' }}>
       <style>{`
-        @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
-        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
-        .start-nav { animation: fadeIn 0.4s ease forwards; }
-        .start-hero { animation: fadeUp 0.5s ease 0.1s forwards; opacity:0; }
-        .start-stat { animation: fadeUp 0.4s ease forwards; opacity:0; }
-        .start-stat:nth-child(1){animation-delay:0.2s}
-        .start-stat:nth-child(2){animation-delay:0.28s}
-        .start-stat:nth-child(3){animation-delay:0.36s}
-        .start-stat:nth-child(4){animation-delay:0.44s}
-        .bereich-card { animation: fadeUp 0.5s ease forwards; opacity:0; transition: transform 0.25s ease, box-shadow 0.25s ease; }
-        .bereich-card:nth-child(1){animation-delay:0.35s}
-        .bereich-card:nth-child(2){animation-delay:0.45s}
-        .bereich-card:nth-child(3){animation-delay:0.55s}
-        .bereich-card:hover { transform: translateY(-6px) !important; }
-        .float-icon { animation: float 4s ease-in-out infinite; }
-        .arrow-icon { transition: transform 0.2s ease; }
-        .bereich-card:hover .arrow-icon { transform: translateX(4px); }
+        @keyframes fadeIn  { from{opacity:0} to{opacity:1} }
+        @keyframes fadeUp  { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
+        .s-nav  { animation:fadeIn 0.35s ease forwards; }
+        .s-hero { animation:fadeUp 0.45s ease 0.05s forwards; opacity:0; }
+        .s-card { animation:fadeUp 0.45s ease forwards; opacity:0; transition:transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease; }
+        .s-card:nth-child(1){animation-delay:0.15s}
+        .s-card:nth-child(2){animation-delay:0.22s}
+        .s-card:nth-child(3){animation-delay:0.29s}
+        .s-card:hover { transform:translateY(-4px); }
+        .s-arrow { transition:transform 0.2s ease; }
+        .s-card:hover .s-arrow { transform:translateX(4px); }
       `}</style>
 
       {/* Nav */}
-      <nav className="start-nav" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 40px', height:64, borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
+      <nav className="s-nav" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 48px', height:60, borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <div style={{ width:34, height:34, borderRadius:10, background:'linear-gradient(135deg,#2563eb,#7c3aed)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <HardHat size={17} style={{ color:'#fff' }} />
+          <div style={{ width:32, height:32, borderRadius:9, background:'linear-gradient(135deg,#2563eb,#7c3aed)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <HardHat size={16} style={{ color:'#fff' }} />
           </div>
-          <div>
-            <p style={{ color:'#fff', fontWeight:800, fontSize:13, margin:0, letterSpacing:'-.01em' }}>WIDI Controlling</p>
-            <p style={{ color:'rgba(255,255,255,0.3)', fontSize:10, margin:0 }}>WIDI Hellersen GmbH</p>
-          </div>
+          <span style={{ color:'#fff', fontWeight:700, fontSize:14, letterSpacing:'-.01em' }}>WIDI Controlling</span>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(16,185,129,0.12)', border:'1px solid rgba(16,185,129,0.25)', borderRadius:20, padding:'4px 12px' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
             <div style={{ width:6, height:6, borderRadius:'50%', background:'#10b981' }} />
-            <span style={{ fontSize:11, color:'#10b981', fontWeight:600 }}>Online</span>
+            <span style={{ fontSize:11, color:'rgba(255,255,255,0.4)', fontWeight:500 }}>{user?.email}</span>
           </div>
-          <span style={{ fontSize:12, color:'rgba(255,255,255,0.3)' }}>{user?.email}</span>
-          <button onClick={() => signOut()} style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, color:'rgba(255,255,255,0.5)', fontSize:12, fontWeight:500, cursor:'pointer', transition:'all .15s' }}
-            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='rgba(239,68,68,0.15)';(e.currentTarget as HTMLElement).style.color='#fca5a5';(e.currentTarget as HTMLElement).style.borderColor='rgba(239,68,68,0.3)';}}
-            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.06)';(e.currentTarget as HTMLElement).style.color='rgba(255,255,255,0.5)';(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,0.1)';}}>
-            <LogOut size={13} /> Abmelden
+          <button onClick={() => signOut()}
+            style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 13px', background:'transparent', border:'1px solid rgba(255,255,255,0.12)', borderRadius:8, color:'rgba(255,255,255,0.4)', fontSize:12, fontWeight:500, cursor:'pointer', transition:'all .15s' }}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor='rgba(239,68,68,0.4)';(e.currentTarget as HTMLElement).style.color='#fca5a5';}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,0.12)';(e.currentTarget as HTMLElement).style.color='rgba(255,255,255,0.4)';}}>
+            <LogOut size={12} /> Abmelden
           </button>
         </div>
       </nav>
 
-      {/* Main */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'48px 40px' }}>
+      {/* Content */}
+      <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'52px 48px' }}>
 
-        {/* Hero Text */}
-        <div className="start-hero" style={{ textAlign:'center', marginBottom:52 }}>
-          <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:100, padding:'6px 16px', marginBottom:22, fontSize:12, color:'rgba(255,255,255,0.5)' }}>
-            <div style={{ width:6, height:6, borderRadius:'50%', background:'#10b981' }} />
+        {/* Hero */}
+        <div className="s-hero" style={{ textAlign:'center', marginBottom:56, maxWidth:600 }}>
+          <p style={{ color:'rgba(255,255,255,0.3)', fontSize:12, fontWeight:600, letterSpacing:'.12em', textTransform:'uppercase', margin:'0 0 18px' }}>
             {new Date().toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
-          </div>
-          <h1 style={{ color:'#fff', fontSize:52, fontWeight:900, margin:'0 0 14px', letterSpacing:'-.05em', lineHeight:1.05 }}>
-            Alles im{' '}
-            <span style={{ background:'linear-gradient(135deg,#3b82f6 0%,#8b5cf6 50%,#10b981 100%)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>
-              Griff.
-            </span>
-          </h1>
-          <p style={{ color:'rgba(255,255,255,0.4)', fontSize:17, margin:0, fontWeight:400, maxWidth:440 }}>
-            Wähle einen Bereich und starte deinen Arbeitstag.
           </p>
+          <h1 style={{ color:'#fff', fontSize:48, fontWeight:900, margin:'0 0 16px', letterSpacing:'-.05em', lineHeight:1.05 }}>
+            Willkommen zurück
+          </h1>
+          <p style={{ color:'rgba(255,255,255,0.35)', fontSize:16, margin:0, lineHeight:1.6 }}>
+            Wähle einen Bereich und starte in den Tag.
+          </p>
+
+          {/* Quick Stats */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:24, marginTop:28 }}>
+            {[
+              { icon:Ticket, value:t.filter(x=>x.status==='in_bearbeitung').length, label:'Offen', color:'#3b82f6' },
+              { icon:CheckCircle, value:t.filter(x=>['erledigt','abgerechnet'].includes(x.status)).length, label:'Erledigt', color:'#10b981' },
+              { icon:HardHat, value:b.filter(x=>x.status!=='abgerechnet').length, label:'Baustellen aktiv', color:'#f59e0b' },
+            ].map((s,i) => (
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 16px', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:10 }}>
+                <s.icon size={13} style={{ color:s.color }} />
+                <span style={{ color:'#fff', fontWeight:700, fontSize:15 }}>{s.value}</span>
+                <span style={{ color:'rgba(255,255,255,0.35)', fontSize:11 }}>{s.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Live Stats */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:48, width:'100%', maxWidth:860 }}>
-          {[
-            { icon:Ticket, label:'Offen', value:t.filter(x=>x.status==='in_bearbeitung').length, color:'#3b82f6' },
-            { icon:CheckCircle, label:'Erledigt', value:t.filter(x=>['erledigt','abgerechnet'].includes(x.status)).length, color:'#10b981' },
-            { icon:HardHat, label:'Baustellen', value:b.filter(x=>x.status!=='abgerechnet').length, color:'#f59e0b' },
-            { icon:Clock, label:'Stunden (Monat)', value:`${totalH.toFixed(1)}h`, color:'#8b5cf6' },
-          ].map((s,i) => (
-            <div key={i} className="start-stat" style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:16, padding:'16px 20px', display:'flex', alignItems:'center', gap:14 }}>
-              <div style={{ width:38, height:38, borderRadius:11, background:`${s.color}20`, border:`1px solid ${s.color}30`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                <s.icon size={17} style={{ color:s.color }} />
-              </div>
-              <div>
-                <p style={{ color:'#fff', fontSize:20, fontWeight:800, margin:0, letterSpacing:'-.03em' }}>{s.value}</p>
-                <p style={{ color:'rgba(255,255,255,0.35)', fontSize:11, margin:0, fontWeight:500 }}>{s.label}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+        {/* Cards */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16, width:'100%', maxWidth:960 }}>
+          {BEREICHE.map((b, i) => (
+            <div key={i} className="s-card"
+              onClick={() => navigate(b.path)}
+              style={{ background:'rgba(255,255,255,0.03)', border:`1px solid ${b.border}`, borderRadius:20, padding:'26px 24px', cursor:'pointer', position:'relative', overflow:'hidden' }}
+              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.boxShadow=`0 20px 50px ${b.glow}, 0 0 0 1px ${b.color}40`;}}
+              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.boxShadow='none';}}>
 
-        {/* Bereichs-Cards */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:18, width:'100%', maxWidth:980 }}>
-          {BEREICHE.map((bereich, i) => (
-            <div key={i} className="bereich-card"
-              onClick={() => navigate(bereich.path)}
-              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:22, padding:'28px 26px', cursor:'pointer', position:'relative', overflow:'hidden' }}
-              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.07)';(e.currentTarget as HTMLElement).style.borderColor=`${bereich.color}50`;(e.currentTarget as HTMLElement).style.boxShadow=`0 24px 60px ${bereich.color}25`;}}
-              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.04)';(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,0.08)';(e.currentTarget as HTMLElement).style.boxShadow='none';}}>
+              {/* Subtle top accent */}
+              <div style={{ position:'absolute', top:0, left:0, right:0, height:1, background:`linear-gradient(90deg, ${b.color}80, transparent)` }} />
 
-              {/* Glow */}
-              <div style={{ position:'absolute', top:-60, right:-60, width:180, height:180, borderRadius:'50%', background:`radial-gradient(circle, ${bereich.color}18 0%, transparent 70%)`, pointerEvents:'none' }} />
-
-              {/* Top */}
+              {/* Header */}
               <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:20 }}>
-                <div className="float-icon" style={{ animationDelay:`${i*1.3}s`, width:52, height:52, borderRadius:16, background:`${bereich.color}20`, border:`1px solid ${bereich.color}35`, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  <bereich.icon size={24} style={{ color:bereich.color }} />
+                <div style={{ width:46, height:46, borderRadius:14, background:`${b.color}18`, border:`1px solid ${b.color}30`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <b.icon size={22} style={{ color:b.color }} />
                 </div>
                 <div style={{ textAlign:'right' }}>
-                  <p style={{ color:bereich.color, fontSize:26, fontWeight:900, margin:0, letterSpacing:'-.04em' }}>{bereich.stat}</p>
-                  <p style={{ color:'rgba(255,255,255,0.3)', fontSize:10, margin:0, fontWeight:500 }}>{bereich.statLabel}</p>
+                  <p style={{ color:b.color, fontSize:28, fontWeight:900, margin:0, letterSpacing:'-.04em', lineHeight:1 }}>{b.stat}</p>
+                  <p style={{ color:'rgba(255,255,255,0.25)', fontSize:10, margin:'2px 0 0', fontWeight:500 }}>{b.statLabel}</p>
                 </div>
               </div>
 
-              {/* Title */}
-              <h2 style={{ color:'#fff', fontSize:20, fontWeight:800, margin:'0 0 4px', letterSpacing:'-.03em' }}>{bereich.titel}</h2>
-              <p style={{ color:'rgba(255,255,255,0.35)', fontSize:12, margin:'0 0 20px', fontWeight:500 }}>{bereich.sub}</p>
+              <h2 style={{ color:'#fff', fontSize:18, fontWeight:800, margin:'0 0 3px', letterSpacing:'-.02em' }}>{b.titel}</h2>
+              <p style={{ color:'rgba(255,255,255,0.3)', fontSize:12, margin:'0 0 18px', fontWeight:500 }}>{b.sub}</p>
 
-              {/* Feature list */}
-              <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:22 }}>
-                {bereich.punkte.map(p => (
-                  <div key={p} style={{ display:'flex', alignItems:'center', gap:9 }}>
-                    <div style={{ width:4, height:4, borderRadius:'50%', background:bereich.color, flexShrink:0, opacity:0.7 }} />
-                    <span style={{ fontSize:12, color:'rgba(255,255,255,0.4)' }}>{p}</span>
+              <div style={{ display:'flex', flexDirection:'column', gap:5, marginBottom:20 }}>
+                {b.punkte.map(p => (
+                  <div key={p} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <div style={{ width:3, height:3, borderRadius:'50%', background:b.color, opacity:0.6, flexShrink:0 }} />
+                    <span style={{ fontSize:12, color:'rgba(255,255,255,0.35)' }}>{p}</span>
                   </div>
                 ))}
               </div>
 
-              {/* CTA */}
-              <div style={{ display:'flex', alignItems:'center', gap:6, color:bereich.color, fontSize:13, fontWeight:700 }}>
-                Öffnen <ArrowRight size={14} className="arrow-icon" />
+              <div style={{ display:'flex', alignItems:'center', gap:5, color:b.color, fontSize:13, fontWeight:600 }}>
+                Öffnen <ArrowRight size={13} className="s-arrow" />
               </div>
-
-              {/* Bottom accent line */}
-              <div style={{ position:'absolute', bottom:0, left:0, right:0, height:2, background:`linear-gradient(90deg, ${bereich.color}, transparent)`, opacity:0.5 }} />
             </div>
           ))}
         </div>
