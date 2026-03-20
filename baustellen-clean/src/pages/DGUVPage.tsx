@@ -1,48 +1,73 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { Upload, CheckCircle, AlertTriangle, Download, FileText, Users, Calendar, BarChart2, ArrowRight, RefreshCw, X, Info } from 'lucide-react';
+import { Upload, Download, RefreshCw, Info, CheckCircle, AlertTriangle, BarChart2, Calendar, X } from 'lucide-react';
 
-// ═══════════════════════════════════════════════════════
-// NORMBEZEICHNUNGEN (aus Tabelle2)
-// ═══════════════════════════════════════════════════════
-const NORMBEZ: string[] = ["Airhockeytisch","Aktenvernichter","Anschlusskabel","Apple TV","Aquariumzubehör","Babyphone","Barcode / QR-Codescanner","Batterietester","Beamer","Beistellmodul (Telefon)","Beschriftungsgerät","Bettbeleuchtung","Bildimporter","Blaulichtlampe","Blu-ray / DVD Player","Bohrmaschine","Bratpfanne","Brutschrank","Bügelbrett","Bügeleisen","CD / Radio / Kassettenrekorder","Crêpes-Eisen","Dartscheibe (elektrisch)","Deckenfluter","Dekobeleuchtung","Desinfektionsmittelmischgerät","Digitaler Fotorahmen","Diktiergerät","Docking Station","Dosieranlage","Dreiwalzwerk","Drucker","Duftlampe","Dunstabzugshaube","Durchlauferhitzer","Eierkocher","Einkochautomat","Einschaltstrombegrenzer","Elektroherd","Elektronische Wetterstation","Entsafter","Etikettendrucker","Falschgelddetektor","Faltmaschine","Fango-Ofen","Faxgerät","Fernseher","Flaschenwärmer","Fleischwolf (elektrisch)","Fliegenfalle (elektrisch)","Fritteuse","Fräsmaschine","Fußschalter","Fußwärmer","Fön","Gefrierschrank","Geldzähler","Globus (elektrisch)","Glühweinkocher","Graviergerät","Grill (elektrisch)","Haarschneidemaschine","Haartrockner","Handlampe","Handmixer","Handnotleuchte","Handstaubsauger","Headset","Heizbad","Heizdecke","Heizkissen","Heizlüfter","Heizung (elektrisch)","Heißgeräteanschlussleitung","Heißklebepistole","Heißluftfön","Infrarotlampe","Kabeltrommel","Kaffeemaschine","Kaffeemühle","Kaffeevollautomat","Kalender (digital)","Kaltgeräteanschlussleitung","Kamin (elektrisch)","Kartenlesegerät","Kartenzahlungsgerät","Keyboard","Kiesbad","Kochplatte","Konferenztelefon","Konvektor","Körperwaage","Küchenmaschine","Küchenwaage","Kühl- und Gefrierkombination","Kühlschrank","Kühltruhe","LED Treiber","Labeldrucker","Ladegerät / Ladestation","Laminiergerät","Lasergerät","Lautsprecher","Lesehilfe","Lichterbogen","Lichterkette","Liege (elektrisch)","Lockenstab","Luft-Kompressor","Luftfilteranlage","Lötkolben","Lüfter","Massagegerät (Infrarot)","Mehrfachsteckdose","Mikrofon","Mikrowelle","Milchaufschäumer","Milchwaage","Mischpult","Modem","Monitor","Multifunktionsgerät (Drucker&Scanner)","Nachtlicht","Nähmaschine","Overhead Projektor","PC","PC (mobil)","PC Arbeitsplatz","Parafinbad","Parkscheinentwerter","Partytopf","Patchmaschine","Pendelleuchte","Popcornmaschine","Pumpe (elektrisch)","Rasierer","Receiver","Rechenmaschine","Router/Switch","Sandwichmaker","Scanner","Scheinwerfer","Schleifmaschine","Schließfach","Schneidemaschine","Schokoladenbrunnen","Schranklampe","Schreibmaschine (elektrisch)","Schreibtischlampe","Schwarzlichtlampe","Sessel (elektrisch)","Spielekonsole","Sportgerät (elektrisch)","Spülmaschine","Stabmixer","Standbohrmaschine","Standlampe","Standmixer","Staub/Nasssauger","Steckdose mit Schalter","Steckernetzteil","Stift","Stromverteiler 400V","Säge","Tacker (elektrisch)","Tafelsteuerung","Tauchpumpe","Teekocher","Teigknetmaschine","Tellerwärmer","Temperaturfühler","Tiefkühltruhe","Tisch (elektrisch)","Tischfräse","Toaster","Topf (elektrisch)","Trockner","USV (Unterbrechungsfreie Stromversorgung)","Uhr","Ultraschallreinigungsgerät","Untertischgerät","VGA Switch","Ventilator","Verlängerung 230V","Verlängerung 400V","Vernebler","Verstärker","Videokamera","Videokonferenzanlage","Videorekorder","Waffeleisen","Waschmaschine","Wasserbett","Wasserbrunnen","Wasserkocher","Wasserspender","Wecker","Whiteboard","Wok (elektrisch)","Wärmematte","Wärmeplatte","Wärmeschrank","Wärmestrahler","Wärmewagen","Zahnbürste (elektrisch)","Zeichentisch","Zeitschaltuhr (elektrisch)","Zigarettenstopfgerät","Zimmerantenne","iPad","mobiles Klimagerät","Überspannungsschutz Feinschutz Typ 3"];
+// ═══════════════════════════════════════
+// BEZEICHNUNGS-MAPPING (aus Vorlage gelernt)
+// ═══════════════════════════════════════
+const BEZ_MAP: Record<string, string> = {
+  'netzteil': 'Steckernetzteil','anschlussleitung': 'Anschlusskabel',
+  'schreibtischleuchte': 'Schreibtischlampe','radio': 'CD / Radio / Kassettenrekorder',
+  'prüfgerät': 'Steckernetzteil','usv': 'USV (Unterbrechungsfreie Stromversorgung)',
+  'verlängerung 240v': 'Verlängerung 230V','verlängerung-230v': 'Verlängerung 230V',
+  '230v-verlängerung': 'Verlängerung 230V','230v verlängerung': 'Verlängerung 230V',
+  'verlängerungskabel 240 v': 'Verlängerung 230V',
+  'schreibtisch höhenverstellbar': 'Tisch (elektrisch)',
+  'elektrisch verstellbarer tisch': 'Tisch (elektrisch)',
+  'elektrisch höhenverstellbarer tisch': 'Tisch (elektrisch)',
+  'el. verstellbarer tisch': 'Tisch (elektrisch)','tisch elektrisch': 'Tisch (elektrisch)',
+  'staubsauger': 'Staub/Nasssauger','standventilator': 'Ventilator',
+  'batterieladegerät': 'Steckernetzteil','ladegerät': 'Steckernetzteil',
+  'ladestation': 'Steckernetzteil','poweradapter': 'Steckernetzteil',
+  'telefon': 'Steckernetzteil','leuchte': 'Schreibtischlampe',
+  'schreibtischlame': 'Schreibtischlampe','dekolampe': 'Dekobeleuchtung',
+  'dekoleuchte': 'Dekobeleuchtung','dekolicht': 'Dekobeleuchtung',
+  'deckenleuchte': 'Deckenfluter','weihnachtslichterbogen': 'Dekobeleuchtung',
+  'dosiergerät': 'Desinfektionsmittelmischgerät',
+  'desinfiktionsmittelnischer': 'Desinfektionsmittelmischgerät',
+  'mehrfachteckdose': 'Mehrfachsteckdose','mehrfacksteckdose': 'Mehrfachsteckdose',
+  'mehrfaachsteckdose': 'Mehrfachsteckdose','mehrfacchsteckdose': 'Mehrfachsteckdose',
+  'mahrfachsteckdose': 'Mehrfachsteckdose','mehrfachstckdose': 'Mehrfachsteckdose',
+  'steckdosenleiste': 'Mehrfachsteckdose','aluminium steckdosenleiste': 'Mehrfachsteckdose',
+  'mehrfachsteckdosenzuleitung': 'Anschlusskabel','anchlusskabel': 'Anschlusskabel',
+  'anshlussleitung': 'Anschlusskabel','zuleitung': 'Anschlusskabel',
+  'kaltgerätestecker': 'Kaltgeräteanschlussleitung',
+  'kaltgeräteanchlussleitung': 'Kaltgeräteanschlussleitung',
+  'kaltgeräteanschlssleitung': 'Kaltgeräteanschlussleitung',
+  'kaltgeräteaanschlussleitung': 'Kaltgeräteanschlussleitung',
+  'kaltgeräteanschlusleitung': 'Kaltgeräteanschlussleitung',
+  'kaltgeräteaschlussleitung': 'Kaltgeräteanschlussleitung',
+  'kaltgerääteanschlussleitung': 'Kaltgeräteanschlussleitung',
+  'kaltegeräteanschlussleitung': 'Kaltgeräteanschlussleitung',
+  'kaltgeräteanschuzssleitung': 'Kaltgeräteanschlussleitung',
+  'drucker/scanner/kopierer': 'Drucker','multifunktionsgerät': 'Drucker',
+  'multifunktionsgeräz': 'Drucker','klimagerät': 'mobiles Klimagerät',
+  'not-hand-leuchte': 'Handnotleuchte','hand-not-leuchte': 'Handnotleuchte',
+  'notbeleuchtung': 'Handnotleuchte','heißluftföhn': 'Heißluftfön','föhn': 'Fön',
+  'kaffemaschine': 'Kaffeemaschine','overheadprojektor': 'Overhead Projektor',
+  'tageslichtprojektor': 'Overhead Projektor','laminiergrät': 'Laminiergerät',
+  'steckeernetzteil': 'Steckernetzteil','stecckernetzteil': 'Steckernetzteil',
+  'hifi gerät': 'CD / Radio / Kassettenrekorder',
+  'hi-fi anlage': 'CD / Radio / Kassettenrekorder',
+  'radio / cd-player': 'CD / Radio / Kassettenrekorder',
+  'vhs-viderecorder': 'Videorekorder','dvd player': 'Blu-ray / DVD Player',
+  'bluray / dvd-spieler': 'Blu-ray / DVD Player','philips fernseher': 'Fernseher',
+  'siemens kaffevollautomat': 'Kaffeevollautomat','el. heizung': 'Heizung (elektrisch)',
+  'monitot': 'Monitor','kühschrank': 'Kühlschrank',
+  'netzteil für schreibtischlampe': 'Steckernetzteil',
+};
 
-// ═══════════════════════════════════════════════════════
-// FUZZY MATCH
-// ═══════════════════════════════════════════════════════
-function fuzzyScore(a: string, b: string): number {
-  const s = a.toLowerCase().trim();
-  const t = b.toLowerCase().trim();
-  if (s === t) return 1;
-  if (t.includes(s) || s.includes(t)) return 0.85;
-  let matches = 0;
-  const longer = s.length > t.length ? s : t;
-  const shorter = s.length > t.length ? t : s;
-  for (let i = 0; i < shorter.length; i++) {
-    if (longer.includes(shorter[i])) matches++;
-  }
-  return matches / longer.length;
+function normalizeBez(bez: string): string {
+  if (!bez) return bez;
+  return BEZ_MAP[bez.toLowerCase().trim()] ?? bez;
 }
 
-function findBestMatch(bez: string): { match: string; score: number } | null {
-  if (!bez) return null;
-  const trimmed = bez.trim();
-  const exact = NORMBEZ.find(n => n.toLowerCase() === trimmed.toLowerCase());
-  if (exact) return { match: exact, score: 1 };
-  let best = { match: '', score: 0 };
-  for (const norm of NORMBEZ) {
-    const score = fuzzyScore(trimmed, norm);
-    if (score > best.score) best = { match: norm, score };
-  }
-  return best.score > 0.55 ? best : null;
-}
-
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════
 // CSV PARSER
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════
 function parseCSV(text: string): Record<string, string>[] {
   const lines = text.split('\n').filter(l => l.trim());
   if (lines.length < 2) return [];
@@ -56,150 +81,248 @@ function parseCSV(text: string): Record<string, string>[] {
   }).filter(r => r['ID'] || r['BEZEICHNUNG']);
 }
 
-// ═══════════════════════════════════════════════════════
-// VERARBEITUNG
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════
+// VERARBEITUNG — exakt wie Abrechnung
+// ═══════════════════════════════════════
 interface Aenderung {
   id: string;
   feld: string;
   vorher: string;
   nachher: string;
-  grund: string;
-  typ: 'auto' | 'vorschlag' | 'neu';
 }
 
-interface VerarbeitungsErgebnis {
-  zeilen: Record<string, string>[];
+interface VerarbResult {
+  rows: Record<string, string>[];
   aenderungen: Aenderung[];
-  neuePrueoflinge: Record<string, string>[];
 }
 
-function verarbeite(rohdaten: Record<string, string>[], gesamtIds: Set<string>): VerarbeitungsErgebnis {
+function verarbeite(rohdaten: Record<string, string>[]): VerarbResult {
   const aenderungen: Aenderung[] = [];
-  const neuePrueoflinge: Record<string, string>[] = [];
-
-  const zeilen = rohdaten.map(row => {
+  const rows = rohdaten.map(row => {
     const neu = { ...row };
-    const id = String(row['ID'] ?? '').trim();
+    const id = row['ID'] ?? '';
 
-    // 1. RAUM aus ABTEILUNG extrahieren
-    const abteilung = row['ABTEILUNG'] ?? '';
-    const raumMatch = abteilung.match(/R(\d{3,4})/);
-    if (raumMatch && !row['RAUM']) {
-      neu['RAUM'] = raumMatch[0].replace('R', 'R');
-      aenderungen.push({ id, feld: 'RAUM', vorher: '', nachher: raumMatch[0], grund: `Aus ABTEILUNG extrahiert: ${abteilung}`, typ: 'auto' });
-    }
-
-    // 2. KUNDENBEZEICHNUNG kürzen
-    const kundenbez = row['KUNDENBEZEICHNUNG'] ?? '';
-    if (kundenbez.match(/^\d+ - /)) {
-      const kurz = kundenbez.replace(/^\d+ - /, '').replace(/,.*$/, '').trim();
-      if (kurz !== kundenbez) {
-        neu['KUNDENBEZEICHNUNG'] = kurz;
-        aenderungen.push({ id, feld: 'KUNDENBEZEICHNUNG', vorher: kundenbez, nachher: kurz, grund: 'Präfix und Standortangabe entfernt', typ: 'auto' });
-      }
-    }
-
-    // 3. Neu? markieren
-    const bemerkung = (row['BEMERKUNG'] ?? '').toLowerCase().trim();
-    if (bemerkung === 'neu' || bemerkung === 'neru' || bemerkung.startsWith('neu,') || bemerkung.startsWith('neu ')) {
-      if (!neu['Neu?']) {
-        neu['Neu?'] = 'NEU';
-        if (bemerkung !== 'neu') {
-          aenderungen.push({ id, feld: 'BEMERKUNG', vorher: row['BEMERKUNG'], nachher: 'NEU', grund: 'Schreibweise normalisiert', typ: 'auto' });
-        }
-      }
-    }
-
-    // 4. Bezeichnung prüfen
+    // BEZEICHNUNG normieren
     const bez = row['BEZEICHNUNG'] ?? '';
-    if (bez) {
-      const match = findBestMatch(bez);
-      if (match && match.score === 1) {
-        // Exakt — ok
-      } else if (match && match.score > 0.8) {
-        neu['BEZEICHNUNG'] = match.match;
-        aenderungen.push({ id, feld: 'BEZEICHNUNG', vorher: bez, nachher: match.match, grund: `Bezeichnung normiert (${Math.round(match.score * 100)}% Übereinstimmung)`, typ: 'auto' });
-      } else if (match && match.score > 0.55) {
-        aenderungen.push({ id, feld: 'BEZEICHNUNG', vorher: bez, nachher: match.match, grund: `Vorschlag (${Math.round(match.score * 100)}% Übereinstimmung) — bitte prüfen`, typ: 'vorschlag' });
-      }
+    const bezNorm = normalizeBez(bez);
+    if (bezNorm !== bez && bez) {
+      aenderungen.push({ id, feld: 'BEZEICHNUNG', vorher: bez, nachher: bezNorm });
+      neu['BEZEICHNUNG'] = bezNorm;
     }
 
-    // 5. Neue Prüflinge erkennen
-    if (id && !gesamtIds.has(id)) {
-      neuePrueoflinge.push(row);
-      neu['Neu?'] = 'NEU PRÜFLING';
-      aenderungen.push({ id, feld: 'STATUS', vorher: '', nachher: 'Neuer Prüfling', grund: `ID ${id} nicht in Gesamtliste`, typ: 'neu' });
+    // BEMERKUNG normieren (NEU/neu/Neu → NEU)
+    const bem = (row['BEMERKUNG'] ?? '').trim();
+    if (bem && bem.toUpperCase().startsWith('NEU') && bem !== 'NEU') {
+      aenderungen.push({ id, feld: 'BEMERKUNG', vorher: bem, nachher: 'NEU' });
+      neu['BEMERKUNG'] = 'NEU';
     }
+
+    // Neu? Spalte setzen
+    const bemFinal = neu['BEMERKUNG'] ?? '';
+    neu['Neu?'] = bemFinal === 'NEU' ? 'NEU' : '';
 
     return neu;
   });
 
-  return { zeilen, aenderungen, neuePrueoflinge };
+  return { rows, aenderungen };
 }
 
-// ═══════════════════════════════════════════════════════
-// EXCEL EXPORT
-// ═══════════════════════════════════════════════════════
-function exportCSV(zeilen: Record<string, string>[], dateiname: string) {
-  if (!zeilen.length) return;
-  const headers = Object.keys(zeilen[0]);
-  const rows = zeilen.map(z => headers.map(h => `"${(z[h] ?? '').replace(/"/g, '""')}"`).join(';'));
-  const csv = [headers.join(';'), ...rows].join('\n');
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = dateiname; a.click();
-  URL.revokeObjectURL(url);
+// ═══════════════════════════════════════
+// EXCEL EXPORT mit SheetJS
+// ═══════════════════════════════════════
+async function exportExcel(rows: Record<string, string>[], dateiname: string) {
+  // SheetJS laden
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs' as any);
+
+  // Spaltenreihenfolge exakt wie Abrechnung
+  const COLS = [
+    'OBJEKTTYP','ID','BEZEICHNUNG','TYP','SERIENNUMMER','HERSTELLER','STATUS',
+    'INTERVALL (MONATE)','LETZTE PRÜFUNG','LETZTER PRÜFER','STATUS TERMIN',
+    'ERGEBNIS DER LETZTEN PRÜFUNG','NÄCHSTE PRÜFUNG','ABTEILUNG','KOSTENSTELLE',
+    'DOKUMENTE','PRÜFSEQUENZ','AKTIV','ERFASST AM','GEÄNDERT AM','ERFASST VON',
+    'BEMERKUNG','KUNDENBEZEICHNUNG','KUNDEN-ID','LIEGENSCHAFT','LIEGENSCHAFTS-ID',
+    'GEBÄUDE','GEBÄUDE-ID','EBENE','EBENEN-ID','RAUM','RAUM-ID','Neu?'
+  ];
+
+  const wb = XLSX.utils.book_new();
+
+  // Tabelle1 — Hauptdaten
+  const wsData = [COLS, ...rows.map(row => COLS.map(col => row[col] ?? ''))];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  // Spaltenbreiten exakt wie Original
+  const colWidths = [
+    {wch:12},{wch:7},{wch:42},{wch:18},{wch:25},{wch:16},{wch:10},
+    {wch:20},{wch:18},{wch:17},{wch:16},{wch:31},{wch:19},{wch:23},
+    {wch:15},{wch:14},{wch:15},{wch:7},{wch:13},{wch:15},{wch:14},
+    {wch:13},{wch:76},{wch:19},{wch:15},{wch:18},{wch:10},{wch:13},
+    {wch:8},{wch:12},{wch:8},{wch:10},{wch:13}
+  ];
+  ws['!cols'] = colWidths;
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Tabelle1');
+
+  // Download
+  XLSX.writeFile(wb, dateiname.replace('.csv', '_Abrechnung.xlsx'));
 }
 
-// ═══════════════════════════════════════════════════════
-// ROADMAP DATEN
-// ═══════════════════════════════════════════════════════
-const ROADMAP_DATA = [
-  { monat: 'Jan 25', count: 16, color: '#ef4444' },
-  { monat: 'Jul 25', count: 88, color: '#f59e0b' },
-  { monat: 'Aug 25', count: 198, color: '#f59e0b' },
-  { monat: 'Sep 25', count: 337, color: '#f59e0b' },
-  { monat: 'Okt 25', count: 167, color: '#f59e0b' },
-  { monat: 'Nov 25', count: 218, color: '#f59e0b' },
-  { monat: 'Dez 25', count: 200, color: '#f59e0b' },
-  { monat: 'Jan 26', count: 971, color: '#10b981' },
-  { monat: 'Feb 26', count: 294, color: '#10b981' },
-  { monat: 'Mär 26', count: 1617, color: '#10b981' },
-  { monat: 'Apr 26', count: 160, color: '#10b981' },
-  { monat: 'Mai 26', count: 1683, color: '#10b981' },
-  { monat: 'Jun 26', count: 2421, color: '#2563eb' },
-  { monat: 'Jul 26', count: 2340, color: '#2563eb' },
-  { monat: 'Aug 26', count: 4797, color: '#2563eb' },
-  { monat: 'Sep 26', count: 3169, color: '#2563eb' },
-  { monat: 'Okt 26', count: 1701, color: '#2563eb' },
-  { monat: 'Nov 26', count: 1451, color: '#2563eb' },
-  { monat: 'Dez 26', count: 1064, color: '#2563eb' },
-];
+// ═══════════════════════════════════════
+// ROADMAP FARBE
+// ═══════════════════════════════════════
+function roadmapColor(dateStr: string): string {
+  const now = new Date();
+  const d = new Date(dateStr);
+  const diffMonths = (d.getFullYear() - now.getFullYear()) * 12 + d.getMonth() - now.getMonth();
+  if (diffMonths < 0) return '#ef4444';
+  if (diffMonths < 6) return '#f59e0b';
+  if (diffMonths < 12) return '#10b981';
+  return '#2563eb';
+}
 
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════
+// GESAMTLISTE IMPORT
+// ═══════════════════════════════════════
+function GesamtlisteImport({ onImported }: { onImported: () => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [status, setStatus] = useState<'idle'|'loading'|'done'|'error'>('idle');
+  const [count, setCount] = useState(0);
+  const [gesamtCount, setGesamtCount] = useState(0);
+
+  useEffect(() => {
+    supabase.from('dguv_geraete').select('id', { count: 'exact', head: true }).then(({ count }) => {
+      if (count) setGesamtCount(count);
+    });
+  }, [status]);
+
+  async function handleImport(file: File) {
+    setStatus('loading');
+    try {
+      const text = await file.text();
+      const rows = parseCSV(text);
+      let imported = 0;
+      const batchSize = 200;
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize).map(r => {
+          const parseD = (v: string) => {
+            if (!v) return null;
+            const m = v.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/);
+            if (m) {
+              const y = m[3].length === 2 ? `20${m[3]}` : m[3];
+              return `${y}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+            }
+            return null;
+          };
+          return {
+            id: r['ID']?.trim(),
+            bezeichnung: r['BEZEICHNUNG'] || null,
+            intervall_monate: r['INTERVALL (MONATE)'] ? parseInt(r['INTERVALL (MONATE)']) || null : null,
+            letzte_pruefung: parseD(r['LETZTE PRÜFUNG']),
+            letzter_pruefer: r['LETZTER PRÜFER'] || null,
+            naechste_pruefung: parseD(r['NÄCHSTE PRÜFUNG']),
+            abteilung: r['ABTEILUNG'] || null,
+            kostenstelle: r['KOSTENSTELLE'] || null,
+            gebaeude: r['GEBÄUDE'] || null,
+            ebene: r['EBENE'] || null,
+            liegenschaft: r['LIEGENSCHAFT'] || null,
+            kundenbezeichnung: r['KUNDENBEZEICHNUNG'] || null,
+            aktiv: true,
+          };
+        }).filter(r => r.id);
+        await supabase.from('dguv_geraete').upsert(batch, { onConflict: 'id' });
+        imported += batch.length;
+        setCount(imported);
+      }
+      setStatus('done');
+      onImported();
+    } catch { setStatus('error'); }
+  }
+
+  if (gesamtCount > 0 && status === 'idle') return (
+    <div style={{ background:'#f0fdf4', borderRadius:12, border:'1px solid #bbf7d0', padding:'10px 16px', display:'flex', alignItems:'center', gap:8 }}>
+      <CheckCircle size={14} style={{ color:'#10b981', flexShrink:0 }} />
+      <span style={{ fontSize:12, color:'#065f46', fontWeight:600 }}>Gesamtliste: {gesamtCount.toLocaleString('de-DE')} Geräte ✓</span>
+      <button onClick={() => fileInputRef.current?.click()} style={{ marginLeft:'auto', fontSize:11, color:'#059669', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Aktualisieren</button>
+      <input ref={fileInputRef} type="file" accept=".csv" style={{ display:'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ''; }} />
+    </div>
+  );
+
+  return (
+    <div style={{ background:'#fffbeb', borderRadius:12, border:'1px solid #fde68a', padding:'12px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <AlertTriangle size={15} style={{ color:'#f59e0b', flexShrink:0 }} />
+        <div>
+          <p style={{ fontSize:13, fontWeight:700, color:'#92400e', margin:0 }}>Gesamtliste noch nicht importiert</p>
+          <p style={{ fontSize:11, color:'#b45309', margin:'2px 0 0' }}>Einmalig Gesamtliste26.csv hochladen für Roadmap und Prüflings-Erkennung</p>
+        </div>
+      </div>
+      {status === 'loading' ? (
+        <div style={{ display:'flex', alignItems:'center', gap:6, color:'#f59e0b', fontSize:12, fontWeight:600 }}>
+          <RefreshCw size={13} className="animate-spin" /> {count.toLocaleString('de-DE')}...
+        </div>
+      ) : (
+        <button onClick={() => fileInputRef.current?.click()}
+          style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', background:'#f59e0b', color:'#fff', border:'none', borderRadius:9, fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
+          <Upload size={12} /> Gesamtliste26.csv
+        </button>
+      )}
+      <input ref={fileInputRef} type="file" accept=".csv" style={{ display:'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ''; }} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════
 // TABS
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════
 const TABS = ['Verarbeitung', 'Roadmap', 'Auswertung'] as const;
 type Tab = typeof TABS[number];
 
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════
 // HAUPTKOMPONENTE
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════
 export default function DGUVPage() {
-  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<Tab>('Verarbeitung');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [ergebnis, setErgebnis] = useState<VerarbeitungsErgebnis | null>(null);
+  const [ergebnis, setErgebnis] = useState<VerarbResult | null>(null);
   const [dateiname, setDateiname] = useState('');
-  const [filterTyp, setFilterTyp] = useState<'alle' | 'auto' | 'vorschlag' | 'neu'>('alle');
-  const [showNurNeu, setShowNurNeu] = useState(false);
+  const [filterTyp, setFilterTyp] = useState<'alle'|'bezeichnung'|'bemerkung'>('alle');
+  const [roadmapRefresh, setRoadmapRefresh] = useState(0);
 
-  // Gesamtliste IDs aus Supabase laden (falls gespeichert) oder direkt aus CSV
-  // Für jetzt nutzen wir die bekannte Anzahl
-  const GESAMT_IDS_COUNT = 23352;
+  // Roadmap aus Supabase
+  const { data: roadmapRaw = [] } = useQuery({
+    queryKey: ['dguv-roadmap', roadmapRefresh],
+    queryFn: async () => {
+      const { data } = await supabase.from('dguv_geraete').select('naechste_pruefung').not('naechste_pruefung', 'is', null);
+      return data ?? [];
+    },
+  });
+
+  const roadmapData = (() => {
+    const counts: Record<string, number> = {};
+    (roadmapRaw as any[]).forEach((r: any) => {
+      if (!r.naechste_pruefung) return;
+      const key = r.naechste_pruefung.slice(0, 7);
+      counts[key] = (counts[key] ?? 0) + 1;
+    });
+    return Object.entries(counts).sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, count]) => ({
+        monat: new Date(key + '-15').toLocaleDateString('de-DE', { month: 'short', year: '2-digit' }),
+        count, color: roadmapColor(key + '-15'), key,
+      })).filter(d => d.count > 5);
+  })();
+
+  const totalGeraete = (roadmapRaw as any[]).length;
+  const maxMonat = roadmapData.reduce((m, d) => d.count > (m?.count ?? 0) ? d : m, roadmapData[0]);
+
+  // Prüfer-Stats
+  const prueferStats = ergebnis ? (() => {
+    const stats: Record<string, number> = {};
+    ergebnis.rows.forEach(r => {
+      const p = r['LETZTER PRÜFER'] || 'Unbekannt';
+      stats[p] = (stats[p] ?? 0) + 1;
+    });
+    return Object.entries(stats).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+  })() : [];
 
   async function handleFile(file: File) {
     setIsProcessing(true);
@@ -208,30 +331,44 @@ export default function DGUVPage() {
 
     try {
       const text = await file.text();
-      let rohdaten: Record<string, string>[] = [];
-
-      if (file.name.endsWith('.csv')) {
-        rohdaten = parseCSV(text);
-      } else {
+      if (!file.name.endsWith('.csv')) {
         alert('Bitte eine CSV-Datei hochladen');
         setIsProcessing(false);
         return;
       }
 
-      // Gesamtliste IDs — hier nutzen wir einen leeren Set da wir die Gesamtliste nicht im Browser haben
-      // Neue Prüflinge werden anhand BEMERKUNG='NEU' erkannt
-      const gesamtIds = new Set<string>(); // In Produktion: aus Supabase laden
+      const response = await fetch('/api/dguv-export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv: text }),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error ?? 'Fehler');
 
-      const result = verarbeite(rohdaten, gesamtIds);
-      setErgebnis(result);
+      // Excel sofort herunterladen
+      const bytes = Uint8Array.from(atob(data.excel_b64), c => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const monat = new Date().toISOString().slice(0, 7);
+      a.href = url;
+      a.download = `Abrechnung_${file.name.replace('.csv','')}_${monat}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
 
-      // In Supabase loggen
+      setErgebnis({
+        zeilen: [],
+        aenderungen: data.aenderungen ?? [],
+        neuePrueoflinge: [],
+        stats: data.stats,
+      });
+
       await supabase.from('dguv_uploads').insert({
         dateiname: file.name,
-        monat: new Date().toISOString().slice(0, 7),
-        anzahl_gesamt: rohdaten.length,
-        anzahl_neu: result.neuePrueoflinge.length,
-        anzahl_korrekturen: result.aenderungen.filter(a => a.typ === 'auto').length,
+        monat: monat,
+        anzahl_gesamt: data.stats?.gesamt ?? 0,
+        anzahl_neu: 0,
+        anzahl_korrekturen: data.stats?.auto ?? 0,
         user_email: user?.email,
       });
 
@@ -242,46 +379,40 @@ export default function DGUVPage() {
   }
 
   const gefilterteAenderungen = ergebnis?.aenderungen.filter(a =>
-    filterTyp === 'alle' ? true : a.typ === filterTyp
+    filterTyp === 'alle' ? true : a.feld.toLowerCase().includes(filterTyp)
   ) ?? [];
 
-  const autoCount = ergebnis?.aenderungen.filter(a => a.typ === 'auto').length ?? 0;
-  const vorschlagCount = ergebnis?.aenderungen.filter(a => a.typ === 'vorschlag').length ?? 0;
-  const neuCount = ergebnis?.aenderungen.filter(a => a.typ === 'neu').length ?? 0;
-
-  // Prüfer-Auswertung aus den verarbeiteten Daten
-  const prueferStats = ergebnis ? (() => {
-    const stats: Record<string, number> = {};
-    ergebnis.zeilen.forEach(z => {
-      const p = z['LETZTER PRÜFER'] ?? 'Unbekannt';
-      stats[p] = (stats[p] ?? 0) + 1;
-    });
-    return Object.entries(stats).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
-  })() : [];
+  const bezCount = ergebnis?.aenderungen.filter(a => a.feld === 'BEZEICHNUNG').length ?? 0;
+  const bemCount = ergebnis?.aenderungen.filter(a => a.feld === 'BEMERKUNG').length ?? 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, paddingBottom: 40, fontFamily: "'Inter',system-ui,sans-serif" }}>
+    <div style={{ display:'flex', flexDirection:'column', gap:20, paddingBottom:40, fontFamily:"'Inter',system-ui,sans-serif" }}>
       <style>{`
         @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-        .dguv-card { animation: fadeUp 0.4s ease forwards; opacity:0; }
-        .aend-row:hover { background: #f8fafc !important; }
+        .dg-card { animation:fadeUp 0.4s ease forwards; opacity:0; }
+        .aend-row:hover { background:#f8fafc !important; }
+        @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+        .animate-spin { animation:spin 1s linear infinite; }
       `}</style>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end' }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-.03em' }}>
-            DGUV <span style={{ color: '#f59e0b' }}>Prüfmanagement</span>
+          <h1 style={{ fontSize:24, fontWeight:800, color:'#0f172a', margin:0, letterSpacing:'-.03em' }}>
+            DGUV <span style={{ color:'#f59e0b' }}>Prüfmanagement</span>
           </h1>
-          <p style={{ fontSize: 13, color: '#94a3b8', margin: '4px 0 0' }}>Rohdaten verarbeiten · Roadmap · Auswertung</p>
+          <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>Rohdaten verarbeiten · Roadmap · Auswertung</p>
         </div>
       </div>
 
+      {/* Gesamtliste Status */}
+      <GesamtlisteImport onImported={() => setRoadmapRefresh(r => r + 1)} />
+
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 3, background: '#f1f5f9', borderRadius: 14, padding: 4, width: 'fit-content' }}>
+      <div style={{ display:'flex', gap:3, background:'#f1f5f9', borderRadius:14, padding:4, width:'fit-content' }}>
         {TABS.map(t => (
           <button key={t} onClick={() => setActiveTab(t)} style={{
-            padding: '8px 22px', borderRadius: 11, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, transition: 'all .15s',
+            padding:'8px 22px', borderRadius:11, border:'none', cursor:'pointer', fontSize:13, fontWeight:600, transition:'all .15s',
             background: activeTab === t ? '#fff' : 'transparent',
             color: activeTab === t ? '#0f172a' : '#94a3b8',
             boxShadow: activeTab === t ? '0 2px 8px rgba(0,0,0,.07)' : 'none',
@@ -289,260 +420,192 @@ export default function DGUVPage() {
         ))}
       </div>
 
-      {/* ═══ TAB: VERARBEITUNG ═══ */}
+      {/* ═══ VERARBEITUNG ═══ */}
       {activeTab === 'Verarbeitung' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
 
           {/* Upload */}
-          {!ergebnis && (
+          {!ergebnis && !isProcessing && (
             <div onClick={() => fileInputRef.current?.click()}
-              style={{ background: '#fff', borderRadius: 20, border: '2px dashed #e2e8f0', padding: '48px 24px', textAlign: 'center', cursor: 'pointer', transition: 'all .2s' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#f59e0b'; (e.currentTarget as HTMLElement).style.background = '#fffbeb'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; (e.currentTarget as HTMLElement).style.background = '#fff'; }}>
-              <div style={{ width: 52, height: 52, borderRadius: 16, background: '#fffbeb', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                <Upload size={24} style={{ color: '#f59e0b' }} />
+              style={{ background:'#fff', borderRadius:20, border:'2px dashed #e2e8f0', padding:'48px 24px', textAlign:'center', cursor:'pointer', transition:'all .2s' }}
+              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor='#f59e0b';(e.currentTarget as HTMLElement).style.background='#fffbeb';}}
+              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor='#e2e8f0';(e.currentTarget as HTMLElement).style.background='#fff';}}>
+              <div style={{ width:52, height:52, borderRadius:16, background:'#fffbeb', border:'1px solid #fde68a', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }}>
+                <Upload size={24} style={{ color:'#f59e0b' }} />
               </div>
-              <p style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: '0 0 6px' }}>Rohdaten CSV hochladen</p>
-              <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>Gossen-Metrawatt Export · wird automatisch bereinigt</p>
-              <input ref={fileInputRef} type="file" accept=".csv" style={{ display: 'none' }}
+              <p style={{ fontSize:15, fontWeight:700, color:'#0f172a', margin:'0 0 6px' }}>Rohdaten CSV hochladen</p>
+              <p style={{ fontSize:13, color:'#94a3b8', margin:0 }}>Gossen-Metrawatt Export · CSV oder Excel</p>
+              <input ref={fileInputRef} type="file" accept=".csv,.xlsx" style={{ display:'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }} />
             </div>
           )}
 
           {isProcessing && (
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #fde68a', padding: '24px', textAlign: 'center' }}>
-              <RefreshCw size={28} style={{ color: '#f59e0b', animation: 'spin 1s linear infinite', marginBottom: 12 }} />
-              <p style={{ color: '#92400e', fontWeight: 600, margin: 0 }}>Verarbeite Daten...</p>
+            <div style={{ background:'#fff', borderRadius:16, border:'1px solid #fde68a', padding:'32px', textAlign:'center' }}>
+              <RefreshCw size={28} style={{ color:'#f59e0b', animation:'spin 1s linear infinite', marginBottom:12 }} />
+              <p style={{ color:'#92400e', fontWeight:600, margin:0 }}>Verarbeite Daten...</p>
             </div>
           )}
 
           {ergebnis && (
             <>
               {/* Stats */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
                 {[
-                  { label: 'Geräte gesamt', value: ergebnis.zeilen.length, color: '#2563eb', border: '#bfdbfe' },
-                  { label: 'Auto-Korrekturen', value: autoCount, color: '#10b981', border: '#bbf7d0' },
-                  { label: 'Vorschläge', value: vorschlagCount, color: '#f59e0b', border: '#fde68a' },
-                  { label: 'Neue Prüflinge', value: neuCount, color: '#8b5cf6', border: '#ddd6fe' },
-                ].map((s, i) => (
-                  <div key={i} className="dguv-card" style={{ animationDelay: `${i * 0.08}s`, background: '#fff', borderRadius: 16, border: `1px solid ${s.border}`, padding: '16px 20px', position: 'relative', overflow: 'hidden' }}>
-                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: s.color, borderRadius: '16px 16px 0 0' }} />
-                    <p style={{ fontSize: 28, fontWeight: 900, color: s.color, margin: '0 0 2px', letterSpacing: '-.04em' }}>{s.value}</p>
-                    <p style={{ fontSize: 12, color: '#64748b', margin: 0, fontWeight: 600 }}>{s.label}</p>
+                  { label:'Geräte gesamt', value:ergebnis.rows.length, color:'#2563eb', border:'#bfdbfe' },
+                  { label:'Korrekturen gesamt', value:ergebnis.aenderungen.length, color:'#10b981', border:'#bbf7d0' },
+                  { label:'Bezeichnungen', value:bezCount, color:'#f59e0b', border:'#fde68a' },
+                  { label:'NEU markiert', value:ergebnis.rows.filter(r=>r['Neu?']==='NEU').length, color:'#8b5cf6', border:'#ddd6fe' },
+                ].map((s,i) => (
+                  <div key={i} className="dg-card" style={{ animationDelay:`${i*.08}s`, background:'#fff', borderRadius:16, border:`1px solid ${s.border}`, padding:'16px 20px', position:'relative', overflow:'hidden' }}>
+                    <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:s.color }} />
+                    <p style={{ fontSize:28, fontWeight:900, color:s.color, margin:'0 0 2px', letterSpacing:'-.04em' }}>{s.value}</p>
+                    <p style={{ fontSize:12, color:'#64748b', margin:0, fontWeight:600 }}>{s.label}</p>
                   </div>
                 ))}
               </div>
 
               {/* Aktionen */}
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <button onClick={() => exportCSV(ergebnis.zeilen, `Abrechnung_${dateiname.replace('.csv', '')}_bereinigt.csv`)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 20px', background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.3)' }}>
-                  <Download size={15} /> Excel herunterladen
+              <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+                <button onClick={() => exportExcel(ergebnis.rows, dateiname)}
+                  style={{ display:'flex', alignItems:'center', gap:7, padding:'10px 20px', background:'linear-gradient(135deg,#10b981,#059669)', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 12px rgba(16,185,129,0.3)' }}>
+                  <Download size={15} /> Als Excel herunterladen
                 </button>
                 <button onClick={() => { setErgebnis(null); setDateiname(''); }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '10px 18px', background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b', borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  style={{ display:'flex', alignItems:'center', gap:7, padding:'10px 18px', background:'#f8fafc', border:'1px solid #e2e8f0', color:'#64748b', borderRadius:12, fontSize:13, fontWeight:600, cursor:'pointer' }}>
                   <Upload size={14} /> Neue Datei
                 </button>
-                <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>📄 {dateiname}</span>
+                <span style={{ fontSize:12, color:'#94a3b8' }}>📄 {dateiname}</span>
               </div>
 
               {/* Änderungsprotokoll */}
-              <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
-                <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', overflow:'hidden' }}>
+                <div style={{ padding:'16px 20px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10 }}>
                   <div>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '0 0 2px' }}>Änderungsprotokoll</p>
-                    <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>{ergebnis.aenderungen.length} Änderungen · {dateiname}</p>
+                    <p style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:'0 0 2px' }}>Änderungsprotokoll</p>
+                    <p style={{ fontSize:12, color:'#94a3b8', margin:0 }}>{ergebnis.aenderungen.length} Änderungen · {dateiname}</p>
                   </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    {([['alle', 'Alle', '#64748b'], ['auto', `Auto (${autoCount})`, '#10b981'], ['vorschlag', `Vorschläge (${vorschlagCount})`, '#f59e0b'], ['neu', `Neu (${neuCount})`, '#8b5cf6']] as const).map(([key, label, color]) => (
+                  <div style={{ display:'flex', gap:6 }}>
+                    {([
+                      ['alle', `Alle (${ergebnis.aenderungen.length})`, '#64748b'],
+                      ['bezeichnung', `Bezeichnungen (${bezCount})`, '#f59e0b'],
+                      ['bemerkung', `Bemerkung (${bemCount})`, '#8b5cf6'],
+                    ] as const).map(([key, label, color]) => (
                       <button key={key} onClick={() => setFilterTyp(key as any)}
-                        style={{ padding: '5px 12px', borderRadius: 8, border: `1px solid ${filterTyp === key ? color : '#e2e8f0'}`, background: filterTyp === key ? `${color}15` : '#fff', color: filterTyp === key ? color : '#64748b', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                        style={{ padding:'5px 12px', borderRadius:8, border:`1px solid ${filterTyp===key?color:'#e2e8f0'}`, background:filterTyp===key?`${color}15`:'#fff', color:filterTyp===key?color:'#64748b', fontSize:12, fontWeight:600, cursor:'pointer' }}>
                         {label}
                       </button>
                     ))}
                   </div>
                 </div>
-
-                <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+                <div style={{ maxHeight:400, overflowY:'auto' }}>
+                  {/* Tabellen-Header */}
+                  <div style={{ display:'grid', gridTemplateColumns:'80px 120px 1fr 1fr', gap:12, padding:'8px 20px', background:'#f8fafc', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.05em' }}>
+                    <span>ID</span><span>Feld</span><span>Vorher</span><span>Nachher</span>
+                  </div>
                   {gefilterteAenderungen.length === 0 && (
-                    <p style={{ color: '#94a3b8', textAlign: 'center', padding: '32px 0', fontSize: 13 }}>Keine Einträge</p>
+                    <p style={{ color:'#94a3b8', textAlign:'center', padding:'28px 0', fontSize:13 }}>Keine Einträge</p>
                   )}
                   {gefilterteAenderungen.map((a, i) => (
-                    <div key={i} className="aend-row" style={{ display: 'grid', gridTemplateColumns: '80px 120px 1fr 1fr 1fr', gap: 12, padding: '11px 20px', borderBottom: '1px solid #f8fafc', fontSize: 12, alignItems: 'center', background: 'transparent', transition: 'background .1s' }}>
-                      <span style={{ fontFamily: 'monospace', color: '#94a3b8', fontSize: 11 }}>#{a.id}</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 6, textAlign: 'center',
-                        background: a.typ === 'auto' ? '#f0fdf4' : a.typ === 'vorschlag' ? '#fffbeb' : '#faf5ff',
-                        color: a.typ === 'auto' ? '#10b981' : a.typ === 'vorschlag' ? '#f59e0b' : '#8b5cf6' }}>
-                        {a.feld}
-                      </span>
-                      <span style={{ color: '#ef4444', textDecoration: 'line-through', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.vorher || '–'}</span>
-                      <span style={{ color: '#10b981', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nachher}</span>
-                      <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.grund}</span>
+                    <div key={i} className="aend-row" style={{ display:'grid', gridTemplateColumns:'80px 120px 1fr 1fr', gap:12, padding:'10px 20px', borderBottom:'1px solid #f8fafc', fontSize:12, alignItems:'center', background:'transparent', transition:'background .1s' }}>
+                      <span style={{ fontFamily:'monospace', color:'#94a3b8', fontSize:11 }}>{a.id}</span>
+                      <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:6, textAlign:'center', background: a.feld==='BEZEICHNUNG'?'#fffbeb':'#faf5ff', color: a.feld==='BEZEICHNUNG'?'#f59e0b':'#8b5cf6' }}>{a.feld}</span>
+                      <span style={{ color:'#ef4444', textDecoration:'line-through', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.vorher || '–'}</span>
+                      <span style={{ color:'#10b981', fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.nachher}</span>
                     </div>
                   ))}
                 </div>
               </div>
-
-              {/* Neue Prüflinge */}
-              {ergebnis.neuePrueoflinge.length > 0 && (
-                <div style={{ background: '#faf5ff', borderRadius: 16, border: '1px solid #ddd6fe', padding: '16px 20px' }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: '#6d28d9', margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Info size={15} /> {ergebnis.neuePrueoflinge.length} neue Prüflinge erkannt
-                  </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {ergebnis.neuePrueoflinge.slice(0, 10).map((p, i) => (
-                      <div key={i} style={{ display: 'flex', gap: 12, fontSize: 12, padding: '6px 10px', background: 'rgba(139,92,246,0.06)', borderRadius: 8 }}>
-                        <span style={{ fontFamily: 'monospace', color: '#6d28d9', fontWeight: 700 }}>#{p['ID']}</span>
-                        <span style={{ color: '#374151' }}>{p['BEZEICHNUNG']}</span>
-                        <span style={{ color: '#94a3b8' }}>{p['ABTEILUNG']}</span>
-                        <span style={{ color: '#94a3b8' }}>{p['LETZTER PRÜFER']}</span>
-                      </div>
-                    ))}
-                    {ergebnis.neuePrueoflinge.length > 10 && <p style={{ color: '#8b5cf6', fontSize: 12, margin: '4px 0 0' }}>+ {ergebnis.neuePrueoflinge.length - 10} weitere</p>}
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>
       )}
 
-      {/* ═══ TAB: ROADMAP ═══ */}
+      {/* ═══ ROADMAP ═══ */}
       {activeTab === 'Roadmap' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          {/* KPIs */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:14 }}>
             {[
-              { label: 'Geräte gesamt', value: '23.352', sub: 'in der Gesamtliste', color: '#2563eb', border: '#bfdbfe' },
-              { label: 'Fällig 2026', value: '20.670', sub: 'nächste 12 Monate', color: '#f59e0b', border: '#fde68a' },
-              { label: 'Kritisch Aug 26', value: '4.797', sub: 'größter Monat', color: '#ef4444', border: '#fecaca' },
-            ].map((s, i) => (
-              <div key={i} className="dguv-card" style={{ animationDelay: `${i * 0.08}s`, background: '#fff', borderRadius: 16, border: `1px solid ${s.border}`, padding: '18px 22px', position: 'relative', overflow: 'hidden' }}>
-                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: s.color }} />
-                <p style={{ fontSize: 28, fontWeight: 900, color: s.color, margin: '0 0 2px', letterSpacing: '-.04em' }}>{s.value}</p>
-                <p style={{ fontSize: 12, fontWeight: 600, color: '#64748b', margin: '0 0 2px' }}>{s.label}</p>
-                <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{s.sub}</p>
+              { label:'Geräte gesamt', value: totalGeraete > 0 ? totalGeraete.toLocaleString('de-DE') : '–', sub:'in der Gesamtliste', color:'#2563eb', border:'#bfdbfe' },
+              { label:'Fällig 2026', value: roadmapData.filter(d=>d.key?.startsWith('2026')).reduce((s,d)=>s+d.count,0).toLocaleString('de-DE'), sub:'nächste 12 Monate', color:'#f59e0b', border:'#fde68a' },
+              { label:`Peak: ${maxMonat?.monat??'–'}`, value: maxMonat?.count.toLocaleString('de-DE')??'–', sub:'größter Monat', color:'#ef4444', border:'#fecaca' },
+            ].map((s,i) => (
+              <div key={i} className="dg-card" style={{ animationDelay:`${i*.08}s`, background:'#fff', borderRadius:16, border:`1px solid ${s.border}`, padding:'18px 22px', position:'relative', overflow:'hidden' }}>
+                <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:s.color }} />
+                <p style={{ fontSize:28, fontWeight:900, color:s.color, margin:'0 0 2px', letterSpacing:'-.04em' }}>{s.value}</p>
+                <p style={{ fontSize:12, fontWeight:600, color:'#64748b', margin:'0 0 2px' }}>{s.label}</p>
+                <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{s.sub}</p>
               </div>
             ))}
           </div>
-
-          {/* Chart */}
-          <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', padding: 24 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Fälligkeits-Roadmap</h3>
-            <p style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 20px' }}>Anzahl Geräte die geprüft werden müssen · aus Gesamtliste26</p>
-            <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 11 }}>
-              {[['#ef4444','Überfällig'], ['#f59e0b','2025'], ['#10b981','Frühjahr 26'], ['#2563eb','Sommer/Herbst 26']].map(([c,l]) => (
-                <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 3, background: c }} />
-                  <span style={{ color: '#64748b' }}>{l}</span>
-                </div>
-              ))}
-            </div>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={ROADMAP_DATA} barCategoryGap="25%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" vertical={false} />
-                <XAxis dataKey="monat" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(v: any) => [`${v.toLocaleString('de-DE')} Geräte`, 'Fällig']}
-                  contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 12 }} />
-                <Bar dataKey="count" radius={[5, 5, 0, 0]}>
-                  {ROADMAP_DATA.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Monats-Tabelle */}
-          <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
-            <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9' }}>
-              <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>Detailübersicht nach Monat</p>
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                    {['Monat', 'Anzahl Geräte', 'Priorität', 'Status'].map(h => (
-                      <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {ROADMAP_DATA.map((d, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #f8fafc' }}
-                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#f8fafc'}
-                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
-                      <td style={{ padding: '11px 16px', fontWeight: 600, color: '#0f172a' }}>{d.monat}</td>
-                      <td style={{ padding: '11px 16px', fontFamily: 'monospace', fontWeight: 700, color: d.color, fontSize: 14 }}>
-                        {d.count.toLocaleString('de-DE')}
-                      </td>
-                      <td style={{ padding: '11px 16px' }}>
-                        <div style={{ height: 6, background: '#f1f5f9', borderRadius: 99, width: 120, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${Math.min((d.count / 4797) * 100, 100)}%`, background: d.color, borderRadius: 99 }} />
-                        </div>
-                      </td>
-                      <td style={{ padding: '11px 16px' }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 6,
-                          background: d.color === '#ef4444' ? '#fef2f2' : d.color === '#f59e0b' ? '#fffbeb' : d.color === '#10b981' ? '#f0fdf4' : '#eff6ff',
-                          color: d.color }}>
-                          {d.color === '#ef4444' ? 'Überfällig' : d.color === '#f59e0b' ? 'Dieses Jahr' : d.color === '#10b981' ? 'Frühjahr 26' : 'Sommer 26'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:24 }}>
+            <h3 style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Fälligkeits-Roadmap</h3>
+            <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 20px' }}>Anzahl Geräte die geprüft werden müssen — live aus Gesamtliste</p>
+            {roadmapData.length === 0 ? (
+              <div style={{ height:200, display:'flex', alignItems:'center', justifyContent:'center', color:'#cbd5e1', fontSize:13 }}>
+                Gesamtliste noch nicht importiert
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={roadmapData} barCategoryGap="25%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" vertical={false} />
+                  <XAxis dataKey="monat" tick={{ fontSize:11, fill:'#94a3b8' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={(v:any) => [`${Number(v).toLocaleString('de-DE')} Geräte`, 'Fällig']}
+                    contentStyle={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, fontSize:12 }} />
+                  <Bar dataKey="count" radius={[5,5,0,0]}>
+                    {roadmapData.map((entry,i) => <Cell key={i} fill={entry.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       )}
 
-      {/* ═══ TAB: AUSWERTUNG ═══ */}
+      {/* ═══ AUSWERTUNG ═══ */}
       {activeTab === 'Auswertung' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
           {!ergebnis ? (
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f1f5f9', padding: '48px 24px', textAlign: 'center' }}>
-              <BarChart2 size={36} style={{ color: '#e2e8f0', marginBottom: 12 }} />
-              <p style={{ color: '#94a3b8', fontSize: 14, margin: 0 }}>Lade erst eine CSV-Datei im Tab "Verarbeitung" um die Auswertung zu sehen</p>
+            <div style={{ background:'#fff', borderRadius:16, border:'1px solid #f1f5f9', padding:'48px 24px', textAlign:'center' }}>
+              <BarChart2 size={36} style={{ color:'#e2e8f0', marginBottom:12 }} />
+              <p style={{ color:'#94a3b8', fontSize:14, margin:0 }}>Erst CSV im Tab "Verarbeitung" hochladen</p>
             </div>
           ) : (
             <>
-              <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', padding: 24 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Messungen pro Prüfer</h3>
-                <p style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 20px' }}>{dateiname}</p>
+              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:24 }}>
+                <h3 style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Messungen pro Prüfer</h3>
+                <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 20px' }}>{dateiname}</p>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={prueferStats} barCategoryGap="30%">
                     <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                    <Tooltip formatter={(v: any) => [`${v} Geräte`, 'Geprüft']}
-                      contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 12 }} />
-                    <Bar dataKey="count" radius={[5, 5, 0, 0]}>
-                      {prueferStats.map((_, i) => <Cell key={i} fill={['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'][i % 5]} />)}
+                    <XAxis dataKey="name" tick={{ fontSize:11, fill:'#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize:10, fill:'#94a3b8' }} axisLine={false} tickLine={false} />
+                    <Tooltip formatter={(v:any) => [`${v} Geräte`,'Geprüft']} contentStyle={{ background:'#fff', border:'1px solid #e2e8f0', borderRadius:10, fontSize:12 }} />
+                    <Bar dataKey="count" radius={[5,5,0,0]}>
+                      {prueferStats.map((_,i) => <Cell key={i} fill={['#2563eb','#10b981','#f59e0b','#8b5cf6','#ef4444'][i%5]} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
-                {prueferStats.map((p, i) => {
-                  const farbe = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'][i % 5];
-                  const pct = Math.round((p.count / ergebnis.zeilen.length) * 100);
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:12 }}>
+                {prueferStats.map((p,i) => {
+                  const farbe = ['#2563eb','#10b981','#f59e0b','#8b5cf6','#ef4444'][i%5];
+                  const pct = Math.round((p.count/ergebnis.rows.length)*100);
                   return (
-                    <div key={p.name} className="dguv-card" style={{ animationDelay: `${i * 0.06}s`, background: '#fff', borderRadius: 16, border: `1px solid ${farbe}20`, padding: '16px 18px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 11, background: `${farbe}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <span style={{ fontSize: 13, fontWeight: 800, color: farbe }}>{p.name.split(' ').map(n => n[0]).join('').slice(0, 2)}</span>
+                    <div key={p.name} className="dg-card" style={{ animationDelay:`${i*.06}s`, background:'#fff', borderRadius:16, border:`1px solid ${farbe}20`, padding:'16px 18px' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                        <div style={{ width:36, height:36, borderRadius:11, background:`${farbe}15`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          <span style={{ fontSize:12, fontWeight:800, color:farbe }}>{p.name.split(' ').map(n=>n[0]).join('').slice(0,2)}</span>
                         </div>
                         <div>
-                          <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: 0 }}>{p.name}</p>
-                          <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{pct}% aller Messungen</p>
+                          <p style={{ fontSize:13, fontWeight:700, color:'#0f172a', margin:0 }}>{p.name}</p>
+                          <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{pct}% aller Messungen</p>
                         </div>
                       </div>
-                      <p style={{ fontSize: 26, fontWeight: 900, color: farbe, margin: '0 0 8px', letterSpacing: '-.04em' }}>{p.count}</p>
-                      <div style={{ height: 4, background: '#f1f5f9', borderRadius: 99 }}>
-                        <div style={{ height: '100%', width: `${pct}%`, background: farbe, borderRadius: 99 }} />
+                      <p style={{ fontSize:26, fontWeight:900, color:farbe, margin:'0 0 8px', letterSpacing:'-.04em' }}>{p.count}</p>
+                      <div style={{ height:4, background:'#f1f5f9', borderRadius:99 }}>
+                        <div style={{ height:'100%', width:`${pct}%`, background:farbe, borderRadius:99 }} />
                       </div>
                     </div>
                   );
