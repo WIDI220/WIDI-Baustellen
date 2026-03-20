@@ -172,7 +172,7 @@ export default function Dashboard() {
           ) : (
             <ResponsiveContainer width="100%" height={160}>
               <PieChart>
-                <Pie data={statusData} cx="50%" cy="50%" innerRadius={42} outerRadius:68 paddingAngle={3} dataKey="value">
+                <Pie data={statusData} cx="50%" cy="50%" innerRadius={42} outerRadius={68} paddingAngle={3} dataKey="value">
                   {statusData.map((entry,i) => <Cell key={i} fill={entry.color} />)}
                 </Pie>
                 <Tooltip formatter={(v:any) => [v,'Baustellen']} />
