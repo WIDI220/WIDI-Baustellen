@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { renderPdfPageToBase64, getPdfPageCount } from '@/lib/pdf-renderer';
 import { toast } from 'sonner';
-import { Upload, CheckCircle, XCircle, AlertCircle, RotateCcw, RefreshCw, Pencil, Plus, Trash2, ChevronLeft, ChevronRight, FileText, Scan, Zap } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, AlertCircle, RotateCcw, RefreshCw, Plus, Trash2, ChevronLeft, ChevronRight, FileText, Scan, Zap, Info } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,12 +18,23 @@ function roundTo025(val: number): number {
 function isValid025(val: number): boolean {
   return val > 0 && val <= MAX_AUTO_STUNDEN && Math.abs(val - roundTo025(val)) < 0.001;
 }
+function calcVonBis(von: string | null | undefined, bis: string | null | undefined): number | null {
+  if (!von || !bis) return null;
+  try {
+    const [vonH, vonM] = von.split(':').map(Number);
+    const [bisH, bisM] = bis.split(':').map(Number);
+    const diffMin = (bisH * 60 + bisM) - (vonH * 60 + vonM);
+    if (diffMin > 0 && diffMin <= 480) return Math.round((diffMin / 60) * 4) / 4;
+    return null;
+  } catch { return null; }
+}
 
 interface LogEntry {
   page: number;
   type: 'info' | 'ok' | 'warn' | 'error';
   message: string;
 }
+
 interface OcrPageResult {
   page: number;
   fileName: string;
@@ -34,17 +45,23 @@ interface OcrPageResult {
   mitarbeiter_ids?: (string | null)[];
   stunden_raw?: number | null;
   stunden_valid?: number | null;
+  arbeitszeit_von?: string | null;
+  arbeitszeit_bis?: string | null;
+  vonbis_stunden?: number | null;
   leistungsdatum?: string | null;
   konfidenz?: number;
   needsReview: boolean;
   reviewReasons: string[];
   error?: string;
-  imported?: boolean;
   imageBase64?: string;
 }
-interface ReviewItem extends OcrPageResult {
+
+// Verifizierungs-Item: alle Seiten die importiert werden können
+interface VerifyItem extends OcrPageResult {
   stunden_edit: string;
+  datum_edit: string;
   mitarbeiter_edit: { id: string; name: string }[];
+  confirmed: boolean; // wurde vom User bestätigt
 }
 
 export default function PdfRuecklauf() {
@@ -55,11 +72,10 @@ export default function PdfRuecklauf() {
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [fileName, setFileName] = useState('');
-  const [phase, setPhase] = useState<'idle' | 'scanning' | 'done'>('idle');
-  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
-  const [showReview, setShowReview] = useState(false);
-  const [reviewIndex, setReviewIndex] = useState(0);
-  const [importingReview, setImportingReview] = useState(false);
+  const [phase, setPhase] = useState<'idle' | 'scanning' | 'verifying' | 'done'>('idle');
+  const [verifyItems, setVerifyItems] = useState<VerifyItem[]>([]);
+  const [verifyIndex, setVerifyIndex] = useState(0);
+  const [importing, setImporting] = useState(false);
   const [liveLog, setLiveLog] = useState<LogEntry[]>([]);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
 
@@ -108,17 +124,6 @@ export default function PdfRuecklauf() {
     return { ids, allFound: ids.every(id => id !== null) };
   }
 
-  async function importPage(page: OcrPageResult, stundenOverride?: number, mitarbeiterOverride?: string[], datumOverride?: string) {
-    const stunden = stundenOverride ?? page.stunden_valid!;
-    const empIds = mitarbeiterOverride ?? page.mitarbeiter_ids?.filter(Boolean) as string[];
-    const leistungsdatum = datumOverride ?? page.leistungsdatum ?? new Date().toISOString().split('T')[0];
-    for (const empId of empIds) {
-      if (!empId) continue;
-      await supabase.from('ticket_worklogs').insert({ ticket_id: page.ticket_id, employee_id: empId, stunden, leistungsdatum });
-    }
-    await supabase.from('tickets').update({ status: 'erledigt', updated_at: new Date().toISOString() }).eq('id', page.ticket_id);
-  }
-
   async function processFile(file: File) {
     if (isProcessing) return;
     setIsProcessing(true);
@@ -162,7 +167,10 @@ export default function PdfRuecklauf() {
                 catch { reject(new Error(`Antwort-Fehler Seite ${i + 1}`)); }
               } else { reject(new Error(`Server-Fehler ${xhr.status}`)); }
             };
-            xhr.send(JSON.stringify({ imageBase64, fileName: file.name, pageNumber: i + 1, employees: (employees as any[]).map((e: any) => ({ name: e.name, kuerzel: e.kuerzel })) }));
+            xhr.send(JSON.stringify({
+              imageBase64, fileName: file.name, pageNumber: i + 1,
+              employees: (employees as any[]).map((e: any) => ({ name: e.name, kuerzel: e.kuerzel }))
+            }));
           });
 
           if (!ocrResult.success) {
@@ -170,10 +178,14 @@ export default function PdfRuecklauf() {
             result.error = ocrResult.error ?? 'OCR fehlgeschlagen';
             result.needsReview = true;
             result.reviewReasons.push('OCR fehlgeschlagen');
-            addLog(i + 1, 'error', `Seite ${i + 1} — Fehler: ${ocrResult.error?.slice(0, 50)}`);
+            addLog(i + 1, 'error', `Seite ${i + 1} — ${ocrResult.error?.slice(0, 50)}`);
           } else {
             const ocr = ocrResult.result;
             result.konfidenz = ocr.konfidenz;
+            result.arbeitszeit_von = ocr.arbeitszeit_von ?? null;
+            result.arbeitszeit_bis = ocr.arbeitszeit_bis ?? null;
+            result.vonbis_stunden = calcVonBis(ocr.arbeitszeit_von, ocr.arbeitszeit_bis);
+
             if (!ocr.a_nummer) {
               result.status = 'error';
               result.error = 'Keine A-Nummer erkannt';
@@ -183,6 +195,7 @@ export default function PdfRuecklauf() {
             } else {
               result.a_nummer = ocr.a_nummer;
               const { data: ticket } = await supabase.from('tickets').select('id, a_nummer, status').eq('a_nummer', ocr.a_nummer).maybeSingle();
+
               if (!ticket) {
                 result.status = 'no_match';
                 result.error = `${ocr.a_nummer} nicht in Datenbank`;
@@ -200,24 +213,18 @@ export default function PdfRuecklauf() {
                 result.mitarbeiter_namen = uniqueNamen;
                 const { ids, allFound } = parseEmployees(uniqueNamen);
                 result.mitarbeiter_ids = ids;
+
                 if (!allFound || uniqueNamen.length === 0) {
                   result.needsReview = true;
                   result.reviewReasons.push(uniqueNamen.length === 0 ? 'Kein Mitarbeiter erkannt' : `Mitarbeiter nicht zugeordnet (${uniqueNamen.join(', ')})`);
-                  addLog(i + 1, 'warn', `Seite ${i + 1} — Mitarbeiter unklar`);
-                } else {
-                  const empNames = ids.map(id => (employees as any[]).find((e: any) => e.id === id)?.name ?? '?').join(', ');
-                  addLog(i + 1, 'ok', `Seite ${i + 1} — ${ocr.a_nummer} · ${empNames}`);
                 }
+
                 let stundenRaw = Number(ocr.stunden_gesamt ?? 0);
-                result.stunden_raw = stundenRaw;
-                if ((stundenRaw === 0 || stundenRaw > 8) && ocr.arbeitszeit_von && ocr.arbeitszeit_bis) {
-                  try {
-                    const [vonH, vonM] = ocr.arbeitszeit_von.split(':').map(Number);
-                    const [bisH, bisM] = ocr.arbeitszeit_bis.split(':').map(Number);
-                    const diffMin = (bisH * 60 + bisM) - (vonH * 60 + vonM);
-                    if (diffMin > 0 && diffMin <= 480) { stundenRaw = Math.round((diffMin / 60) * 4) / 4; result.stunden_raw = stundenRaw; }
-                  } catch { /* ignorieren */ }
+                if ((stundenRaw === 0 || stundenRaw > 8) && result.vonbis_stunden) {
+                  stundenRaw = result.vonbis_stunden;
                 }
+                result.stunden_raw = stundenRaw;
+
                 if (!isValid025(stundenRaw)) {
                   result.needsReview = true;
                   result.reviewReasons.push(stundenRaw > MAX_AUTO_STUNDEN ? `Stunden ${stundenRaw}h > ${MAX_AUTO_STUNDEN}h` : `Stunden ${stundenRaw}h unklar`);
@@ -225,21 +232,12 @@ export default function PdfRuecklauf() {
                 } else {
                   result.stunden_valid = stundenRaw;
                 }
-                if (ocr.konfidenz && ocr.konfidenz < 0.70) {
-                  result.needsReview = true;
-                  result.reviewReasons.push(`Niedrige Konfidenz (${Math.round(ocr.konfidenz * 100)}%)`);
-                }
+
                 result.leistungsdatum = ocr.leistungsdatum ?? new Date().toISOString().split('T')[0];
-                if (!result.needsReview) {
-                  await importPage(result);
-                  result.status = 'ok';
-                  result.imported = true;
-                  const empNames = (result.mitarbeiter_ids ?? []).map(id => (employees as any[]).find((e: any) => e.id === id)?.name ?? '?').join(', ');
-                  addLog(i + 1, 'ok', `✓ ${ocr.a_nummer} · ${empNames} · ${result.stunden_valid}h`);
-                } else {
-                  result.status = 'error';
-                  addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} → Prüfung nötig`);
-                }
+                result.status = 'ok';
+
+                const empNames = ids.map(id => (employees as any[]).find((e: any) => e.id === id)?.name ?? '?').join(', ') || uniqueNamen.join(', ');
+                addLog(i + 1, result.needsReview ? 'warn' : 'ok', `Seite ${i + 1} — ${ocr.a_nummer} · ${empNames} · ${result.stunden_valid ?? stundenRaw}h`);
               }
             }
           }
@@ -256,22 +254,27 @@ export default function PdfRuecklauf() {
         await new Promise(r => setTimeout(r, 150));
       }
 
-      const toReview = results.filter(r => r.needsReview && r.ticket_id);
-      setReviewItems(toReview.map(r => ({
+      // Alle Seiten mit ticket_id in Verifizierung schicken
+      const toVerify = results.filter(r => r.ticket_id);
+      setVerifyItems(toVerify.map(r => ({
         ...r,
         stunden_edit: String(r.stunden_valid ?? r.stunden_raw ?? ''),
-        mitarbeiter_edit: (r.mitarbeiter_ids ?? []).map((id, i) => ({ id: id ?? '', name: r.mitarbeiter_namen?.[i] ?? '' })).filter(m => m.id),
+        datum_edit: r.leistungsdatum ?? new Date().toISOString().split('T')[0],
+        mitarbeiter_edit: (r.mitarbeiter_ids ?? []).map((id, i) => ({
+          id: id ?? '',
+          name: r.mitarbeiter_namen?.[i] ?? '',
+        })).filter(m => m.id),
+        confirmed: false,
       })));
-      setPhase('done');
+
+      setPhase('verifying');
+      setVerifyIndex(0);
       setCurrentImage(null);
-      queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
-      queryClient.invalidateQueries({ queryKey: ['tickets'] });
-      const autoOk = results.filter(r => r.imported).length;
-      const needReview = toReview.length;
-      const errors = results.filter(r => r.status === 'error' && !r.ticket_id).length;
-      const noMatch = results.filter(r => r.status === 'no_match').length;
-      toast.success(`Fertig — ✅ ${autoOk} importiert · ⚠️ ${needReview} zur Prüfung · ❌ ${errors + noMatch} Fehler`);
-      if (needReview > 0) { setReviewIndex(0); setShowReview(true); }
+
+      const errors = results.filter(r => !r.ticket_id).length;
+      if (errors > 0) addLog(0, 'warn', `${errors} Seiten ohne Ticket-Treffer — werden übersprungen`);
+      addLog(0, 'ok', `Scan fertig — ${toVerify.length} Seiten zur Bestätigung`);
+
     } catch (err: any) {
       toast.error('Fehler: ' + err.message);
     } finally {
@@ -279,120 +282,119 @@ export default function PdfRuecklauf() {
     }
   }
 
-  async function confirmReview() {
-    setImportingReview(true);
+  async function importAll() {
+    setImporting(true);
     let saved = 0, skipped = 0;
-    for (const item of reviewItems) {
+
+    for (const item of verifyItems) {
       if (!item.ticket_id) { skipped++; continue; }
       const stunden = parseFloat(item.stunden_edit.replace(',', '.'));
       if (isNaN(stunden) || stunden <= 0) { skipped++; continue; }
       const empIds = item.mitarbeiter_edit.map(m => m.id).filter(Boolean);
       if (empIds.length === 0) { skipped++; continue; }
-      try { await importPage(item, roundTo025(stunden), empIds, item.leistungsdatum ?? undefined); saved++; }
-      catch { skipped++; }
+
+      try {
+        for (const empId of empIds) {
+          await supabase.from('ticket_worklogs').insert({
+            ticket_id: item.ticket_id,
+            employee_id: empId,
+            stunden: roundTo025(stunden),
+            leistungsdatum: item.datum_edit,
+          });
+        }
+        await supabase.from('tickets').update({ status: 'erledigt', updated_at: new Date().toISOString() }).eq('id', item.ticket_id);
+        saved++;
+      } catch { skipped++; }
     }
+
     queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
     queryClient.invalidateQueries({ queryKey: ['tickets'] });
     queryClient.invalidateQueries({ queryKey: ['worklogs-analyse'] });
     toast.success(`✅ ${saved} importiert · ⏭ ${skipped} übersprungen`);
-    setShowReview(false);
-    setImportingReview(false);
+    setPhase('done');
+    setImporting(false);
   }
 
-  const okCount = pages.filter(p => p.imported).length;
-  const reviewCount = pages.filter(p => p.needsReview && p.ticket_id).length;
-  const errorCount = pages.filter(p => p.status === 'error' && !p.ticket_id).length;
-  const noMatchCount = pages.filter(p => p.status === 'no_match').length;
   const progress = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
-  const currentReview = reviewItems[reviewIndex];
+  const currentVerify = verifyItems[verifyIndex];
+  const confirmedCount = verifyItems.filter(v => v.confirmed).length;
+  const problemCount = verifyItems.filter(v => v.needsReview).length;
+
+  // Von/Bis Warnung
+  function vonBisWarning(item: VerifyItem): string | null {
+    if (!item.vonbis_stunden) return null;
+    const std = parseFloat(item.stunden_edit.replace(',', '.'));
+    if (isNaN(std)) return null;
+    const diff = Math.abs(std - item.vonbis_stunden);
+    if (diff > 0.25) return `Von/Bis ergibt ${item.vonbis_stunden}h`;
+    return null;
+  }
 
   return (
     <div className="space-y-6 max-w-6xl">
       <style>{`
         @keyframes scanBeam {
-          0% { transform: translateY(-4px); opacity: 0; }
+          0% { top: 0%; opacity: 0; }
           5% { opacity: 1; }
           95% { opacity: 1; }
-          100% { transform: translateY(calc(100vh)); opacity: 0; }
+          100% { top: 100%; opacity: 0; }
         }
-        @keyframes fadeSlideIn {
+        @keyframes fadeUp {
           from { opacity: 0; transform: translateY(6px); }
           to { opacity: 1; transform: translateY(0); }
         }
-        @keyframes pulse-glow {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.4); }
-          50% { box-shadow: 0 0 0 8px rgba(59,130,246,0); }
-        }
-        .scan-card { animation: fadeSlideIn 0.3s ease forwards; }
-        .scan-beam {
-          animation: scanBeam 2.2s cubic-bezier(0.4,0,0.6,1) infinite;
-        }
-        .pulse-ring { animation: pulse-glow 2s ease-in-out infinite; }
+        .fade-up { animation: fadeUp 0.25s ease forwards; }
+        .scan-beam { animation: scanBeam 2s ease-in-out infinite; position: absolute; left: 0; right: 0; }
       `}</style>
 
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">PDF-Rücklauf</h1>
-          <p className="text-sm text-gray-400 mt-0.5">KI erkennt A-Nummer, Mitarbeiter und Stunden automatisch</p>
+          <p className="text-sm text-gray-400 mt-0.5">Scan · Prüfung · Import</p>
         </div>
-        {phase === 'done' && (
-          <button onClick={() => { setPages([]); setPhase('idle'); setFileName(''); setLiveLog([]); }}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
+        {(phase === 'done' || phase === 'verifying') && (
+          <button onClick={() => { setPages([]); setPhase('idle'); setFileName(''); setLiveLog([]); setVerifyItems([]); }}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
             <Upload className="h-4 w-4" /> Neue Datei
           </button>
         )}
       </div>
 
-      {/* IDLE: Upload */}
+      {/* IDLE */}
       {phase === 'idle' && (
         <div onClick={() => fileInputRef.current?.click()}
-          className="group relative border-2 border-dashed border-gray-200 rounded-2xl p-16 text-center cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-all duration-300">
+          className="group border-2 border-dashed border-gray-200 rounded-2xl p-16 text-center cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 transition-all duration-300">
           <div className="w-16 h-16 rounded-2xl bg-gray-100 group-hover:bg-blue-100 mx-auto mb-5 flex items-center justify-center transition-colors">
             <Upload className="h-7 w-7 text-gray-400 group-hover:text-blue-500 transition-colors" />
           </div>
-          <p className="text-base font-semibold text-gray-700 group-hover:text-gray-900">PDF hier ablegen oder klicken</p>
-          <p className="text-sm text-gray-400 mt-1.5">Stunden ≤ 5h werden automatisch importiert · alles andere zur Prüfung</p>
+          <p className="text-base font-semibold text-gray-700">PDF hier ablegen oder klicken</p>
+          <p className="text-sm text-gray-400 mt-1.5">Alle Seiten werden zur Bestätigung angezeigt bevor importiert wird</p>
           <input ref={fileInputRef} type="file" accept=".pdf" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ''; }} />
         </div>
       )}
 
-      {/* SCANNING: Split-View mit Scanner-Animation */}
+      {/* SCANNING */}
       {phase === 'scanning' && (
-        <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-lg bg-white" style={{ minHeight: '520px' }}>
-          <div className="grid grid-cols-5 h-full" style={{ minHeight: '520px' }}>
-
-            {/* LINKS 3/5: Ticket-Vorschau mit Scanner */}
+        <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-lg bg-white" style={{ minHeight: '500px' }}>
+          <div className="grid grid-cols-5 h-full" style={{ minHeight: '500px' }}>
+            {/* Links: Ticket-Bild */}
             <div className="col-span-3 relative bg-gray-950 overflow-hidden flex items-center justify-center">
               {currentImage ? (
                 <>
-                  <img
-                    key={currentPage}
-                    src={`data:image/png;base64,${currentImage}`}
-                    alt="Ticket"
-                    className="w-full h-full object-contain"
-                    style={{ maxHeight: '520px', opacity: 0.92 }}
-                  />
-                  {/* Scanner-Balken */}
-                  <div className="scan-beam absolute left-0 right-0 pointer-events-none" style={{ top: 0 }}>
-                    <div className="h-0.5 bg-blue-400" style={{ boxShadow: '0 0 20px 6px rgba(96,165,250,0.7), 0 0 40px 12px rgba(96,165,250,0.3)' }} />
+                  <img key={currentPage} src={`data:image/png;base64,${currentImage}`}
+                    alt="Ticket" className="w-full h-full object-contain fade-up" style={{ maxHeight: '500px', opacity: 0.9 }} />
+                  <div className="scan-beam pointer-events-none">
+                    <div className="h-0.5 bg-blue-400" style={{ boxShadow: '0 0 20px 8px rgba(96,165,250,0.6)' }} />
                   </div>
-                  {/* Scan-Overlay Gradient */}
                   <div className="absolute inset-0 pointer-events-none"
-                    style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.3) 0%, transparent 15%, transparent 85%, rgba(0,0,0,0.3) 100%)' }} />
-                  {/* Seiten-Badge */}
-                  <div className="absolute top-4 left-4 flex items-center gap-2">
-                    <div className="pulse-ring flex items-center gap-2 bg-black/70 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-full font-mono">
-                      <Scan className="h-3 w-3 text-blue-400" />
-                      {currentPage} / {totalPages}
-                    </div>
+                    style={{ background: 'linear-gradient(180deg,rgba(0,0,0,0.25) 0%,transparent 12%,transparent 88%,rgba(0,0,0,0.25) 100%)' }} />
+                  <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/60 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-full font-mono">
+                    <Scan className="h-3 w-3 text-blue-400" />
+                    {currentPage} / {totalPages}
                   </div>
-                  {/* Fortschritt unten */}
-                  <div className="absolute bottom-0 left-0 right-0">
-                    <div className="h-1 bg-gray-800">
-                      <div className="h-full bg-blue-500 transition-all duration-500"
-                        style={{ width: `${progress}%`, boxShadow: '0 0 8px rgba(59,130,246,0.8)' }} />
-                    </div>
+                  <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-800">
+                    <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${progress}%` }} />
                   </div>
                 </>
               ) : (
@@ -403,46 +405,40 @@ export default function PdfRuecklauf() {
               )}
             </div>
 
-            {/* RECHTS 2/5: Live-Feed */}
+            {/* Rechts: Live-Feed */}
             <div className="col-span-2 flex flex-col bg-gray-50 border-l border-gray-100">
-              {/* Header */}
               <div className="px-5 py-4 bg-white border-b border-gray-100">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Zap className="h-4 w-4 text-blue-500" />
-                    <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Live-Analyse</span>
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Live</span>
                   </div>
                   <span className="text-xs font-mono text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md">{progress}%</span>
                 </div>
-                {/* Mini Stats */}
                 <div className="grid grid-cols-3 gap-2">
                   <div className="bg-emerald-50 rounded-xl p-2.5 text-center">
-                    <p className="text-lg font-bold text-emerald-700">{okCount}</p>
-                    <p className="text-[10px] text-emerald-500 font-medium">OK</p>
+                    <p className="text-lg font-bold text-emerald-700">{pages.filter(p => p.status === 'ok' && !p.needsReview).length}</p>
+                    <p className="text-[10px] text-emerald-500 font-medium">Klar</p>
                   </div>
                   <div className="bg-amber-50 rounded-xl p-2.5 text-center">
-                    <p className="text-lg font-bold text-amber-700">{reviewCount}</p>
+                    <p className="text-lg font-bold text-amber-700">{pages.filter(p => p.needsReview && p.ticket_id).length}</p>
                     <p className="text-[10px] text-amber-500 font-medium">Prüfung</p>
                   </div>
                   <div className="bg-red-50 rounded-xl p-2.5 text-center">
-                    <p className="text-lg font-bold text-red-700">{errorCount + noMatchCount}</p>
+                    <p className="text-lg font-bold text-red-700">{pages.filter(p => !p.ticket_id && p.status !== 'pending' && p.status !== 'processing').length}</p>
                     <p className="text-[10px] text-red-400 font-medium">Fehler</p>
                   </div>
                 </div>
               </div>
-
-              {/* Live-Log Feed */}
               <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
                 {[...liveLog].reverse().map((log, i) => (
-                  <div key={i} className={`scan-card flex items-start gap-2.5 px-3 py-2 rounded-xl text-xs
+                  <div key={i} className={`fade-up flex items-start gap-2 px-3 py-2 rounded-xl text-xs
                     ${log.type === 'ok' ? 'bg-emerald-50 text-emerald-700' :
                       log.type === 'warn' ? 'bg-amber-50 text-amber-700' :
                       log.type === 'error' ? 'bg-red-50 text-red-600' :
                       'bg-white text-gray-500 border border-gray-100'}`}>
-                    <span className="mt-0.5 shrink-0">
-                      {log.type === 'ok' ? '✓' : log.type === 'warn' ? '⚠' : log.type === 'error' ? '✕' : '·'}
-                    </span>
-                    <span className="leading-relaxed">{log.message}</span>
+                    <span className="shrink-0">{log.type === 'ok' ? '✓' : log.type === 'warn' ? '⚠' : log.type === 'error' ? '✕' : '·'}</span>
+                    <span>{log.message}</span>
                   </div>
                 ))}
                 {isProcessing && (
@@ -457,176 +453,237 @@ export default function PdfRuecklauf() {
         </div>
       )}
 
-      {/* DONE: Statistiken + Seitenübersicht */}
-      {phase === 'done' && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-4 flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center"><CheckCircle className="h-5 w-5 text-emerald-600" /></div>
-              <div><p className="text-2xl font-bold text-gray-900">{okCount}</p><p className="text-xs text-gray-400">Auto importiert</p></div>
+      {/* VERIFYING: Split-View alle Seiten */}
+      {phase === 'verifying' && currentVerify && (
+        <div className="space-y-4">
+          {/* Progress Header */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">
+                  Seite {verifyIndex + 1} von {verifyItems.length} prüfen
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {confirmedCount} bestätigt · {problemCount} mit Hinweisen
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setVerifyIndex(i => Math.max(0, i - 1))} disabled={verifyIndex === 0}
+                  className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors">
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="text-sm font-mono text-gray-400 min-w-[60px] text-center">{verifyIndex + 1} / {verifyItems.length}</span>
+                <button onClick={() => setVerifyIndex(i => Math.min(verifyItems.length - 1, i + 1))} disabled={verifyIndex === verifyItems.length - 1}
+                  className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors">
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
-            <div className="bg-white rounded-2xl border border-amber-100 shadow-sm p-4 flex items-center gap-3 cursor-pointer hover:shadow-md transition-shadow"
-              onClick={() => reviewCount > 0 && setShowReview(true)}>
-              <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center"><AlertCircle className="h-5 w-5 text-amber-500" /></div>
-              <div><p className="text-2xl font-bold text-gray-900">{reviewCount}</p><p className="text-xs text-gray-400">Zur Prüfung {reviewCount > 0 && '→'}</p></div>
+            {/* Fortschrittsbalken */}
+            <div className="w-full bg-gray-100 rounded-full h-1.5">
+              <div className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
+                style={{ width: `${(confirmedCount / verifyItems.length) * 100}%` }} />
             </div>
-            <div className="bg-white rounded-2xl border border-orange-100 shadow-sm p-4 flex items-center gap-3">
-              <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center"><FileText className="h-5 w-5 text-orange-400" /></div>
-              <div><p className="text-2xl font-bold text-gray-900">{noMatchCount}</p><p className="text-xs text-gray-400">Nicht gefunden</p></div>
-            </div>
-            <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-4 flex items-center gap-3">
-              <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center"><XCircle className="h-5 w-5 text-red-500" /></div>
-              <div><p className="text-2xl font-bold text-gray-900">{errorCount}</p><p className="text-xs text-gray-400">Fehler</p></div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wider">Seitenübersicht</h2>
-            <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
-              {pages.map(p => (
-                <div key={p.page} className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm border transition-colors
-                  ${p.imported ? 'bg-emerald-50 border-emerald-100' :
-                    p.needsReview && p.ticket_id ? 'bg-amber-50 border-amber-100' :
-                    p.status === 'no_match' ? 'bg-orange-50 border-orange-100' :
-                    p.status === 'error' ? 'bg-red-50 border-red-100' :
-                    'bg-gray-50 border-gray-100'}`}>
-                  <span className="text-xs text-gray-300 font-mono w-8 shrink-0">{p.page}</span>
-                  {p.imported && <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />}
-                  {p.needsReview && p.ticket_id && <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />}
-                  {p.status === 'no_match' && <XCircle className="h-4 w-4 text-orange-400 shrink-0" />}
-                  {p.status === 'error' && !p.needsReview && <XCircle className="h-4 w-4 text-red-400 shrink-0" />}
-                  <div className="flex-1 min-w-0">
-                    {p.imported && <span className="text-emerald-800"><strong className="font-mono">{p.a_nummer}</strong> · {p.mitarbeiter_namen?.join(', ')} · {p.stunden_valid}h</span>}
-                    {p.needsReview && p.ticket_id && <span className="text-amber-700"><strong className="font-mono">{p.a_nummer}</strong> · {p.reviewReasons[0]}</span>}
-                    {p.status === 'no_match' && <span className="text-orange-600 font-mono">{p.error}</span>}
-                    {p.status === 'error' && !p.needsReview && <span className="text-red-500">{p.error}</span>}
-                  </div>
-                </div>
+            <div className="flex gap-1 mt-2 flex-wrap">
+              {verifyItems.map((v, i) => (
+                <button key={i} onClick={() => setVerifyIndex(i)}
+                  className={`w-6 h-6 rounded-md text-xs font-mono transition-colors
+                    ${i === verifyIndex ? 'bg-[#1e3a5f] text-white' :
+                      v.confirmed ? 'bg-emerald-100 text-emerald-700' :
+                      v.needsReview ? 'bg-amber-100 text-amber-700' :
+                      'bg-gray-100 text-gray-500'}`}>
+                  {i + 1}
+                </button>
               ))}
             </div>
           </div>
 
-          {reviewCount > 0 && (
-            <button onClick={() => { setReviewIndex(0); setShowReview(true); }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-amber-500 text-white rounded-2xl text-sm font-semibold hover:bg-amber-600 transition-colors shadow-sm">
-              <Pencil className="h-4 w-4" /> {reviewCount} Einträge nachbearbeiten
-            </button>
-          )}
-        </>
-      )}
-
-      {/* Split-View Review Dialog */}
-      <Dialog open={showReview} onOpenChange={setShowReview}>
-        <DialogContent className="max-w-5xl max-h-[95vh] overflow-hidden flex flex-col p-0">
-          <div className="shrink-0 px-6 pt-5 pb-4 border-b border-gray-100 bg-white">
-            <DialogTitle className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-amber-500" />
-                <span>Nachbearbeitung</span>
-                <span className="text-sm font-normal text-gray-400">— {reviewIndex + 1} von {reviewItems.length}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setReviewIndex(i => Math.max(0, i - 1))} disabled={reviewIndex === 0}
-                  className="p-2 rounded-xl hover:bg-gray-100 disabled:opacity-30 transition-colors">
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button onClick={() => setReviewIndex(i => Math.min(reviewItems.length - 1, i + 1))} disabled={reviewIndex === reviewItems.length - 1}
-                  className="p-2 rounded-xl hover:bg-gray-100 disabled:opacity-30 transition-colors">
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            </DialogTitle>
-          </div>
-
-          {currentReview && (
-            <div className="flex flex-1 overflow-hidden min-h-0">
-              <div className="w-1/2 shrink-0 bg-gray-950 flex items-center justify-center p-2">
-                {currentReview.imageBase64 ? (
-                  <img src={`data:image/png;base64,${currentReview.imageBase64}`}
-                    alt={`Seite ${currentReview.page}`}
-                    className="w-full h-full object-contain rounded-xl" style={{ maxHeight: '75vh' }} />
-                ) : (
-                  <div className="text-gray-500 text-sm">Kein Bild</div>
-                )}
-              </div>
-
-              <div className="w-1/2 flex flex-col overflow-y-auto p-6 space-y-4 bg-white">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="font-mono font-bold text-[#1e3a5f] text-xl">{currentReview.a_nummer}</span>
-                    <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md">S. {currentReview.page}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {currentReview.reviewReasons.map((r, i) => (
-                      <span key={i} className="text-xs bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full">{r}</span>
-                    ))}
-                  </div>
+          {/* Split-View */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden" style={{ minHeight: '580px' }}>
+            <div className="grid grid-cols-2 h-full" style={{ minHeight: '580px' }}>
+              {/* Links: Original */}
+              <div className="bg-gray-950 flex flex-col">
+                <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
+                  <span className="text-xs text-gray-400 font-mono">ORIGINAL — Seite {currentVerify.page}</span>
+                  {currentVerify.needsReview && (
+                    <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Prüfung empfohlen</span>
+                  )}
                 </div>
-
-                <div>
-                  <Label className="text-xs text-gray-400 mb-1.5 block font-medium uppercase tracking-wider">Stunden · OCR: {currentReview.stunden_raw}h</Label>
-                  <Input value={currentReview.stunden_edit}
-                    onChange={e => setReviewItems(prev => prev.map((r, i) => i === reviewIndex ? { ...r, stunden_edit: e.target.value } : r))}
-                    className="h-10 rounded-xl font-mono text-base" placeholder="z.B. 1.5" />
-                </div>
-
-                <div>
-                  <Label className="text-xs text-gray-400 mb-1.5 block font-medium uppercase tracking-wider">Leistungsdatum</Label>
-                  <Input type="date" value={currentReview.leistungsdatum ?? new Date().toISOString().split('T')[0]}
-                    onChange={e => setReviewItems(prev => prev.map((r, i) => i === reviewIndex ? { ...r, leistungsdatum: e.target.value } : r))}
-                    className="h-10 rounded-xl" />
-                </div>
-
-                <div>
-                  <Label className="text-xs text-gray-400 mb-1.5 block font-medium uppercase tracking-wider">Mitarbeiter</Label>
-                  <div className="space-y-2">
-                    {currentReview.mitarbeiter_edit.map((m, mIdx) => (
-                      <div key={mIdx} className="flex gap-2">
-                        <Select value={m.id} onValueChange={v => setReviewItems(prev => prev.map((r, i) => i === reviewIndex ? {
-                          ...r, mitarbeiter_edit: r.mitarbeiter_edit.map((me, mi) => mi === mIdx
-                            ? { ...me, id: v, name: (employees as any[]).find((e: any) => e.id === v)?.name ?? '' } : me)
-                        } : r))}>
-                          <SelectTrigger className="h-9 rounded-xl flex-1 text-xs"><SelectValue placeholder="Mitarbeiter wählen..." /></SelectTrigger>
-                          <SelectContent>{(employees as any[]).map((e: any) => <SelectItem key={e.id} value={e.id}>{e.kuerzel} – {e.name}</SelectItem>)}</SelectContent>
-                        </Select>
-                        <button onClick={() => setReviewItems(prev => prev.map((r, i) => i === reviewIndex ? {
-                          ...r, mitarbeiter_edit: r.mitarbeiter_edit.filter((_, mi) => mi !== mIdx)
-                        } : r))} className="p-2 rounded-xl hover:bg-red-50 text-red-400 transition-colors">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                    <button onClick={() => setReviewItems(prev => prev.map((r, i) => i === reviewIndex ? {
-                      ...r, mitarbeiter_edit: [...r.mitarbeiter_edit, { id: '', name: '' }]
-                    } : r))} className="flex items-center gap-1.5 text-xs text-[#1e3a5f] hover:text-blue-600 font-medium transition-colors">
-                      <Plus className="h-3.5 w-3.5" /> Mitarbeiter hinzufügen
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-2 border-t border-gray-100 mt-auto">
-                  <button onClick={() => setReviewIndex(i => Math.max(0, i - 1))} disabled={reviewIndex === 0}
-                    className="flex-1 flex items-center justify-center gap-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors">
-                    <ChevronLeft className="h-4 w-4" /> Zurück
-                  </button>
-                  {reviewIndex < reviewItems.length - 1 ? (
-                    <button onClick={() => setReviewIndex(i => i + 1)}
-                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2.5 bg-[#1e3a5f] text-white rounded-xl text-sm font-semibold hover:bg-[#162d4a] transition-colors">
-                      Weiter <ChevronRight className="h-4 w-4" />
-                    </button>
+                <div className="flex-1 flex items-center justify-center p-3">
+                  {currentVerify.imageBase64 ? (
+                    <img key={verifyIndex} src={`data:image/png;base64,${currentVerify.imageBase64}`}
+                      alt={`Seite ${currentVerify.page}`}
+                      className="w-full h-full object-contain fade-up rounded-lg" style={{ maxHeight: '520px' }} />
                   ) : (
-                    <button onClick={confirmReview} disabled={importingReview}
-                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-                      <CheckCircle className="h-4 w-4" />
-                      {importingReview ? 'Läuft...' : `Alle ${reviewItems.length} importieren`}
-                    </button>
+                    <div className="text-gray-500 text-sm">Kein Bild</div>
                   )}
                 </div>
               </div>
+
+              {/* Rechts: Daten */}
+              <div className="flex flex-col overflow-y-auto border-l border-gray-100">
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-[#1e3a5f] text-xl">{currentVerify.a_nummer}</span>
+                    {currentVerify.confirmed && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✓ Bestätigt</span>}
+                    {currentVerify.needsReview && !currentVerify.confirmed && (
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Bitte prüfen</span>
+                    )}
+                  </div>
+                  {currentVerify.reviewReasons.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {currentVerify.reviewReasons.map((r, i) => (
+                        <span key={i} className="text-xs bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full">{r}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 p-6 space-y-5">
+                  {/* Stunden */}
+                  <div>
+                    <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Stunden</Label>
+                    <Input
+                      value={currentVerify.stunden_edit}
+                      onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, stunden_edit: e.target.value, confirmed: false } : v))}
+                      className="h-11 rounded-xl font-mono text-lg font-semibold"
+                      placeholder="z.B. 1.5"
+                    />
+                    {/* Von/Bis Info */}
+                    {currentVerify.vonbis_stunden !== null && (
+                      <div className={`flex items-center gap-2 mt-2 text-xs px-3 py-2 rounded-lg
+                        ${vonBisWarning(currentVerify) ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-gray-50 text-gray-500'}`}>
+                        <Info className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          Von/Bis ({currentVerify.arbeitszeit_von} – {currentVerify.arbeitszeit_bis}) ergibt <strong>{currentVerify.vonbis_stunden}h</strong>
+                          {vonBisWarning(currentVerify) && ' — Abweichung!'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Datum */}
+                  <div>
+                    <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Leistungsdatum</Label>
+                    <Input
+                      type="date"
+                      value={currentVerify.datum_edit}
+                      onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, datum_edit: e.target.value, confirmed: false } : v))}
+                      className="h-11 rounded-xl"
+                    />
+                  </div>
+
+                  {/* Mitarbeiter */}
+                  <div>
+                    <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Mitarbeiter</Label>
+                    <div className="space-y-2">
+                      {currentVerify.mitarbeiter_edit.map((m, mIdx) => (
+                        <div key={mIdx} className="flex gap-2">
+                          <Select value={m.id} onValueChange={v => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
+                            ...r, confirmed: false,
+                            mitarbeiter_edit: r.mitarbeiter_edit.map((me, mi) => mi === mIdx
+                              ? { ...me, id: v, name: (employees as any[]).find((e: any) => e.id === v)?.name ?? '' } : me)
+                          } : r))}>
+                            <SelectTrigger className="h-10 rounded-xl flex-1 text-sm">
+                              <SelectValue placeholder="Mitarbeiter wählen..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(employees as any[]).map((e: any) => (
+                                <SelectItem key={e.id} value={e.id}>{e.kuerzel} – {e.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <button onClick={() => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
+                            ...r, confirmed: false,
+                            mitarbeiter_edit: r.mitarbeiter_edit.filter((_, mi) => mi !== mIdx)
+                          } : r))} className="p-2 rounded-xl hover:bg-red-50 text-red-400 transition-colors">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                      <button onClick={() => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
+                        ...r, confirmed: false,
+                        mitarbeiter_edit: [...r.mitarbeiter_edit, { id: '', name: '' }]
+                      } : r))} className="flex items-center gap-1.5 text-xs text-[#1e3a5f] hover:text-blue-600 font-medium transition-colors">
+                        <Plus className="h-3.5 w-3.5" /> Mitarbeiter hinzufügen
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Aktionen */}
+                <div className="px-6 pb-6 pt-2 border-t border-gray-100 space-y-2">
+                  {/* Bestätigen Button */}
+                  <button
+                    onClick={() => {
+                      setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, confirmed: true } : v));
+                      if (verifyIndex < verifyItems.length - 1) setVerifyIndex(i => i + 1);
+                    }}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors
+                      ${currentVerify.confirmed
+                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
+                    <CheckCircle className="h-4 w-4" />
+                    {currentVerify.confirmed ? '✓ Bestätigt — weiter' : 'Bestätigen & weiter'}
+                  </button>
+
+                  <div className="flex gap-2">
+                    <button onClick={() => setVerifyIndex(i => Math.max(0, i - 1))} disabled={verifyIndex === 0}
+                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors">
+                      <ChevronLeft className="h-4 w-4" /> Zurück
+                    </button>
+                    <button onClick={() => setVerifyIndex(i => Math.min(verifyItems.length - 1, i + 1))} disabled={verifyIndex === verifyItems.length - 1}
+                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors">
+                      Weiter <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          </div>
+
+          {/* Import Button — nur wenn alle bestätigt */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-700">{confirmedCount} von {verifyItems.length} bestätigt</p>
+                <p className="text-xs text-gray-400">
+                  {confirmedCount < verifyItems.length
+                    ? `Noch ${verifyItems.length - confirmedCount} Seite${verifyItems.length - confirmedCount !== 1 ? 'n' : ''} offen`
+                    : 'Alle bestätigt — bereit zum Import'}
+                </p>
+              </div>
+              <button
+                onClick={importAll}
+                disabled={importing || confirmedCount === 0}
+                className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-colors
+                  ${confirmedCount === verifyItems.length
+                    ? 'bg-[#1e3a5f] text-white hover:bg-[#162d4a]'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
+                {importing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                {importing ? 'Importiert...' : confirmedCount === verifyItems.length
+                  ? `Alle ${confirmedCount} importieren`
+                  : `${confirmedCount} bestätigte importieren`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DONE */}
+      {phase === 'done' && (
+        <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-8 text-center">
+          <div className="w-16 h-16 bg-emerald-50 rounded-2xl mx-auto mb-4 flex items-center justify-center">
+            <CheckCircle className="h-8 w-8 text-emerald-600" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Import abgeschlossen</h2>
+          <p className="text-sm text-gray-400 mb-6">Alle Tickets wurden erfolgreich verarbeitet</p>
+          <button onClick={() => { setPages([]); setPhase('idle'); setFileName(''); setLiveLog([]); setVerifyItems([]); }}
+            className="flex items-center gap-2 px-6 py-3 bg-[#1e3a5f] text-white rounded-xl text-sm font-semibold hover:bg-[#162d4a] transition-colors mx-auto">
+            <Upload className="h-4 w-4" /> Neue Datei verarbeiten
+          </button>
+        </div>
+      )}
     </div>
   );
 }
