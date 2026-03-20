@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { logPageVisit } from '@/lib/activityLog';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, FileUp, Users, Home, Archive } from 'lucide-react';
 
@@ -24,6 +26,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user?.email) {
+        const pageNames: Record<string, string> = {
+          '/baustellen/dashboard': 'Baustellen Dashboard',
+          '/baustellen/liste': 'Baustellen-Liste',
+          '/baustellen/zeiterfassung': 'Zeiterfassung',
+          '/baustellen/material': 'Material',
+          '/baustellen/nachtraege': 'Nachträge',
+          '/baustellen/fotos': 'Fotos',
+          '/baustellen/eskalationen': 'Eskalationen',
+          '/baustellen/mitarbeiter': 'Mitarbeiter',
+          '/baustellen/import': 'Auftrag-Import',
+          '/baustellen/archiv': 'Archiv',
+        };
+        const pageName = pageNames[location.pathname] ?? location.pathname;
+        logPageVisit(data.user.email, pageName);
+      }
+    });
+  }, [location.pathname]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f8fafc', fontFamily: "'Inter', system-ui, sans-serif" }}>
