@@ -70,14 +70,58 @@ function normalizeBez(bez: string): string {
 // CSV PARSER
 // ═══════════════════════════════════════
 function parseCSV(text: string): Record<string, string>[] {
-  const lines = text.split('\n').filter(l => l.trim());
+  // Normalisiere Zeilenenden
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
   if (lines.length < 2) return [];
   const sep = lines[0].includes(';') ? ';' : ',';
-  const headers = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, ''));
+
+  // Header: Umlaute normieren (latin-1 falsch gelesen → trotzdem matchen)
+  const rawHeaders = lines[0].split(sep).map(h => h.trim().replace(/^"|"$/g, ''));
+
+  // Normierungsfunktion für Spaltennamen
+  const norm = (s: string) => s.toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+    .replace(/[^a-z0-9]/g,'');
+
+  // Mapping: normierter Name → originaler Header
+  const headerMap: Record<string, string> = {};
+  rawHeaders.forEach(h => { headerMap[norm(h)] = h; });
+
+  // Gesuchte Spalten mit Fallbacks
+  const findCol = (names: string[]) => {
+    for (const n of names) {
+      const found = headerMap[norm(n)];
+      if (found) return found;
+    }
+    return names[0];
+  };
+
   return lines.slice(1).map(line => {
     const vals = line.split(sep).map(v => v.trim().replace(/^"|"$/g, ''));
     const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = vals[i] ?? ''; });
+    rawHeaders.forEach((h, i) => { row[h] = vals[i] ?? ''; });
+    // Aliases für Umlauts-Probleme
+    const aliases: Record<string, string[]> = {
+      'GEBÄUDE':          ['GEBÄUDE','GEB\u00c4UDE','GEB?UDE','GEBAEUDE'],
+      'NÄCHSTE PRÜFUNG':  ['N?CHSTE PR?FUNG','NACHSTE PRUFUNG','NÄCHSTE PRÜFUNG'],
+      'LETZTE PRÜFUNG':   ['LETZTE PR?FUNG','LETZTE PRUFUNG'],
+      'LETZTER PRÜFER':   ['LETZTER PR?FER','LETZTER PRUFER'],
+      'PRÜFSEQUENZ':      ['PR?FSEQUENZ','PRUFSEQUENZ'],
+    };
+    for (const [correct, variants] of Object.entries(aliases)) {
+      if (!row[correct] || row[correct] === undefined) {
+        for (const v of variants) {
+          if (row[v] !== undefined) { row[correct] = row[v]; break; }
+        }
+        // Fallback: suche nach ähnlichem Schlüssel
+        if (!row[correct]) {
+          const normCorrect = norm(correct);
+          for (const key of Object.keys(row)) {
+            if (norm(key) === normCorrect) { row[correct] = row[key]; break; }
+          }
+        }
+      }
+    }
     return row;
   }).filter(r => r['ID'] || r['BEZEICHNUNG']);
 }
@@ -202,7 +246,13 @@ function GesamtlisteImport({ onImported }: { onImported: () => void }) {
   async function handleImport(file: File) {
     setStatus('loading');
     try {
-      const text = await file.text();
+      // latin-1 lesen wegen Umlauten in der CSV
+      const text = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target?.result as string ?? '');
+        reader.onerror = reject;
+        reader.readAsText(file, 'ISO-8859-1');
+      });
       const rows = parseCSV(text);
       let imported = 0;
       const batchSize = 200;
