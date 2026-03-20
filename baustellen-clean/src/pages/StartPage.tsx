@@ -23,6 +23,7 @@ export default function StartPage() {
     { path: '/baustellen/dashboard', color: '#2563eb', colorRgb: '37,99,235', icon: HardHat, titel: 'Baustellen', sub: 'Controlling & Management', stat: b.filter(x => x.status !== 'abgerechnet').length, statLabel: 'aktive Projekte', punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'] },
     { path: '/tickets/dashboard', color: '#10b981', colorRgb: '16,185,129', icon: Ticket, titel: 'Ticketsystem', sub: 'WIDI Controlling', stat: t.filter(x => x.status === 'in_bearbeitung').length, statLabel: 'Tickets offen', punkte: ['Tickets erfassen', 'PDF-Rücklauf OCR', 'Excel-Import', 'Monatsanalyse'] },
     { path: '/auswertung', color: '#8b5cf6', colorRgb: '139,92,246', icon: TrendingUp, titel: 'MA-Auswertung', sub: 'Mitarbeiter & Statistik', stat: (employees as any[]).length, statLabel: 'Mitarbeiter', punkte: ['Stunden & Kosten', 'Monatsvergleich', 'Einzelperson', 'Trends'] },
+    { path: '/dguv', color: '#f59e0b', colorRgb: '245,158,11', icon: Shield, titel: 'DGUV Prüfung', sub: 'Geräteprüfung & Roadmap', stat: 23352, statLabel: 'Prüflinge gesamt', punkte: ['Rohdaten verarbeiten', 'Roadmap 2025/2026', 'Prüfer-Auswertung', 'Neue Prüflinge'] },
   ];
 
   return (
@@ -169,7 +170,7 @@ export default function StartPage() {
         </div>
 
         {/* Cards */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:20, width:'100%', maxWidth:1020, marginBottom: isAdmin ? 24 : 0 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, width:'100%', maxWidth:1200, marginBottom: isAdmin ? 24 : 0 }}>
           {BEREICHE.map((bereich, i) => (
             <div key={i} className="s-card"
               onClick={() => navigate(bereich.path)}
