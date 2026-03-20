@@ -3,6 +3,9 @@ import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useMonth } from '@/contexts/MonthContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home } from 'lucide-react';
+import { useEffect } from 'react';
+import { logPageVisit } from '@/lib/activityLog';
+import { supabase } from '@/integrations/supabase/client';
 
 function MonthStepper() {
   const { activeMonth, setActiveMonth } = useMonth();
@@ -77,6 +80,25 @@ function NavItem({ to, icon: Icon, children }: { to: string; icon: any; children
 export default function AppLayoutTickets({ children }: { children: ReactNode }) {
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user?.email) {
+        const pageNames: Record<string, string> = {
+          '/tickets/dashboard': 'Tickets Dashboard',
+          '/tickets/liste': 'Ticket-Liste',
+          '/tickets/import': 'Excel-Import',
+          '/tickets/pdf-ruecklauf': 'PDF-Rücklauf',
+          '/tickets/mitarbeiter': 'Ticket-Mitarbeiter',
+          '/tickets/analyse': 'Ticket-Analyse',
+          '/tickets/aufgaben': 'Begehungen',
+        };
+        const pageName = pageNames[location.pathname] ?? location.pathname;
+        logPageVisit(data.user.email, pageName);
+      }
+    });
+  }, [location.pathname]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f8fafc', fontFamily: "'Inter', system-ui, sans-serif" }}>
