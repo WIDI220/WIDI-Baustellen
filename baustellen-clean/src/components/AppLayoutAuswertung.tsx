@@ -1,4 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { logPageVisit } from '@/lib/activityLog';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { TrendingUp, Users, BarChart2, Calendar, LogOut, Home } from 'lucide-react';
 
@@ -15,6 +18,14 @@ export default function AppLayoutAuswertung({ children }: { children: React.Reac
   const { signOut } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user?.email) {
+        logPageVisit(data.user.email, 'MA-Auswertung');
+      }
+    });
+  }, [location.pathname]);
 
   return (
     <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:'#f8fafc', fontFamily:"'Inter',system-ui,sans-serif" }}>
