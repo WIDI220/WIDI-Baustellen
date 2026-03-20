@@ -3,9 +3,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Shield, BarChart2, Calendar, LogOut, Home, Upload } from 'lucide-react';
 
 const NAV = [
-  { to: '/dguv',            icon: Upload,   label: 'Verarbeitung' },
-  { to: '/dguv/roadmap',    icon: Calendar, label: 'Roadmap' },
-  { to: '/dguv/auswertung', icon: BarChart2, label: 'Auswertung' },
+  { to: '/dguv',            icon: Upload,    label: 'Verarbeitung', tab: 'Verarbeitung' },
+  { to: '/dguv/roadmap',    icon: Calendar,  label: 'Roadmap',      tab: 'Roadmap' },
+  { to: '/dguv/auswertung', icon: BarChart2, label: 'Auswertung',   tab: 'Auswertung' },
 ];
 
 const ACCENT = '#f59e0b';
