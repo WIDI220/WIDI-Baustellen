@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { renderPdfPageToBase64, getPdfPageCount } from '@/lib/pdf-renderer';
 import { toast } from 'sonner';
 import { Upload, CheckCircle, XCircle, AlertCircle, RotateCcw, RefreshCw, Plus, Trash2, ChevronLeft, ChevronRight, FileText, Scan, Zap, Info } from 'lucide-react';
+import { logActivity } from '@/lib/activityLog';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -173,9 +174,13 @@ export default function PdfRuecklauf() {
                 catch { reject(new Error(`Antwort-Fehler Seite ${i + 1}`)); }
               } else { reject(new Error(`Server-Fehler ${xhr.status}`)); }
             };
+            const now = new Date();
+            const uploadMonth = String(now.getMonth() + 1).padStart(2, '0');
+            const uploadYear = String(now.getFullYear());
             xhr.send(JSON.stringify({
               imageBase64, fileName: file.name, pageNumber: i + 1,
-              employees: (employees as any[]).map((e: any) => ({ name: e.name, kuerzel: e.kuerzel }))
+              employees: (employees as any[]).map((e: any) => ({ name: e.name, kuerzel: e.kuerzel })),
+              uploadMonth, uploadYear
             }));
           });
 
@@ -401,6 +406,8 @@ export default function PdfRuecklauf() {
     queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
     queryClient.invalidateQueries({ queryKey: ['tickets'] });
     queryClient.invalidateQueries({ queryKey: ['worklogs-analyse'] });
+    const { data: userData } = await supabase.auth.getUser();
+    await logActivity(userData.user?.email, `PDF-Rücklauf importiert: ${saved} Tickets · ${skipped} übersprungen`, 'pdf_ruecklauf', undefined, { datei: fileName, importiert: saved, uebersprungen: skipped });
     toast.success(`✅ ${saved} importiert · ⏭ ${skipped} übersprungen`);
     setPhase('done');
     setImporting(false);
@@ -755,9 +762,9 @@ export default function PdfRuecklauf() {
                             <SelectTrigger className="h-10 rounded-xl flex-1 text-sm">
                               <SelectValue placeholder="Mitarbeiter wählen..." />
                             </SelectTrigger>
-                            <SelectContent>
+                            <SelectContent style={{ background:'#fff', border:'1px solid #e2e8f0', boxShadow:'0 8px 24px rgba(0,0,0,0.12)', zIndex:9999 }}>
                               {(employees as any[]).map((e: any) => (
-                                <SelectItem key={e.id} value={e.id}>{e.kuerzel} – {e.name}</SelectItem>
+                                <SelectItem key={e.id} value={e.id} style={{ color:'#0f172a', fontWeight:500 }}>{e.kuerzel} – {e.name}</SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
