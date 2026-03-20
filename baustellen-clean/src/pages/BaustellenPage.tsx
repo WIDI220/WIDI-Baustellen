@@ -101,92 +101,125 @@ export default function BaustellenPage() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
+    <div style={{ display:'flex', flexDirection:'column', gap:20, paddingBottom:32, fontFamily:"'Inter',system-ui,sans-serif" }}>
+      <style>{`
+        @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .bs-card { animation:fadeUp 0.35s ease forwards; opacity:0; transition:box-shadow .2s,transform .2s; }
+        .bs-card:hover { box-shadow:0 8px 30px rgba(0,0,0,0.08) !important; transform:translateY(-2px); }
+        .bs-action:hover { background:#f1f5f9 !important; }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div>
-          <h1 style={{fontFamily:'DM Sans',fontWeight:700,fontSize:'1.5rem',color:'#0f1f3d',letterSpacing:'-.02em'}}>Baustellen</h1>
-          <p className="text-sm mt-1" style={{color:'#6b7a99'}}>{aktiveBS.length} aktiv</p>
+          <h1 style={{ fontSize:24, fontWeight:800, color:'#0f172a', margin:0, letterSpacing:'-.03em' }}>
+            Baustellen <span style={{ color:'#2563eb' }}>({aktiveBS.length})</span>
+          </h1>
+          <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>{aktiveBS.length} aktive Projekte</p>
         </div>
-        <Button onClick={() => {setForm(EMPTY);setEditItem(null);setDialog(true);}}><Plus className="h-4 w-4" />Neue Baustelle</Button>
+        <button
+          onClick={() => {setForm(EMPTY);setEditItem(null);setDialog(true);}}
+          style={{ display:'flex', alignItems:'center', gap:7, padding:'10px 18px', background:'linear-gradient(135deg,#2563eb,#1d4ed8)', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 14px rgba(37,99,235,0.3)', transition:'all .15s' }}
+          onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform='translateY(-1px)';(e.currentTarget as HTMLElement).style.boxShadow='0 8px 20px rgba(37,99,235,0.4)';}}
+          onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform='translateY(0)';(e.currentTarget as HTMLElement).style.boxShadow='0 4px 14px rgba(37,99,235,0.3)';}}>
+          <Plus size={15} /> Neue Baustelle
+        </button>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4" style={{color:'#9ca3af'}} />
-        <Input placeholder="Name oder Auftraggeber suchen..." value={search} onChange={e=>setSearch(e.target.value)} className="pl-9" />
+      {/* Search */}
+      <div style={{ position:'relative' }}>
+        <Search size={15} style={{ position:'absolute', left:14, top:'50%', transform:'translateY(-50%)', color:'#94a3b8' }} />
+        <input
+          placeholder="Name oder Auftraggeber suchen..."
+          value={search} onChange={e=>setSearch(e.target.value)}
+          style={{ width:'100%', padding:'10px 14px 10px 40px', borderRadius:12, border:'1px solid #e2e8f0', background:'#fff', fontSize:13, color:'#0f172a', outline:'none', boxSizing:'border-box', fontFamily:'inherit', transition:'border-color .15s' }}
+          onFocus={e=>{e.target.style.borderColor='#2563eb';}}
+          onBlur={e=>{e.target.style.borderColor='#e2e8f0';}}
+        />
       </div>
 
-      <div className="space-y-3">
+      {/* Liste */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
         {filtered.length === 0 && (
-          <div className="card p-14 text-center">
-            <HardHat className="h-10 w-10 mx-auto mb-3" style={{color:'#e5e9f2'}} />
-            <p className="text-sm" style={{color:'#9ca3af'}}>Keine Baustellen gefunden</p>
-            <Button className="mt-4" size="sm" onClick={()=>{setForm(EMPTY);setDialog(true);}}><Plus className="h-4 w-4" />Erste anlegen</Button>
+          <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'56px 24px', textAlign:'center' }}>
+            <HardHat size={36} style={{ color:'#e2e8f0', marginBottom:12 }} />
+            <p style={{ color:'#94a3b8', fontSize:14, marginBottom:16 }}>Keine Baustellen gefunden</p>
+            <button onClick={()=>{setForm(EMPTY);setDialog(true);}}
+              style={{ padding:'9px 18px', background:'#2563eb', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer' }}>
+              <Plus size={14} style={{ display:'inline', marginRight:6 }} />Erste anlegen
+            </button>
           </div>
         )}
-        {filtered.map((b:any) => {
+        {filtered.map((b:any, idx:number) => {
           const st = STATUS_OPTIONS.find(s=>s.value===b.status)??STATUS_OPTIONS[0];
           const k = berechneKosten(b.id, sw, mat, nach, Number(b.budget??0));
           const daysLeft = b.enddatum ? Math.round((new Date(b.enddatum).getTime()-Date.now())/86400000) : null;
           const fristAlert = daysLeft !== null && daysLeft <= 7;
+          const barColor = k.overBudget ? '#ef4444' : k.pct > 80 ? '#f59e0b' : '#2563eb';
 
           return (
-            <div key={b.id} onClick={()=>navigate(`/baustellen/liste/${b.id}`)}
-              className="card p-5 cursor-pointer transition-all hover:shadow-md"
-              style={{borderLeft:`3px solid ${st.dot}`}}>
-              <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{background:`${st.dot}18`}}>
-                  <HardHat className="h-5 w-5" style={{color:st.dot}} />
+            <div key={b.id} className="bs-card"
+              style={{ animationDelay:`${idx*0.04}s`, background:'#fff', borderRadius:16, border:'1px solid #f1f5f9', padding:'18px 20px', cursor:'pointer', position:'relative', overflow:'hidden', borderLeft:`3px solid ${st.dot}` }}
+              onClick={()=>navigate(`/baustellen/liste/${b.id}`)}>
+
+              <div style={{ display:'flex', alignItems:'flex-start', gap:14 }}>
+                {/* Icon */}
+                <div style={{ width:42, height:42, borderRadius:13, background:`${st.dot}15`, border:`1px solid ${st.dot}25`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <HardHat size={20} style={{ color:st.dot }} />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-bold" style={{color:'#0f1f3d'}}>{b.name}</h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{background:st.bg, color:st.text}}>{st.label}</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'#f4f6fa', color:'#6b7a99'}}>{b.gewerk}</span>
-                    {fristAlert && <span className="text-xs px-2 py-0.5 rounded-full font-semibold flex items-center gap-1" style={{background:'rgba(239,68,68,.1)', color:'#dc2626'}}><AlertTriangle className="h-2.5 w-2.5" />{(daysLeft??0)<0?`${Math.abs(daysLeft??0)}d überfällig`:`${daysLeft}d`}</span>}
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    {extractANummer(b.name) && (
-                      <span className="text-xs px-2 py-0.5 rounded-full font-mono font-semibold" style={{background:'rgba(30,58,95,.08)', color:'#1e3a5f'}}>
-                        A{extractANummer(b.name)}
+
+                {/* Content */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:4 }}>
+                    <span style={{ fontSize:14, fontWeight:700, color:'#0f172a' }}>{b.name}</span>
+                    <span style={{ fontSize:11, fontWeight:600, padding:'2px 9px', borderRadius:20, background:st.bg, color:st.text }}>{st.label}</span>
+                    <span style={{ fontSize:11, padding:'2px 9px', borderRadius:20, background: b.gewerk==='Hochbau'?'#eff6ff':'#f0fdf4', color: b.gewerk==='Hochbau'?'#1d4ed8':'#065f46', fontWeight:600 }}>{b.gewerk}</span>
+                    {fristAlert && (
+                      <span style={{ fontSize:11, fontWeight:700, padding:'2px 9px', borderRadius:20, background:'#fef2f2', color:'#dc2626', display:'flex', alignItems:'center', gap:4 }}>
+                        <AlertTriangle size={10} />{(daysLeft??0)<0?`${Math.abs(daysLeft??0)}d überfällig`:`${daysLeft}d`}
                       </span>
                     )}
-                    <p className="text-sm" style={{color:'#9ca3af'}}>{b.auftraggeber||'–'}{b.adresse?` · ${b.adresse}`:''}</p>
                   </div>
 
-                  {/* Budget-Typ Anzeige */}
-                  {Number(b.budget??0) > 0 && (
-                    <p className="text-xs mt-1" style={{color:'#9ca3af'}}>
-                      Budget: <span className="font-medium" style={{color:'#6b7a99'}}>{budgetAnzeige(b)}</span>
-                    </p>
-                  )}
+                  <p style={{ fontSize:12, color:'#94a3b8', margin:'0 0 8px' }}>
+                    {b.auftraggeber||'–'}{b.adresse?` · ${b.adresse}`:''}
+                    {b.enddatum && <span style={{ marginLeft:8 }}><Calendar size={11} style={{ display:'inline', marginRight:3 }} />{fmtDate(b.enddatum)}</span>}
+                  </p>
 
                   {k.effektivBudget > 0 && (
-                    <div className="mt-2">
-                      <div className="flex justify-between text-xs mb-1.5">
-                        <span style={{color: k.overBudget?'#ef4444':'#6b7a99'}}>
-                          <TrendingUp className="h-3 w-3 inline mr-1" />
-                          <span className={k.overBudget?'font-semibold':''}>{fmtEur(k.gesamtkosten)}</span>
-                          {k.nachtragGenehmigt>0 && <span className="ml-1" style={{color:'#10b981'}}>+{fmtEur(k.nachtragGenehmigt)}</span>}
+                    <div>
+                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5, fontSize:11 }}>
+                        <span style={{ color:k.overBudget?'#dc2626':'#64748b' }}>
+                          {fmtEur(k.gesamtkosten)}
+                          {k.nachtragGenehmigt>0 && <span style={{ color:'#10b981', marginLeft:6 }}>+{fmtEur(k.nachtragGenehmigt)}</span>}
+                          <span style={{ color:'#cbd5e1', marginLeft:4 }}>/ {fmtEur(k.effektivBudget)}</span>
                         </span>
-                        <span className="font-medium" style={{color:'#0f1f3d'}}>{k.pct}%</span>
+                        <span style={{ fontWeight:700, color:barColor }}>{k.pct}%</span>
                       </div>
-                      <div className="rounded-full overflow-hidden" style={{height:'5px', background:'#eef1f9'}}>
-                        <div className="h-full rounded-full progress-bar" style={{width:`${Math.min(k.pct,100)}%`, background:k.overBudget?'#ef4444':k.pct>80?'#f59e0b':'#1e3a5f'}} />
+                      <div style={{ height:5, background:'#f1f5f9', borderRadius:99, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${Math.min(k.pct,100)}%`, background:barColor, borderRadius:99, transition:'width .6s ease' }} />
                       </div>
                       {(k.personalkosten>0||k.materialkosten>0) && (
-                        <div className="flex gap-2 mt-1.5 flex-wrap">
-                          {k.personalkosten>0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'rgba(139,92,246,.08)', color:'#7c3aed'}}>Personal: {fmtEur(k.personalkosten)}</span>}
-                          {k.materialkosten>0 && <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'rgba(249,115,22,.08)', color:'#c2410c'}}>Material: {fmtEur(k.materialkosten)}</span>}
+                        <div style={{ display:'flex', gap:8, marginTop:6, flexWrap:'wrap' }}>
+                          {k.personalkosten>0 && <span style={{ fontSize:11, padding:'2px 8px', borderRadius:6, background:'#faf5ff', color:'#7c3aed' }}>Personal {fmtEur(k.personalkosten)}</span>}
+                          {k.materialkosten>0 && <span style={{ fontSize:11, padding:'2px 8px', borderRadius:6, background:'#fff7ed', color:'#c2410c' }}>Material {fmtEur(k.materialkosten)}</span>}
                         </div>
                       )}
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {b.enddatum && <span className="text-xs flex items-center gap-1 mr-1" style={{color:'#9ca3af'}}><Calendar className="h-3 w-3" />{fmtDate(b.enddatum)}</span>}
-                  <button onClick={e=>openEdit(b,e)} className="p-1.5 rounded-lg transition-colors hover:bg-gray-100"><Pencil className="h-3.5 w-3.5" style={{color:'#9ca3af'}} /></button>
-                  <button onClick={e=>{e.stopPropagation();if(confirm(`"${b.name}" löschen?`))del.mutate(b.id);}} className="p-1.5 rounded-lg transition-colors hover:bg-red-50"><Trash2 className="h-3.5 w-3.5" style={{color:'#fca5a5'}} /></button>
-                  <ArrowRight className="h-4 w-4 ml-1" style={{color:'#d1d5db'}} />
+
+                {/* Actions */}
+                <div style={{ display:'flex', alignItems:'center', gap:4, flexShrink:0 }} onClick={e=>e.stopPropagation()}>
+                  <button className="bs-action" onClick={e=>openEdit(b,e)}
+                    style={{ padding:'7px', borderRadius:9, border:'none', background:'transparent', cursor:'pointer', color:'#94a3b8', transition:'all .15s' }}>
+                    <Pencil size={14} />
+                  </button>
+                  <button className="bs-action" onClick={e=>{e.stopPropagation();if(confirm(`"${b.name}" löschen?`))del.mutate(b.id);}}
+                    style={{ padding:'7px', borderRadius:9, border:'none', background:'transparent', cursor:'pointer', color:'#fca5a5', transition:'all .15s' }}>
+                    <Trash2 size={14} />
+                  </button>
+                  <ArrowRight size={15} style={{ color:'#e2e8f0', marginLeft:4 }} />
                 </div>
               </div>
             </div>
