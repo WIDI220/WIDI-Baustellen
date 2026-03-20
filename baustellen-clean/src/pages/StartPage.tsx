@@ -1,41 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, Users, BarChart3, FileText, Clock } from 'lucide-react';
+import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, Users, BarChart3, CheckCircle, Clock } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-
-const BEREICHE = [
-  {
-    path: '/baustellen/dashboard',
-    color: '#2563eb',
-    colorLight: '#eff6ff',
-    colorMid: '#bfdbfe',
-    icon: HardHat,
-    titel: 'Baustellen',
-    sub: 'Controlling & Management',
-    punkte: ['Budget & Kosten', 'Zeiterfassung & Material', 'Aufträge importieren', 'Eskalationen & Fotos'],
-  },
-  {
-    path: '/tickets/dashboard',
-    color: '#059669',
-    colorLight: '#f0fdf4',
-    colorMid: '#bbf7d0',
-    icon: Ticket,
-    titel: 'Ticketsystem',
-    sub: 'WIDI Controlling',
-    punkte: ['Tickets erfassen', 'Excel-Import', 'PDF-Rücklauf OCR', 'Monatsauswertungen'],
-  },
-  {
-    path: '/auswertung',
-    color: '#7c3aed',
-    colorLight: '#faf5ff',
-    colorMid: '#ddd6fe',
-    icon: TrendingUp,
-    titel: 'MA-Auswertung',
-    sub: 'Mitarbeiter & Statistik',
-    punkte: ['Alle Mitarbeiter', 'Tickets & Baustellen', 'Monatsvergleich', 'Kostenanalyse'],
-  },
-];
 
 export default function StartPage() {
   const navigate = useNavigate();
@@ -53,249 +20,192 @@ export default function StartPage() {
     queryKey: ['start-employees'],
     queryFn: async () => { const { data } = await supabase.from('employees').select('id').eq('aktiv', true); return data ?? []; }
   });
+  const { data: worklogs = [] } = useQuery({
+    queryKey: ['start-worklogs'],
+    queryFn: async () => {
+      const now = new Date();
+      const from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+      const { data } = await supabase.from('ticket_worklogs').select('stunden').gte('leistungsdatum', from);
+      return data ?? [];
+    }
+  });
 
   const t = tickets as any[];
   const b = baustellen as any[];
+  const w = worklogs as any[];
+  const totalH = w.reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
 
-  const stats = [
-    { label: 'Tickets aktiv', value: t.filter(x => x.status === 'in_bearbeitung').length, icon: Ticket, color: '#2563eb' },
-    { label: 'Baustellen', value: b.filter(x => x.status !== 'abgerechnet').length, icon: HardHat, color: '#059669' },
-    { label: 'Mitarbeiter', value: (employees as any[]).length, icon: Users, color: '#7c3aed' },
-    { label: 'Erledigt', value: t.filter(x => x.status === 'erledigt' || x.status === 'abgerechnet').length, icon: BarChart3, color: '#f59e0b' },
+  const BEREICHE = [
+    {
+      path: '/baustellen/dashboard',
+      color: '#2563eb',
+      darkColor: '#1d4ed8',
+      lightColor: '#eff6ff',
+      icon: HardHat,
+      titel: 'Baustellen',
+      sub: 'Controlling & Management',
+      stat: b.filter(x => x.status !== 'abgerechnet').length,
+      statLabel: 'aktive Projekte',
+      punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'],
+    },
+    {
+      path: '/tickets/dashboard',
+      color: '#10b981',
+      darkColor: '#059669',
+      lightColor: '#f0fdf4',
+      icon: Ticket,
+      titel: 'Ticketsystem',
+      sub: 'WIDI Controlling',
+      stat: t.filter(x => x.status === 'in_bearbeitung').length,
+      statLabel: 'offen',
+      punkte: ['Tickets erfassen', 'PDF-Rücklauf OCR', 'Excel-Import', 'Monatsanalyse'],
+    },
+    {
+      path: '/auswertung',
+      color: '#8b5cf6',
+      darkColor: '#7c3aed',
+      lightColor: '#faf5ff',
+      icon: TrendingUp,
+      titel: 'MA-Auswertung',
+      sub: 'Mitarbeiter & Statistik',
+      stat: (employees as any[]).length,
+      statLabel: 'Mitarbeiter',
+      punkte: ['Stunden & Kosten', 'Monatsvergleich', 'Tickets + Baustellen', 'Trends'],
+    },
   ];
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#f8fafc',
-      display: 'flex',
-      flexDirection: 'column',
-      fontFamily: "'Inter', system-ui, sans-serif",
-    }}>
+    <div style={{ minHeight:'100vh', background:'#0f172a', fontFamily:"'Inter',system-ui,sans-serif", display:'flex', flexDirection:'column' }}>
       <style>{`
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideRight {
-          from { width: 0; }
-          to { width: 100%; }
-        }
-        .start-card {
-          animation: fadeUp 0.5s ease forwards;
-          opacity: 0;
-        }
-        .start-card:nth-child(1) { animation-delay: 0.1s; }
-        .start-card:nth-child(2) { animation-delay: 0.2s; }
-        .start-card:nth-child(3) { animation-delay: 0.3s; }
-        .stat-card {
-          animation: fadeUp 0.4s ease forwards;
-          opacity: 0;
-        }
-        .stat-card:nth-child(1) { animation-delay: 0.05s; }
-        .stat-card:nth-child(2) { animation-delay: 0.1s; }
-        .stat-card:nth-child(3) { animation-delay: 0.15s; }
-        .stat-card:nth-child(4) { animation-delay: 0.2s; }
-        .bereich-card:hover .bereich-arrow { transform: translateX(4px); }
-        .bereich-card:hover .bereich-bar { width: 100% !important; }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+        @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+        .start-nav { animation: fadeIn 0.4s ease forwards; }
+        .start-hero { animation: fadeUp 0.5s ease 0.1s forwards; opacity:0; }
+        .start-stat { animation: fadeUp 0.4s ease forwards; opacity:0; }
+        .start-stat:nth-child(1){animation-delay:0.2s}
+        .start-stat:nth-child(2){animation-delay:0.28s}
+        .start-stat:nth-child(3){animation-delay:0.36s}
+        .start-stat:nth-child(4){animation-delay:0.44s}
+        .bereich-card { animation: fadeUp 0.5s ease forwards; opacity:0; transition: transform 0.25s ease, box-shadow 0.25s ease; }
+        .bereich-card:nth-child(1){animation-delay:0.35s}
+        .bereich-card:nth-child(2){animation-delay:0.45s}
+        .bereich-card:nth-child(3){animation-delay:0.55s}
+        .bereich-card:hover { transform: translateY(-6px) !important; }
+        .float-icon { animation: float 4s ease-in-out infinite; }
+        .arrow-icon { transition: transform 0.2s ease; }
+        .bereich-card:hover .arrow-icon { transform: translateX(4px); }
       `}</style>
 
-      {/* Top Nav */}
-      <nav style={{
-        background: '#fff',
-        borderBottom: '1px solid #e2e8f0',
-        padding: '0 40px',
-        height: 60,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
-        animation: 'fadeIn 0.3s ease forwards',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 10,
-            background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <HardHat size={18} style={{ color: '#fff' }} />
+      {/* Nav */}
+      <nav className="start-nav" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 40px', height:64, borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ width:34, height:34, borderRadius:10, background:'linear-gradient(135deg,#2563eb,#7c3aed)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <HardHat size={17} style={{ color:'#fff' }} />
           </div>
           <div>
-            <p style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-.02em' }}>WIDI Controlling</p>
-            <p style={{ fontSize: 10, color: '#94a3b8', margin: 0 }}>WIDI Hellersen GmbH</p>
+            <p style={{ color:'#fff', fontWeight:800, fontSize:13, margin:0, letterSpacing:'-.01em' }}>WIDI Controlling</p>
+            <p style={{ color:'rgba(255,255,255,0.3)', fontSize:10, margin:0 }}>WIDI Hellersen GmbH</p>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 7,
-            background: '#f0fdf4', border: '1px solid #bbf7d0',
-            borderRadius: 20, padding: '4px 12px',
-          }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} />
-            <span style={{ fontSize: 11, color: '#065f46', fontWeight: 600 }}>System aktiv</span>
+        <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(16,185,129,0.12)', border:'1px solid rgba(16,185,129,0.25)', borderRadius:20, padding:'4px 12px' }}>
+            <div style={{ width:6, height:6, borderRadius:'50%', background:'#10b981' }} />
+            <span style={{ fontSize:11, color:'#10b981', fontWeight:600 }}>Online</span>
           </div>
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>{user?.email}</span>
-          <button onClick={() => signOut()} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 14px', background: '#fff',
-            border: '1px solid #e2e8f0', borderRadius: 10,
-            color: '#64748b', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-            transition: 'all .15s',
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#fef2f2'; (e.currentTarget as HTMLElement).style.color = '#dc2626'; (e.currentTarget as HTMLElement).style.borderColor = '#fecaca'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#fff'; (e.currentTarget as HTMLElement).style.color = '#64748b'; (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; }}
-          >
+          <span style={{ fontSize:12, color:'rgba(255,255,255,0.3)' }}>{user?.email}</span>
+          <button onClick={() => signOut()} style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, color:'rgba(255,255,255,0.5)', fontSize:12, fontWeight:500, cursor:'pointer', transition:'all .15s' }}
+            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='rgba(239,68,68,0.15)';(e.currentTarget as HTMLElement).style.color='#fca5a5';(e.currentTarget as HTMLElement).style.borderColor='rgba(239,68,68,0.3)';}}
+            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.06)';(e.currentTarget as HTMLElement).style.color='rgba(255,255,255,0.5)';(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,0.1)';}}>
             <LogOut size={13} /> Abmelden
           </button>
         </div>
       </nav>
 
-      {/* Hero */}
-      <div style={{
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #2563eb 100%)',
-        padding: '56px 40px 48px',
-        position: 'relative',
-        overflow: 'hidden',
-        animation: 'fadeIn 0.4s ease forwards',
-      }}>
-        {/* Decorative circles */}
-        <div style={{ position: 'absolute', top: -60, right: -60, width: 300, height: 300, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: -80, right: 200, width: 250, height: 250, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', top: 20, left: '40%', width: 180, height: 180, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', pointerEvents: 'none' }} />
+      {/* Main */}
+      <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'48px 40px' }}>
 
-        <div style={{ maxWidth: 900, margin: '0 auto', position: 'relative', zIndex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 24 }}>
-            <div>
-              <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 500, margin: '0 0 10px', letterSpacing: '.05em', textTransform: 'uppercase' }}>
-                {new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
-              <h1 style={{ color: '#fff', fontSize: 42, fontWeight: 900, margin: '0 0 8px', letterSpacing: '-.04em', lineHeight: 1.1 }}>
-                Guten Tag 👋
-              </h1>
-              <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 16, margin: 0 }}>
-                Wähle einen Bereich um zu starten
-              </p>
-            </div>
-            {/* Mini stats im Hero */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-              {stats.map((s, i) => (
-                <div key={i} className="stat-card" style={{
-                  background: 'rgba(255,255,255,0.1)',
-                  backdropFilter: 'blur(10px)',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: 14,
-                  padding: '14px 16px',
-                  textAlign: 'center',
-                  minWidth: 90,
-                }}>
-                  <s.icon size={16} style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 6 }} />
-                  <p style={{ color: '#fff', fontSize: 22, fontWeight: 800, margin: '0 0 2px', letterSpacing: '-.03em' }}>{s.value}</p>
-                  <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, margin: 0, fontWeight: 500 }}>{s.label}</p>
-                </div>
-              ))}
-            </div>
+        {/* Hero Text */}
+        <div className="start-hero" style={{ textAlign:'center', marginBottom:52 }}>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:100, padding:'6px 16px', marginBottom:22, fontSize:12, color:'rgba(255,255,255,0.5)' }}>
+            <div style={{ width:6, height:6, borderRadius:'50%', background:'#10b981' }} />
+            {new Date().toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
           </div>
+          <h1 style={{ color:'#fff', fontSize:52, fontWeight:900, margin:'0 0 14px', letterSpacing:'-.05em', lineHeight:1.05 }}>
+            Alles im{' '}
+            <span style={{ background:'linear-gradient(135deg,#3b82f6 0%,#8b5cf6 50%,#10b981 100%)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>
+              Griff.
+            </span>
+          </h1>
+          <p style={{ color:'rgba(255,255,255,0.4)', fontSize:17, margin:0, fontWeight:400, maxWidth:440 }}>
+            Wähle einen Bereich und starte deinen Arbeitstag.
+          </p>
         </div>
-      </div>
 
-      {/* Bereich Cards */}
-      <div style={{ flex: 1, padding: '40px', maxWidth: 980, margin: '0 auto', width: '100%' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 20 }}>
-          {BEREICHE.map((b, i) => (
-            <div
-              key={b.path}
-              className="start-card bereich-card"
-              onClick={() => navigate(b.path)}
-              style={{
-                background: '#fff',
-                border: '1px solid #e2e8f0',
-                borderRadius: 20,
-                padding: '28px 24px',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                position: 'relative',
-                overflow: 'hidden',
-              }}
-              onMouseEnter={e => {
-                const el = e.currentTarget as HTMLElement;
-                el.style.transform = 'translateY(-4px)';
-                el.style.boxShadow = `0 20px 50px ${b.color}22`;
-                el.style.borderColor = b.colorMid;
-              }}
-              onMouseLeave={e => {
-                const el = e.currentTarget as HTMLElement;
-                el.style.transform = 'translateY(0)';
-                el.style.boxShadow = 'none';
-                el.style.borderColor = '#e2e8f0';
-              }}
-            >
-              {/* Top accent line */}
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${b.color}, ${b.color}88)` }} />
-
-              {/* Icon */}
-              <div style={{
-                width: 52, height: 52, borderRadius: 16,
-                background: b.colorLight,
-                border: `1px solid ${b.colorMid}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                marginBottom: 18,
-              }}>
-                <b.icon size={24} style={{ color: b.color }} />
+        {/* Live Stats */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:48, width:'100%', maxWidth:860 }}>
+          {[
+            { icon:Ticket, label:'Offen', value:t.filter(x=>x.status==='in_bearbeitung').length, color:'#3b82f6' },
+            { icon:CheckCircle, label:'Erledigt', value:t.filter(x=>['erledigt','abgerechnet'].includes(x.status)).length, color:'#10b981' },
+            { icon:HardHat, label:'Baustellen', value:b.filter(x=>x.status!=='abgerechnet').length, color:'#f59e0b' },
+            { icon:Clock, label:'Stunden (Monat)', value:`${totalH.toFixed(1)}h`, color:'#8b5cf6' },
+          ].map((s,i) => (
+            <div key={i} className="start-stat" style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:16, padding:'16px 20px', display:'flex', alignItems:'center', gap:14 }}>
+              <div style={{ width:38, height:38, borderRadius:11, background:`${s.color}20`, border:`1px solid ${s.color}30`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <s.icon size={17} style={{ color:s.color }} />
               </div>
-
-              <h2 style={{ color: '#0f172a', fontSize: 20, fontWeight: 800, margin: '0 0 4px', letterSpacing: '-.03em' }}>{b.titel}</h2>
-              <p style={{ color: '#94a3b8', fontSize: 12, margin: '0 0 20px', fontWeight: 500 }}>{b.sub}</p>
-
-              {/* Feature list */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 24 }}>
-                {b.punkte.map(p => (
-                  <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: b.color, flexShrink: 0 }} />
-                    <span style={{ fontSize: 12, color: '#64748b' }}>{p}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Animated bottom bar */}
-              <div style={{ height: 2, background: '#f1f5f9', borderRadius: 99, marginBottom: 16, overflow: 'hidden' }}>
-                <div className="bereich-bar" style={{
-                  height: '100%', width: '30%',
-                  background: `linear-gradient(90deg, ${b.color}, ${b.color}88)`,
-                  borderRadius: 99,
-                  transition: 'width 0.4s ease',
-                }} />
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: b.color, fontSize: 13, fontWeight: 600 }}>
-                Öffnen
-                <ArrowRight size={14} className="bereich-arrow" style={{ transition: 'transform 0.2s ease' }} />
+              <div>
+                <p style={{ color:'#fff', fontSize:20, fontWeight:800, margin:0, letterSpacing:'-.03em' }}>{s.value}</p>
+                <p style={{ color:'rgba(255,255,255,0.35)', fontSize:11, margin:0, fontWeight:500 }}>{s.label}</p>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Bottom info */}
-        <div style={{
-          marginTop: 32,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 24,
-        }}>
-          {[
-            { icon: Clock, text: 'Echtzeit-Daten' },
-            { icon: FileText, text: 'OCR PDF-Rücklauf' },
-            { icon: BarChart3, text: 'Monatsauswertungen' },
-          ].map((item, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, color: '#94a3b8', fontSize: 12 }}>
-              <item.icon size={14} />
-              <span>{item.text}</span>
+        {/* Bereichs-Cards */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:18, width:'100%', maxWidth:980 }}>
+          {BEREICHE.map((bereich, i) => (
+            <div key={i} className="bereich-card"
+              onClick={() => navigate(bereich.path)}
+              style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:22, padding:'28px 26px', cursor:'pointer', position:'relative', overflow:'hidden' }}
+              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.07)';(e.currentTarget as HTMLElement).style.borderColor=`${bereich.color}50`;(e.currentTarget as HTMLElement).style.boxShadow=`0 24px 60px ${bereich.color}25`;}}
+              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.04)';(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,0.08)';(e.currentTarget as HTMLElement).style.boxShadow='none';}}>
+
+              {/* Glow */}
+              <div style={{ position:'absolute', top:-60, right:-60, width:180, height:180, borderRadius:'50%', background:`radial-gradient(circle, ${bereich.color}18 0%, transparent 70%)`, pointerEvents:'none' }} />
+
+              {/* Top */}
+              <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:20 }}>
+                <div className="float-icon" style={{ animationDelay:`${i*1.3}s`, width:52, height:52, borderRadius:16, background:`${bereich.color}20`, border:`1px solid ${bereich.color}35`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <bereich.icon size={24} style={{ color:bereich.color }} />
+                </div>
+                <div style={{ textAlign:'right' }}>
+                  <p style={{ color:bereich.color, fontSize:26, fontWeight:900, margin:0, letterSpacing:'-.04em' }}>{bereich.stat}</p>
+                  <p style={{ color:'rgba(255,255,255,0.3)', fontSize:10, margin:0, fontWeight:500 }}>{bereich.statLabel}</p>
+                </div>
+              </div>
+
+              {/* Title */}
+              <h2 style={{ color:'#fff', fontSize:20, fontWeight:800, margin:'0 0 4px', letterSpacing:'-.03em' }}>{bereich.titel}</h2>
+              <p style={{ color:'rgba(255,255,255,0.35)', fontSize:12, margin:'0 0 20px', fontWeight:500 }}>{bereich.sub}</p>
+
+              {/* Feature list */}
+              <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:22 }}>
+                {bereich.punkte.map(p => (
+                  <div key={p} style={{ display:'flex', alignItems:'center', gap:9 }}>
+                    <div style={{ width:4, height:4, borderRadius:'50%', background:bereich.color, flexShrink:0, opacity:0.7 }} />
+                    <span style={{ fontSize:12, color:'rgba(255,255,255,0.4)' }}>{p}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* CTA */}
+              <div style={{ display:'flex', alignItems:'center', gap:6, color:bereich.color, fontSize:13, fontWeight:700 }}>
+                Öffnen <ArrowRight size={14} className="arrow-icon" />
+              </div>
+
+              {/* Bottom accent line */}
+              <div style={{ position:'absolute', bottom:0, left:0, right:0, height:2, background:`linear-gradient(90deg, ${bereich.color}, transparent)`, opacity:0.5 }} />
             </div>
           ))}
         </div>
