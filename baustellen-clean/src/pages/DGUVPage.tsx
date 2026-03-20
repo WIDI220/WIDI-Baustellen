@@ -242,7 +242,7 @@ function GesamtlisteImport({ onImported }: { onImported: () => void }) {
     } catch { setStatus('error'); }
   }
 
-  if (gesamtCount > 0 && status === 'idle') return (
+  if (gesamtCount > 0 && (status === 'idle' || status === 'done')) return (
     <div style={{ background:'#f0fdf4', borderRadius:12, border:'1px solid #bbf7d0', padding:'10px 16px', display:'flex', alignItems:'center', gap:8 }}>
       <CheckCircle size={14} style={{ color:'#10b981', flexShrink:0 }} />
       <span style={{ fontSize:12, color:'#065f46', fontWeight:600 }}>Gesamtliste: {gesamtCount.toLocaleString('de-DE')} Geräte ✓</span>
