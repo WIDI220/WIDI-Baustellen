@@ -210,8 +210,25 @@ export default function PdfRuecklauf() {
                 const splitNamen: string[] = [];
                 for (const n of namen) splitNamen.push(...n.split(/[,\/&+]/).map((s: string) => s.trim()).filter(Boolean));
                 const uniqueNamen = [...new Set(splitNamen.filter(Boolean))];
-                result.mitarbeiter_namen = uniqueNamen;
-                const { ids, allFound } = parseEmployees(uniqueNamen);
+                // Bekannte Korrekturen anwenden
+                const { data: maKorrekturen } = await supabase
+                  .from('ocr_korrekturen')
+                  .select('ocr_gelesen, korrigiert_zu, haeufigkeit')
+                  .eq('typ', 'mitarbeiter')
+                  .order('haeufigkeit', { ascending: false });
+
+                const korrigierteNamen = uniqueNamen.map(name => {
+                  // Nur anwenden wenn Name lang genug ist (kein Kürzel)
+                  if (name.length <= 5) return name;
+                  const korr = (maKorrekturen ?? []).find(k =>
+                    k.ocr_gelesen.toLowerCase() === name.toLowerCase() &&
+                    k.haeufigkeit >= 2 // Mindestens 2x korrigiert für Sicherheit
+                  );
+                  return korr ? korr.korrigiert_zu : name;
+                });
+
+                result.mitarbeiter_namen = korrigierteNamen;
+                const { ids, allFound } = parseEmployees(korrigierteNamen);
                 result.mitarbeiter_ids = ids;
 
                 if (!allFound || uniqueNamen.length === 0) {
@@ -223,6 +240,21 @@ export default function PdfRuecklauf() {
                 if ((stundenRaw === 0 || stundenRaw > 8) && result.vonbis_stunden) {
                   stundenRaw = result.vonbis_stunden;
                 }
+
+                // Bekannte Stunden-Korrekturen anwenden
+                const { data: stdKorrekturen } = await supabase
+                  .from('ocr_korrekturen')
+                  .select('ocr_gelesen, korrigiert_zu, haeufigkeit')
+                  .eq('typ', 'stunden')
+                  .order('haeufigkeit', { ascending: false });
+
+                const stdStr = String(stundenRaw);
+                const stdKorr = (stdKorrekturen ?? []).find(k => k.ocr_gelesen === stdStr);
+                if (stdKorr) {
+                  const korrigiertStd = parseFloat(stdKorr.korrigiert_zu.replace(',', '.'));
+                  if (!isNaN(korrigiertStd)) stundenRaw = korrigiertStd;
+                }
+
                 result.stunden_raw = stundenRaw;
 
                 if (!isValid025(stundenRaw)) {
@@ -282,6 +314,33 @@ export default function PdfRuecklauf() {
     }
   }
 
+  // Korrektur speichern damit System lernt
+  async function saveKorrektur(ocrGelesen: string, korrigiertZu: string, typ: 'mitarbeiter' | 'stunden') {
+    if (!ocrGelesen || !korrigiertZu || ocrGelesen.trim() === korrigiertZu.trim()) return;
+    try {
+      const { data: existing } = await supabase
+        .from('ocr_korrekturen')
+        .select('id, haeufigkeit')
+        .eq('ocr_gelesen', ocrGelesen.trim())
+        .eq('korrigiert_zu', korrigiertZu.trim())
+        .eq('typ', typ)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase.from('ocr_korrekturen').update({
+          haeufigkeit: existing.haeufigkeit + 1,
+          updated_at: new Date().toISOString()
+        }).eq('id', existing.id);
+      } else {
+        await supabase.from('ocr_korrekturen').insert({
+          ocr_gelesen: ocrGelesen.trim(),
+          korrigiert_zu: korrigiertZu.trim(),
+          typ
+        });
+      }
+    } catch { /* ignorieren */ }
+  }
+
   async function importAll() {
     setImporting(true);
     let saved = 0, skipped = 0;
@@ -292,6 +351,26 @@ export default function PdfRuecklauf() {
       if (isNaN(stunden) || stunden <= 0) { skipped++; continue; }
       const empIds = item.mitarbeiter_edit.map(m => m.id).filter(Boolean);
       if (empIds.length === 0) { skipped++; continue; }
+
+      // Korrekturen speichern wenn Stunden geändert wurden
+      const stundenOriginal = String(item.stunden_raw ?? '');
+      const stundenKorrigiert = item.stunden_edit;
+      if (stundenOriginal && stundenKorrigiert && stundenOriginal !== stundenKorrigiert) {
+        await saveKorrektur(stundenOriginal, stundenKorrigiert, 'stunden');
+      }
+
+      // Korrekturen speichern wenn Mitarbeiter geändert wurden
+      // NUR bei langen Namen (>5 Zeichen) — Kürzel wie "SB", "SG" sind zu mehrdeutig
+      const originalNamen = item.mitarbeiter_namen ?? [];
+      const korrigiertNamen = item.mitarbeiter_edit.map(m => m.name).filter(Boolean);
+      for (let i = 0; i < originalNamen.length; i++) {
+        const orig = originalNamen[i];
+        const korr = korrigiertNamen[i];
+        if (korr && orig !== korr && orig.length > 5) {
+          // Nur speichern wenn OCR-Name lang genug ist um eindeutig zu sein
+          await saveKorrektur(orig, korr, 'mitarbeiter');
+        }
+      }
 
       try {
         for (const empId of empIds) {
