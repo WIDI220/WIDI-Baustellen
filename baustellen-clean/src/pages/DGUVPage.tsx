@@ -299,7 +299,7 @@ export default function DGUVPage() {
   const { data: roadmapRaw = [] } = useQuery({
     queryKey: ['dguv-roadmap', roadmapRefresh],
     queryFn: async () => {
-      const { data } = await supabase.from('dguv_geraete').select('naechste_pruefung').not('naechste_pruefung', 'is', null);
+      const { data } = await supabase.from('dguv_geraete').select('naechste_pruefung, gebaeude, liegenschaft').not('naechste_pruefung', 'is', null);
       return data ?? [];
     },
   });
