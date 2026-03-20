@@ -11,6 +11,7 @@ import AppLayoutAuswertung from '@/components/AppLayoutAuswertung';
 
 // Startseite
 import StartPage from '@/pages/StartPage';
+import AdminLogPage from '@/pages/AdminLogPage';
 
 // Auth
 import AuthPage from '@/pages/AuthPage';
@@ -40,6 +41,7 @@ import ExcelImportPage from '@/pages/ExcelImportPage';
 
 // ── Auswertung ────────────────────────────────────────────────
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
+import AdminLogPage from '@/pages/AdminLogPage';
 import AufgabenPage from '@/pages/AufgabenPage';
 
 const queryClient = new QueryClient({
@@ -67,6 +69,7 @@ function AppRoutes() {
     <Routes>
       {/* ── Startseite ─────────────────────────────────── */}
       <Route path="/" element={<StartPage />} />
+      <Route path="/admin/log" element={<AdminLogPage />} />
 
       {/* ── Baustellen-Bereich ─────────────────────────── */}
       <Route path="/baustellen/*" element={
@@ -108,6 +111,8 @@ function AppRoutes() {
       } />
 
       {/* ── Auswertungs-Bereich ────────────────────────── */}
+      <Route path="/admin/log" element={<AdminLogPage />} />
+
       <Route path="/auswertung/*" element={
         <AppLayoutAuswertung>
           <Routes>
