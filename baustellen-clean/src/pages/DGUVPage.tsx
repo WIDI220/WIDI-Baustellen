@@ -239,7 +239,7 @@ function GesamtlisteImport({ onImported }: { onImported: () => void }) {
 
   useEffect(() => {
     supabase.from('dguv_geraete').select('id', { count: 'exact', head: true }).then(({ count }) => {
-      if (count) setGesamtCount(count);
+      if (count !== null) setGesamtCount(count);
     });
   }, [status]);
 
@@ -283,7 +283,8 @@ function GesamtlisteImport({ onImported }: { onImported: () => void }) {
             aktiv: true,
           };
         }).filter(r => r.id);
-        await supabase.from('dguv_geraete').upsert(batch, { onConflict: 'id' });
+        const { error: upsertError } = await supabase.from('dguv_geraete').upsert(batch, { onConflict: 'id' });
+        if (upsertError) console.error('Batch Fehler:', upsertError.message);
         imported += batch.length;
         setCount(imported);
       }
@@ -349,8 +350,22 @@ export default function DGUVPage() {
   const { data: roadmapRaw = [] } = useQuery({
     queryKey: ['dguv-roadmap', roadmapRefresh],
     queryFn: async () => {
-      const { data } = await supabase.from('dguv_geraete').select('naechste_pruefung, gebaeude, liegenschaft').not('naechste_pruefung', 'is', null);
-      return data ?? [];
+      // Alle Zeilen laden via Pagination (Supabase limit 1000 pro Request)
+      const allData: any[] = [];
+      const pageSize = 1000;
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from('dguv_geraete')
+          .select('naechste_pruefung, gebaeude, liegenschaft')
+          .not('naechste_pruefung', 'is', null)
+          .range(from, from + pageSize - 1);
+        if (error || !data || data.length === 0) break;
+        allData.push(...data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      return allData;
     },
   });
 
