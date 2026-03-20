@@ -7,7 +7,10 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { imageBase64, fileName, pageNumber, employees } = req.body;
+    const { imageBase64, fileName, pageNumber, employees, uploadMonth, uploadYear } = req.body;
+    const now = new Date();
+    const aktuellerMonat = uploadMonth ?? String(now.getMonth() + 1).padStart(2, '0');
+    const aktuellesJahr = uploadYear ?? String(now.getFullYear());
     if (!imageBase64) return res.status(400).json({ error: 'imageBase64 fehlt' });
 
     const apiKey = process.env.ANTHROPIC_API_KEY || process.env.VITE_ANTHROPIC_API_KEY;
@@ -67,8 +70,13 @@ Der erste Mitarbeiter aus mitarbeiter_namen als einzelner String.
 Das handschriftliche Datum aus der Arbeitstabelle unter "Datum:".
 Wenn mehrere Zeilen ausgefüllt sind: nimm das SPÄTESTE (= letzte) Datum.
 Format YYYY-MM-DD. Zweistelliges Jahr: 25=2025, 26=2026.
-Beispiele: "06.01.26" → "2026-01-06", "5.1.26" → "2026-01-06"
-Wenn kein Datum: null
+Beispiele: "06.01.26" → "2026-01-06", "5.1.26" → "2026-01-06", "14." → ergänze mit Monat und Jahr aus Kontext.
+
+KONTEXT-DATUM: Das Ticket wurde im Monat {{UPLOAD_MONTH}} hochgeladen.
+Falls das Datum auf dem Ticket keinen Monat enthält (z.B. nur "14.") → nutze {{UPLOAD_MONTH}}.
+Falls das Jahr fehlt → nutze {{UPLOAD_YEAR}}.
+NIEMALS ein Datum aus einem anderen Monat wählen wenn der Monat auf dem Ticket nicht eindeutig lesbar ist.
+Wenn kein Datum erkennbar: gib null zurück (NICHT das heutige Datum erfinden).
 
 ━━━ FELD 6: stunden_gesamt ━━━
 Die Arbeitstabelle hat genau diese Spalten von links nach rechts:
@@ -114,6 +122,11 @@ Antworte NUR mit diesem JSON:
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
 
+    // Monat/Jahr in Prompt einsetzen
+    const finalPrompt = systemPrompt
+      .replace(/{{UPLOAD_MONTH}}/g, aktuellerMonat)
+      .replace(/{{UPLOAD_YEAR}}/g, aktuellesJahr);
+
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -138,7 +151,7 @@ Antworte NUR mit diesem JSON:
                   data: imageBase64 
                 } 
               },
-              { type: 'text', text: prompt }
+              { type: 'text', text: finalPrompt }
             ]
           }]
         }),
