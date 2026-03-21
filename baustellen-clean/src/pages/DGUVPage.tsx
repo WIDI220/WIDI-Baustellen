@@ -344,11 +344,10 @@ export default function DGUVPage() {
   const [ergebnis, setErgebnis] = useState<VerarbResult | null>(null);
   const [dateiname, setDateiname] = useState('');
   const [filterTyp, setFilterTyp] = useState<'alle'|'bezeichnung'|'bemerkung'>('alle');
-  const [roadmapRefresh, setRoadmapRefresh] = useState(0);
 
   // Roadmap aus Supabase
   const { data: roadmapRaw = [] } = useQuery({
-    queryKey: ['dguv-roadmap', roadmapRefresh],
+    queryKey: ['dguv-roadmap'],
     queryFn: async () => {
       // Alle Zeilen laden via Pagination (Supabase limit 1000 pro Request)
       const allData: any[] = [];
@@ -491,9 +490,6 @@ export default function DGUVPage() {
           <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>Rohdaten verarbeiten · Roadmap · Auswertung</p>
         </div>
       </div>
-
-      {/* Gesamtliste Status */}
-      <GesamtlisteImport onImported={() => setRoadmapRefresh(r => r + 1)} />
 
 
       {/* ═══ VERARBEITUNG ═══ */}
