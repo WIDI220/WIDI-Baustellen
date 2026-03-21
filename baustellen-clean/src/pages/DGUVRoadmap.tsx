@@ -39,6 +39,7 @@ interface MonatData {
   year: string;
   count: number;
   standorte: [string, number][];
+  etagen: [string, number][];
   color: ReturnType<typeof getColor>;
 }
 
@@ -68,6 +69,7 @@ export default function DGUVRoadmap() {
   const [current, setCurrent] = useState(0);
   const [dir, setDir] = useState<1|-1>(1);
   const [animKey, setAnimKey] = useState(0);
+  const [detailTab, setDetailTab] = useState<'Standorte'|'Etagen'>('Standorte');
   const burstRef = useRef<HTMLDivElement>(null);
 
   const { data: raw = [], isLoading } = useQuery({
@@ -76,7 +78,7 @@ export default function DGUVRoadmap() {
       const all: any[] = [];
       let from = 0;
       while (true) {
-        const { data } = await supabase.from('dguv_geraete').select('naechste_pruefung, gebaeude').not('naechste_pruefung','is',null).range(from, from+999);
+        const { data } = await supabase.from('dguv_geraete').select('naechste_pruefung, gebaeude, ebene, abteilung').not('naechste_pruefung','is',null).gte('naechste_pruefung','2026-01-01').lte('naechste_pruefung','2026-12-31').range(from, from+999);
         if (!data || data.length === 0) break;
         all.push(...data);
         if (data.length < 1000) break;
@@ -92,19 +94,39 @@ export default function DGUVRoadmap() {
     raw.forEach((r: any) => {
       const key = r.naechste_pruefung?.slice(0, 7);
       if (!key) return;
-      if (!m[key]) m[key] = { count: 0, standorte: {} };
+      if (!m[key]) m[key] = { count: 0, standorte: {}, etagen: {} };
       m[key].count++;
       const g = r.gebaeude || 'Unbekannt';
       m[key].standorte[g] = (m[key].standorte[g] || 0) + 1;
+      // Etage aus ABTEILUNG parsen: HH.04.R229 → Haupthaus 4.OG
+      const abt = r.abteilung || '';
+      const ebene = r.ebene || '';
+      const gebShort = (r.gebaeude || '').replace('KH ','').replace('Senioren ','Sen. ').slice(0,12);
+      let etagenKey = '';
+      if (ebene && ebene !== 'nan') {
+        etagenKey = `${gebShort} · ${ebene}`;
+      } else {
+        const abtMatch = abt.match(/^[A-Z]{2}\.(\d+)\./);
+        if (abtMatch) {
+          const etNr = parseInt(abtMatch[1]);
+          const etLabel = etNr === 0 ? 'EG' : etNr < 10 ? `${etNr}.OG` : `${etNr-10}.UG`;
+          etagenKey = `${gebShort} · ${etLabel}`;
+        }
+      }
+      if (etagenKey) m[key].etagen[etagenKey] = (m[key].etagen[etagenKey] || 0) + 1;
     });
     return Object.entries(m)
       .sort(([a],[b]) => a.localeCompare(b))
       .map(([key, val]) => {
         const [year, mo] = key.split('-').map(Number);
+        // Etagen-Aufschlüsselung aus EBENE + ABTEILUNG
+        const etagen: Record<string, number> = val.etagen ?? {};
+        const topEtagen = Object.entries(etagen).sort(([,a],[,b])=>b-a).slice(0,8) as [string,number][];
         return {
           key, label: `${MONAT_NAMEN[mo-1]} ${year}`, short: MONAT_KURZ[mo-1], year: String(year),
           count: val.count,
           standorte: Object.entries(val.standorte).sort(([,a],[,b])=>b-a).slice(0,6) as [string,number][],
+          etagen: topEtagen,
           color: getColor(key),
         };
       });
@@ -134,6 +156,7 @@ export default function DGUVRoadmap() {
     spawnBurst(monate[nxt].color.acc);
     setCurrent(nxt);
     setAnimKey(k => k+1);
+    setDetailTab('Standorte');
   }
 
   if (isLoading) return (
@@ -255,9 +278,16 @@ export default function DGUVRoadmap() {
               </p>
             </div>
           </div>
-          <p style={{ fontSize:10, fontWeight:600, color:'rgba(255,255,255,.18)', textTransform:'uppercase', letterSpacing:'.08em', margin:'0 0 10px' }}>Standorte</p>
+          <div style={{ display:'flex', gap:6, marginBottom:10 }}>
+            {(['Standorte','Etagen'] as const).map(tab => (
+              <button key={tab} onClick={() => setDetailTab(tab)}
+                style={{ fontSize:10, fontWeight:600, padding:'3px 10px', borderRadius:99, border:'none', cursor:'pointer', background: detailTab===tab ? active.color.acc : 'rgba(255,255,255,.08)', color: detailTab===tab ? '#0f172a' : 'rgba(255,255,255,.4)', transition:'all .15s' }}>
+                {tab}
+              </button>
+            ))}
+          </div>
           <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {active.standorte.map(([name, cnt], i) => {
+            {(detailTab==='Standorte' ? active.standorte : active.etagen).map(([name, cnt], i) => {
               const pct = cnt / totalStandorte;
               return (
                 <div key={name} className="loc-in" style={{ animationDelay:`${i*.05}s` }}>
