@@ -11,6 +11,7 @@ const NAV = [
   { to: '/dguv',            icon: Upload,    label: 'Verarbeitung' },
   { to: '/dguv/roadmap',    icon: Calendar,  label: 'Roadmap' },
   { to: '/dguv/auswertung', icon: BarChart2, label: 'Auswertung' },
+  { to: '/dguv/abgleich',   icon: RefreshCw, label: 'Abgleich' },
 ];
 
 function parseCSV(text: string): Record<string, string>[] {
