@@ -90,7 +90,7 @@ export default function DGUVRoadmap() {
   });
 
   const monate: MonatData[] = (() => {
-    const m: Record<string, { count: number; standorte: Record<string, number> }> = {};
+    const m: Record<string, { count: number; standorte: Record<string, number>; etagen: Record<string, number> }> = {};
     raw.forEach((r: any) => {
       const key = r.naechste_pruefung?.slice(0, 7);
       if (!key) return;
