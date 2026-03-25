@@ -147,8 +147,7 @@ export default function MitarbeiterAuswertungPage() {
       return [e.name, e.tH.toFixed(1), e.bH.toFixed(1), e.gesamt.toFixed(1), e.kosten.toFixed(2), urlaubTage, krankTage].join(';');
     });
     const header = 'Mitarbeiter;Ticket-Std;Baustellen-Std;Gesamt-Std;Kosten (€);Urlaub-Tage;Krank-Tage';
-    const csv = '﻿' + [header, ...rows].join('
-');
+    const csv = '\uFEFF' + [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
