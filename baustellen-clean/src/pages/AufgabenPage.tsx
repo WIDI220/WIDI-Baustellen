@@ -1,15 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, CheckCircle, XCircle, Clock, ChevronLeft, ChevronRight, Settings, Trash2, AlertTriangle } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Trash2, Zap, Droplets, Clock, User, FileText, CheckCircle } from 'lucide-react';
 
-// Hilfsfunktionen
+// ─── Hilfsfunktionen ───────────────────────────────────────────────
 function getKW(date: Date): string {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;
@@ -19,418 +14,313 @@ function getKW(date: Date): string {
   return `${d.getUTCFullYear()}-W${String(kw).padStart(2, '0')}`;
 }
 
-function kwLabel(periode: string): string {
-  const [year, week] = periode.replace('W', '').split('-W');
-  return `KW ${week} / ${year}`;
+function kwLabel(kw: string): string {
+  const [year, week] = kw.replace('-W','|').split('|');
+  const d = new Date(parseInt(year), 0, 1 + (parseInt(week) - 1) * 7);
+  const mo = d.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' });
+  d.setDate(d.getDate() + 6);
+  const bi = d.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' });
+  return `KW ${week} · ${mo}–${bi} ${year}`;
 }
 
-function monatLabel(periode: string): string {
-  const [year, month] = periode.split('-');
-  return new Date(parseInt(year), parseInt(month) - 1, 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+function prevKW(kw: string): string {
+  const [year, week] = kw.replace('-W','|').split('|').map(Number);
+  const d = new Date(year, 0, 1 + (week - 1) * 7);
+  d.setDate(d.getDate() - 7);
+  return getKW(d);
 }
 
-function getMonatPeriode(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+function nextKW(kw: string): string {
+  const [year, week] = kw.replace('-W','|').split('|').map(Number);
+  const d = new Date(year, 0, 1 + (week - 1) * 7);
+  d.setDate(d.getDate() + 7);
+  return getKW(d);
 }
 
-function prevPeriode(periode: string, intervall: string): string {
-  if (intervall === 'wöchentlich') {
-    const [year, week] = periode.replace('W', '').split('-W').map(Number);
-    const d = new Date(year, 0, 1 + (week - 1) * 7);
-    d.setDate(d.getDate() - 7);
-    return getKW(d);
-  } else {
-    const [year, month] = periode.split('-').map(Number);
-    const d = new Date(year, month - 2, 1);
-    return getMonatPeriode(d);
-  }
+// ─── Typen ─────────────────────────────────────────────────────────
+type BegehungTyp = 'sicherheitsbeleuchtung' | 'osmose';
+
+interface Eintrag {
+  id: string;
+  typ: BegehungTyp;
+  kw: string;
+  datum_von: string;
+  datum_bis: string;
+  mitarbeiter: string;
+  stunden: number | null;
+  bemerkung: string | null;
+  created_at: string;
 }
 
-function nextPeriode(periode: string, intervall: string): string {
-  if (intervall === 'wöchentlich') {
-    const [year, week] = periode.replace('W', '').split('-W').map(Number);
-    const d = new Date(year, 0, 1 + (week - 1) * 7);
-    d.setDate(d.getDate() + 7);
-    return getKW(d);
-  } else {
-    const [year, month] = periode.split('-').map(Number);
-    const d = new Date(year, month, 1);
-    return getMonatPeriode(d);
-  }
-}
+const TABS: { key: BegehungTyp; label: string; icon: typeof Zap; color: string; colorLight: string }[] = [
+  { key: 'sicherheitsbeleuchtung', label: 'Sicherheitsbeleuchtung', icon: Zap, color: '#f59e0b', colorLight: '#fffbeb' },
+  { key: 'osmose', label: 'Osmose-Anlage', icon: Droplets, color: '#3b82f6', colorLight: '#eff6ff' },
+];
 
-function isCurrentPeriode(periode: string, intervall: string): boolean {
-  const now = new Date();
-  return intervall === 'wöchentlich' ? periode === getKW(now) : periode === getMonatPeriode(now);
-}
-
+// ─── Hauptkomponente ────────────────────────────────────────────────
 export default function AufgabenPage() {
-  const [tab, setTab] = useState<'woechentlich' | 'monatlich'>('woechentlich');
-  const [showAdmin, setShowAdmin] = useState(false);
-  const [periodeW, setPeriodeW] = useState(getKW(new Date()));
-  const [periodeM, setPeriodeM] = useState(getMonatPeriode(new Date()));
+  const qc = useQueryClient();
+  const [aktTyp, setAktTyp] = useState<BegehungTyp>('sicherheitsbeleuchtung');
+  const [aktKW, setAktKW] = useState(getKW(new Date()));
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ datum_von: '', datum_bis: '', mitarbeiter: '', stunden: '', bemerkung: '' });
 
-  const periode = tab === 'woechentlich' ? periodeW : periodeM;
-  const setPeriode = tab === 'woechentlich' ? setPeriodeW : setPeriodeM;
-  const intervall = tab === 'woechentlich' ? 'wöchentlich' : 'monatlich';
-  const periodeLabel = tab === 'woechentlich' ? kwLabel(periode) : monatLabel(periode);
+  const aktTab = TABS.find(t => t.key === aktTyp)!;
 
-  const queryClient = useQueryClient();
-
-  const { data: employees = [] } = useQuery({
-    queryKey: ['employees'],
-    queryFn: async () => { const { data } = await supabase.from('employees').select('*').eq('aktiv', true).order('name'); return data ?? []; },
-  });
-
-  const { data: pruefpunkte = [] } = useQuery({
-    queryKey: ['pruefpunkte', intervall],
+  const { data: mitarbeiter = [] } = useQuery({
+    queryKey: ['employees-active'],
     queryFn: async () => {
-      const { data } = await supabase.from('pruefpunkte').select('*').eq('intervall', intervall).eq('aktiv', true).order('kategorie').order('name');
+      const { data } = await supabase.from('employees').select('id,name').eq('aktiv', true).order('name');
       return data ?? [];
     },
   });
 
-  const { data: begehung, refetch: refetchBegehung } = useQuery({
-    queryKey: ['begehung', intervall, periode],
+  const { data: eintraege = [], isLoading } = useQuery({
+    queryKey: ['begehungen', aktTyp, aktKW],
     queryFn: async () => {
-      const { data } = await supabase.from('begehungen').select('*, begehung_ergebnisse(*, pruefpunkte(*), employees(name,kuerzel))').eq('intervall', intervall).eq('periode', periode).maybeSingle();
-      return data;
+      const { data } = await supabase
+        .from('begehungen')
+        .select('*')
+        .eq('typ', aktTyp)
+        .eq('kw', aktKW)
+        .order('created_at', { ascending: false });
+      return (data ?? []) as Eintrag[];
     },
   });
 
-  const startBegehung = useMutation({
-    mutationFn: async () => {
-      // Begehung erstellen
-      const { data: b, error: bErr } = await supabase.from('begehungen').insert({ intervall, periode }).select().single();
-      if (bErr) throw bErr;
-      // Alle Prüfpunkte als Ergebnisse anlegen
-      const ergebnisse = (pruefpunkte as any[]).map((p: any) => ({ begehung_id: b.id, pruefpunkt_id: p.id, status: 'offen' }));
-      if (ergebnisse.length > 0) await supabase.from('begehung_ergebnisse').insert(ergebnisse);
+  const { data: jahresStats = [] } = useQuery({
+    queryKey: ['begehungen-stats', aktTyp],
+    queryFn: async () => {
+      const year = aktKW.split('-')[0];
+      const { data } = await supabase
+        .from('begehungen')
+        .select('kw, stunden, mitarbeiter')
+        .eq('typ', aktTyp)
+        .like('kw', `${year}-%`);
+      return data ?? [];
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['begehung'] }); refetchBegehung(); },
+  });
+
+  const addMutation = useMutation({
+    mutationFn: async () => {
+      if (!form.datum_von || !form.mitarbeiter) throw new Error('Datum und Mitarbeiter erforderlich');
+      const { error } = await supabase.from('begehungen').insert({
+        typ: aktTyp,
+        kw: aktKW,
+        datum_von: form.datum_von,
+        datum_bis: form.datum_bis || form.datum_von,
+        mitarbeiter: form.mitarbeiter,
+        stunden: form.stunden ? parseFloat(form.stunden.replace(',', '.')) : null,
+        bemerkung: form.bemerkung || null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['begehungen'] });
+      qc.invalidateQueries({ queryKey: ['begehungen-stats'] });
+      toast.success('Eintrag gespeichert');
+      setShowForm(false);
+      setForm({ datum_von: '', datum_bis: '', mitarbeiter: '', stunden: '', bemerkung: '' });
+    },
     onError: (e: any) => toast.error(e.message),
   });
 
-  const updateErgebnis = useMutation({
-    mutationFn: async ({ id, status, notiz, geprueft_von }: { id: string; status: string; notiz?: string; geprueft_von?: string }) => {
-      const { error } = await supabase.from('begehung_ergebnisse').update({
-        status, notiz: notiz ?? null,
-        geprueft_von: geprueft_von ?? null,
-        geprueft_am: new Date().toISOString(),
-      }).eq('id', id);
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('begehungen').delete().eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['begehung'] }); refetchBegehung(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['begehungen'] }); toast.success('Gelöscht'); },
   });
 
-  const abschliessen = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.from('begehungen').update({ abgeschlossen: true, abgeschlossen_am: new Date().toISOString() }).eq('id', (begehung as any).id);
-      if (error) throw error;
-    },
-    onSuccess: () => { toast.success('Begehung abgeschlossen!'); queryClient.invalidateQueries({ queryKey: ['begehung'] }); refetchBegehung(); },
-  });
-
-  const ergebnisse = (begehung as any)?.begehung_ergebnisse ?? [];
-  const kategorien = [...new Set((pruefpunkte as any[]).map((p: any) => p.kategorie ?? 'Allgemein'))];
-  const offenCount = ergebnisse.filter((e: any) => e.status === 'offen').length;
-  const nioCount = ergebnisse.filter((e: any) => e.status === 'nio').length;
-  const ioCount = ergebnisse.filter((e: any) => e.status === 'io').length;
-  const isCurrent = isCurrentPeriode(periode, intervall);
+  const gesamtStunden = (jahresStats as any[]).reduce((s: number, r: any) => s + (r.stunden ?? 0), 0);
+  const anzahlBegehungen = (jahresStats as any[]).length;
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
+    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <style>{`
+        @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .eintrag-row:hover { background: #f8fafc !important; }
+        .eintrag-row:hover .del-btn { opacity: 1 !important; }
+        .del-btn { opacity: 0; transition: opacity .15s; }
+      `}</style>
+
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Begehungen & Aufgaben</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Wiederkehrende Prüfungen und Checklisten</p>
+          <h1 style={{ fontSize: 24, fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-.03em' }}>
+            Begehungen
+          </h1>
+          <p style={{ fontSize: 13, color: '#94a3b8', margin: '3px 0 0' }}>
+            Sicherheitsbeleuchtung & Osmose-Anlage · KW-basierte Erfassung
+          </p>
         </div>
-        <Button variant="outline" size="sm" className="h-9 rounded-xl" onClick={() => setShowAdmin(true)}>
-          <Settings className="h-4 w-4 mr-1" />Prüfpunkte verwalten
-        </Button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {(['woechentlich', 'monatlich'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === t ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
-            {t === 'woechentlich' ? '🗓 Wöchentlich' : '📅 Monatlich'}
+      <div style={{ display: 'flex', gap: 10 }}>
+        {TABS.map(tab => (
+          <button key={tab.key} onClick={() => { setAktTyp(tab.key); setShowForm(false); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 14, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, transition: 'all .15s',
+              background: aktTyp === tab.key ? tab.color : '#f1f5f9',
+              color: aktTyp === tab.key ? '#fff' : '#64748b',
+              boxShadow: aktTyp === tab.key ? `0 4px 14px ${tab.color}40` : 'none' }}>
+            <tab.icon size={15} />
+            {tab.label}
           </button>
         ))}
       </div>
 
-      {/* Perioden-Navigation */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => setPeriode(prevPeriode(periode, intervall))} className="p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors">
-          <ChevronLeft className="h-4 w-4 text-gray-600" />
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+        {[
+          { label: `Begehungen ${aktKW.split('-')[0]}`, value: anzahlBegehungen, color: aktTab.color },
+          { label: 'Stunden gesamt', value: `${gesamtStunden.toFixed(1)}h`, color: aktTab.color },
+          { label: 'Diese KW', value: eintraege.length, color: aktTab.color },
+        ].map((s, i) => (
+          <div key={i} style={{ background: '#fff', borderRadius: 14, border: `1px solid ${s.color}20`, padding: '14px 18px', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: s.color }} />
+            <p style={{ fontSize: 24, fontWeight: 900, color: s.color, margin: '0 0 2px', letterSpacing: '-.04em' }}>{s.value}</p>
+            <p style={{ fontSize: 11, color: '#64748b', margin: 0 }}>{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* KW Navigation */}
+      <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f1f5f9', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button onClick={() => setAktKW(prevKW(aktKW))}
+          style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', transition: 'all .15s' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f1f5f9'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#f8fafc'; }}>
+          <ChevronLeft size={16} />
         </button>
-        <div className="text-center">
-          <p className="font-bold text-gray-900">{periodeLabel}</p>
-          {isCurrent && <p className="text-xs text-blue-500 font-medium">Aktuell</p>}
+        <div style={{ textAlign: 'center' }}>
+          <p style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-.02em' }}>{kwLabel(aktKW)}</p>
+          <p style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0' }}>
+            {eintraege.length > 0 ? `${eintraege.length} Eintrag${eintraege.length > 1 ? 'e' : ''}` : 'Keine Einträge'}
+          </p>
         </div>
-        <button onClick={() => setPeriode(nextPeriode(periode, intervall))} className="p-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition-colors">
-          <ChevronRight className="h-4 w-4 text-gray-600" />
+        <button onClick={() => setAktKW(nextKW(aktKW))}
+          style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', transition: 'all .15s' }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#f1f5f9'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#f8fafc'; }}>
+          <ChevronRight size={16} />
         </button>
       </div>
 
-      {/* Noch keine Prüfpunkte */}
-      {pruefpunkte.length === 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
-          <p className="text-gray-400 text-sm">Noch keine Prüfpunkte angelegt.</p>
-          <Button className="mt-4 rounded-xl" onClick={() => setShowAdmin(true)}><Plus className="h-4 w-4 mr-1" />Prüfpunkte anlegen</Button>
-        </div>
-      )}
-
-      {/* Begehung noch nicht gestartet */}
-      {pruefpunkte.length > 0 && !begehung && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
-          <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Clock className="h-7 w-7 text-blue-400" />
-          </div>
-          <p className="font-semibold text-gray-700 mb-1">Begehung noch nicht gestartet</p>
-          <p className="text-sm text-gray-400 mb-6">{periodeLabel} · {(pruefpunkte as any[]).length} Prüfpunkte</p>
-          {isCurrent && (
-            <Button className="rounded-xl bg-[#1e3a5f] hover:bg-[#162d4a]" onClick={() => startBegehung.mutate()} disabled={startBegehung.isPending}>
-              {startBegehung.isPending ? 'Startet...' : 'Begehung starten'}
-            </Button>
-          )}
-          {!isCurrent && <p className="text-sm text-gray-300">Diese Periode liegt in der Vergangenheit</p>}
-        </div>
-      )}
-
-      {/* Begehung aktiv */}
-      {begehung && (
-        <div className="space-y-4">
-          {/* Status Bar */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
-            <div className="flex gap-4 flex-1">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-gray-300">{offenCount}</p>
-                <p className="text-xs text-gray-400">Offen</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-emerald-500">{ioCount}</p>
-                <p className="text-xs text-gray-400">i.O.</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-red-500">{nioCount}</p>
-                <p className="text-xs text-gray-400">n.i.O.</p>
-              </div>
-              <div className="flex-1">
-                <div className="flex gap-1 h-2 rounded-full overflow-hidden bg-gray-100 mt-2">
-                  <div className="bg-emerald-400 rounded-full transition-all" style={{ width: `${ergebnisse.length > 0 ? ioCount/ergebnisse.length*100 : 0}%` }} />
-                  <div className="bg-red-400 rounded-full transition-all" style={{ width: `${ergebnisse.length > 0 ? nioCount/ergebnisse.length*100 : 0}%` }} />
-                </div>
-                <p className="text-xs text-gray-400 mt-1">{ergebnisse.length > 0 ? Math.round((ioCount+nioCount)/ergebnisse.length*100) : 0}% bearbeitet</p>
-              </div>
+      {/* Eintrags-Liste + Formular */}
+      <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 9, background: aktTab.colorLight, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <aktTab.icon size={15} style={{ color: aktTab.color }} />
             </div>
-            {!(begehung as any).abgeschlossen && offenCount === 0 && (
-              <Button className="rounded-xl bg-emerald-500 hover:bg-emerald-600" onClick={() => abschliessen.mutate()}>
-                <CheckCircle className="h-4 w-4 mr-1" />Abschließen
-              </Button>
-            )}
-            {(begehung as any).abgeschlossen && (
-              <span className="flex items-center gap-1.5 text-emerald-600 font-medium text-sm bg-emerald-50 px-3 py-1.5 rounded-xl">
-                <CheckCircle className="h-4 w-4" />Abgeschlossen
-              </span>
-            )}
+            <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>{aktTab.label}</p>
           </div>
-
-          {/* Prüfpunkte nach Kategorie */}
-          {kategorien.map(kat => {
-            const punkte = (pruefpunkte as any[]).filter((p: any) => (p.kategorie ?? 'Allgemein') === kat);
-            return (
-              <div key={kat} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
-                  <h3 className="font-semibold text-gray-700 text-sm">{kat}</h3>
-                </div>
-                <div className="divide-y divide-gray-50">
-                  {punkte.map((punkt: any) => {
-                    const ergebnis = ergebnisse.find((e: any) => e.pruefpunkt_id === punkt.id);
-                    if (!ergebnis) return null;
-                    const isIO = ergebnis.status === 'io';
-                    const isNIO = ergebnis.status === 'nio';
-                    return (
-                      <PruefpunktRow
-                        key={punkt.id}
-                        punkt={punkt}
-                        ergebnis={ergebnis}
-                        employees={employees as any[]}
-                        isIO={isIO}
-                        isNIO={isNIO}
-                        disabled={(begehung as any).abgeschlossen}
-                        onUpdate={(status: any, notiz: any, geprueft_von: any) => updateErgebnis.mutate({ id: ergebnis.id, status, notiz, geprueft_von })}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Admin Dialog */}
-      {showAdmin && <AdminDialog onClose={() => setShowAdmin(false)} />}
-    </div>
-  );
-}
-
-function PruefpunktRow({ punkt, ergebnis, employees, isIO, isNIO, disabled, onUpdate }: any) {
-  const [showNotiz, setShowNotiz] = useState(false);
-  const [notiz, setNotiz] = useState(ergebnis.notiz ?? '');
-  const [mitarbeiter, setMitarbeiter] = useState(ergebnis.geprueft_von ?? '');
-
-  return (
-    <div className={`px-5 py-3.5 transition-colors ${isIO ? 'bg-emerald-50/30' : isNIO ? 'bg-red-50/30' : ''}`}>
-      <div className="flex items-center gap-3">
-        {/* Status Buttons */}
-        <div className="flex gap-1.5 flex-shrink-0">
-          <button
-            disabled={disabled}
-            onClick={() => { onUpdate('io', notiz, mitarbeiter || null); setShowNotiz(false); }}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${isIO ? 'bg-emerald-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-emerald-100 hover:text-emerald-700'} disabled:opacity-50`}>
-            <CheckCircle className="h-3.5 w-3.5" />i.O.
-          </button>
-          <button
-            disabled={disabled}
-            onClick={() => { onUpdate('nio', notiz, mitarbeiter || null); setShowNotiz(true); }}
-            className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${isNIO ? 'bg-red-500 text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-red-100 hover:text-red-700'} disabled:opacity-50`}>
-            <XCircle className="h-3.5 w-3.5" />n.i.O.
+          <button onClick={() => setShowForm(!showForm)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: aktTab.color, color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: `0 4px 12px ${aktTab.color}40`, transition: 'all .15s' }}>
+            <Plus size={14} /> Neuer Eintrag
           </button>
         </div>
 
-        {/* Punkt Name */}
-        <div className="flex-1">
-          <p className={`text-sm font-medium ${isIO ? 'text-emerald-700' : isNIO ? 'text-red-700' : 'text-gray-700'}`}>{punkt.name}</p>
-          {ergebnis.geprueft_am && (
-            <p className="text-xs text-gray-400 mt-0.5">
-              {ergebnis.employees?.kuerzel && <span className="font-mono font-bold">{ergebnis.employees.kuerzel} · </span>}
-              {new Date(ergebnis.geprueft_am).toLocaleString('de-DE', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })}
-            </p>
-          )}
-        </div>
-
-        {/* Notiz Toggle */}
-        {!disabled && (
-          <button onClick={() => setShowNotiz(!showNotiz)} className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded-lg hover:bg-gray-100">
-            {ergebnis.notiz ? '📝' : '+ Notiz'}
-          </button>
-        )}
-        {ergebnis.notiz && !showNotiz && (
-          <span className="text-xs text-gray-500 italic max-w-[200px] truncate">{ergebnis.notiz}</span>
-        )}
-      </div>
-
-      {/* Notiz + Mitarbeiter */}
-      {showNotiz && !disabled && (
-        <div className="mt-3 ml-[88px] flex gap-2">
-          <Select value={mitarbeiter} onValueChange={setMitarbeiter}>
-            <SelectTrigger className="w-[160px] h-8 text-xs rounded-lg"><SelectValue placeholder="Mitarbeiter..." /></SelectTrigger>
-            <SelectContent>{employees.map((e: any) => <SelectItem key={e.id} value={e.id}>{e.kuerzel} – {e.name}</SelectItem>)}</SelectContent>
-          </Select>
-          <Input placeholder="Notiz (optional)..." value={notiz} onChange={e => setNotiz(e.target.value)}
-            className="flex-1 h-8 text-xs rounded-lg" />
-          <Button size="sm" className="h-8 text-xs rounded-lg px-3"
-            onClick={() => { onUpdate(ergebnis.status === 'offen' ? 'nio' : ergebnis.status, notiz, mitarbeiter || null); setShowNotiz(false); }}>
-            Speichern
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AdminDialog({ onClose }: { onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const [form, setForm] = useState({ name: '', kategorie: '', intervall: 'wöchentlich' });
-
-  const { data: alle = [] } = useQuery({
-    queryKey: ['pruefpunkte-alle'],
-    queryFn: async () => { const { data } = await supabase.from('pruefpunkte').select('*').order('intervall').order('kategorie').order('name'); return data ?? []; },
-  });
-
-  const add = useMutation({
-    mutationFn: async () => {
-      if (!form.name.trim()) throw new Error('Name erforderlich');
-      const { error } = await supabase.from('pruefpunkte').insert({ name: form.name.trim(), kategorie: form.kategorie.trim() || null, intervall: form.intervall });
-      if (error) throw error;
-    },
-    onSuccess: () => { toast.success('Prüfpunkt hinzugefügt'); setForm({ name: '', kategorie: '', intervall: 'wöchentlich' }); queryClient.invalidateQueries({ queryKey: ['pruefpunkte'] }); queryClient.invalidateQueries({ queryKey: ['pruefpunkte-alle'] }); },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  const toggle = useMutation({
-    mutationFn: async ({ id, aktiv }: { id: string; aktiv: boolean }) => {
-      const { error } = await supabase.from('pruefpunkte').update({ aktiv }).eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['pruefpunkte'] }); queryClient.invalidateQueries({ queryKey: ['pruefpunkte-alle'] }); },
-  });
-
-  const del = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('pruefpunkte').delete().eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => { toast.success('Gelöscht'); queryClient.invalidateQueries({ queryKey: ['pruefpunkte'] }); queryClient.invalidateQueries({ queryKey: ['pruefpunkte-alle'] }); },
-  });
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Prüfpunkte verwalten</DialogTitle></DialogHeader>
-        <div className="space-y-4">
-          {/* Neuer Prüfpunkt */}
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <p className="text-sm font-semibold text-gray-700">Neuer Prüfpunkt</p>
-            <div className="grid grid-cols-2 gap-2">
+        {/* Formular */}
+        {showForm && (
+          <div style={{ padding: '18px 20px', borderBottom: '1px solid #f1f5f9', background: aktTab.colorLight, animation: 'fadeUp .2s ease both' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
               <div>
-                <Label className="text-xs text-gray-500 mb-1 block">Name *</Label>
-                <Input placeholder="z.B. Sicherheitsbeleuchtung Flur 3" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="h-8 text-sm rounded-lg" />
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.05em' }}>Von *</label>
+                <input type="date" value={form.datum_von} onChange={e => setForm(f => ({ ...f, datum_von: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, background: '#fff', color: '#0f172a' }} />
               </div>
               <div>
-                <Label className="text-xs text-gray-500 mb-1 block">Kategorie</Label>
-                <Input placeholder="z.B. Sicherheitsbeleuchtung" value={form.kategorie} onChange={e => setForm(f => ({ ...f, kategorie: e.target.value }))} className="h-8 text-sm rounded-lg" />
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.05em' }}>Bis</label>
+                <input type="date" value={form.datum_bis} onChange={e => setForm(f => ({ ...f, datum_bis: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, background: '#fff', color: '#0f172a' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.05em' }}>Stunden</label>
+                <input type="text" placeholder="z.B. 2,5" value={form.stunden} onChange={e => setForm(f => ({ ...f, stunden: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, background: '#fff', color: '#0f172a' }} />
               </div>
             </div>
-            <div className="flex gap-2 items-end">
-              <div className="flex-1">
-                <Label className="text-xs text-gray-500 mb-1 block">Intervall</Label>
-                <Select value={form.intervall} onValueChange={v => setForm(f => ({ ...f, intervall: v }))}>
-                  <SelectTrigger className="h-8 text-sm rounded-lg"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="wöchentlich">Wöchentlich</SelectItem><SelectItem value="monatlich">Monatlich</SelectItem></SelectContent>
-                </Select>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.05em' }}>Mitarbeiter *</label>
+                <select value={form.mitarbeiter} onChange={e => setForm(f => ({ ...f, mitarbeiter: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, background: '#fff', color: '#0f172a', appearance: 'none' }}>
+                  <option value="">Auswählen...</option>
+                  {(mitarbeiter as any[]).map((m: any) => <option key={m.id} value={m.name}>{m.name}</option>)}
+                </select>
               </div>
-              <Button className="h-8 rounded-lg px-4" onClick={() => add.mutate()} disabled={add.isPending}>
-                <Plus className="h-4 w-4 mr-1" />Hinzufügen
-              </Button>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.05em' }}>Bemerkung</label>
+                <input type="text" placeholder="Freitext..." value={form.bemerkung} onChange={e => setForm(f => ({ ...f, bemerkung: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, background: '#fff', color: '#0f172a' }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => addMutation.mutate()}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 20px', background: aktTab.color, color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                <CheckCircle size={14} /> Speichern
+              </button>
+              <button onClick={() => setShowForm(false)}
+                style={{ padding: '9px 16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>
+                Abbrechen
+              </button>
             </div>
           </div>
+        )}
 
-          {/* Liste */}
-          <div className="space-y-1">
-            {(alle as any[]).map((p: any) => (
-              <div key={p.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors ${p.aktiv ? 'bg-white border-gray-100' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-700">{p.name}</p>
-                  <p className="text-xs text-gray-400">{p.kategorie ?? 'Kein Kategorie'} · {p.intervall}</p>
+        {/* Einträge */}
+        {isLoading ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Lädt...</div>
+        ) : eintraege.length === 0 ? (
+          <div style={{ padding: '48px 24px', textAlign: 'center' }}>
+            <aktTab.icon size={36} style={{ color: '#e2e8f0', marginBottom: 12 }} />
+            <p style={{ color: '#94a3b8', fontSize: 14, margin: 0, fontWeight: 600 }}>Keine Einträge für {kwLabel(aktKW)}</p>
+            <p style={{ color: '#cbd5e1', fontSize: 13, margin: '4px 0 0' }}>Klicke auf "Neuer Eintrag" um die Begehung zu erfassen</p>
+          </div>
+        ) : (
+          <div>
+            {/* Header */}
+            <div style={{ display: 'grid', gridTemplateColumns: '120px 140px 120px 80px 1fr 40px', gap: 12, padding: '10px 20px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+              {['Zeitraum', 'KW', 'Mitarbeiter', 'Stunden', 'Bemerkung', ''].map(h => (
+                <span key={h} style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</span>
+              ))}
+            </div>
+            {eintraege.map((e, i) => (
+              <div key={e.id} className="eintrag-row" style={{ display: 'grid', gridTemplateColumns: '120px 140px 120px 80px 1fr 40px', gap: 12, padding: '13px 20px', borderBottom: '1px solid #f8fafc', alignItems: 'center', background: 'transparent', transition: 'background .1s', animation: `fadeUp .3s ease ${i*.05}s both` }}>
+                <span style={{ fontSize: 12, color: '#0f172a', fontWeight: 500 }}>
+                  {new Date(e.datum_von).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' })}
+                  {e.datum_bis && e.datum_bis !== e.datum_von && ` – ${new Date(e.datum_bis).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' })}`}
+                </span>
+                <span style={{ fontSize: 11, color: '#64748b', background: `${aktTab.color}15`, padding: '2px 8px', borderRadius: 6, display: 'inline-block', fontWeight: 600 }}>
+                  {kwLabel(e.kw)}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: 7, background: `${aktTab.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <User size={11} style={{ color: aktTab.color }} />
+                  </div>
+                  <span style={{ fontSize: 12, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.mitarbeiter}</span>
                 </div>
-                <button onClick={() => toggle.mutate({ id: p.id, aktiv: !p.aktiv })}
-                  className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${p.aktiv ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-gray-200 text-gray-500 hover:bg-gray-300'}`}>
-                  {p.aktiv ? 'Aktiv' : 'Inaktiv'}
-                </button>
-                <button onClick={() => { if (confirm('Prüfpunkt löschen?')) del.mutate(p.id); }}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-                  <Trash2 className="h-3.5 w-3.5" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {e.stunden ? <>
+                    <Clock size={11} style={{ color: '#94a3b8' }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: aktTab.color }}>{e.stunden}h</span>
+                  </> : <span style={{ fontSize: 12, color: '#cbd5e1' }}>—</span>}
+                </div>
+                <span style={{ fontSize: 12, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {e.bemerkung || <span style={{ color: '#e2e8f0' }}>—</span>}
+                </span>
+                <button className="del-btn" onClick={() => deleteMutation.mutate(e.id)}
+                  style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: '#fef2f2', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Trash2 size={13} />
                 </button>
               </div>
             ))}
-            {alle.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Noch keine Prüfpunkte</p>}
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        )}
+      </div>
+    </div>
   );
 }
