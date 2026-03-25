@@ -303,9 +303,11 @@ export default function PdfRuecklauf() {
         await new Promise(r => setTimeout(r, 150));
       }
 
-      // Alle Seiten mit ticket_id in Verifizierung schicken
-      const toVerify = results.filter(r => r.ticket_id);
-      setVerifyItems(toVerify.map(r => ({
+      // ALLE Seiten in Verifizierung — auch nicht erkannte als manuelle Einträge
+      const erkannt = results.filter(r => r.ticket_id);
+      const nichtErkannt = results.filter(r => !r.ticket_id);
+
+      const allVerify = results.map(r => ({
         ...r,
         stunden_edit: String(r.stunden_valid ?? r.stunden_raw ?? ''),
         datum_edit: r.leistungsdatum ?? new Date().toISOString().split('T')[0],
@@ -314,15 +316,19 @@ export default function PdfRuecklauf() {
           name: r.mitarbeiter_namen?.[i] ?? '',
         })).filter(m => m.id),
         confirmed: false,
-      })));
+        // Nicht erkannte Seiten als manuell kennzeichnen
+        manuelleEingabe: !r.ticket_id,
+      }));
 
+      setVerifyItems(allVerify);
       setPhase('verifying');
       setVerifyIndex(0);
       setCurrentImage(null);
 
-      const errors = results.filter(r => !r.ticket_id).length;
-      if (errors > 0) addLog(0, 'warn', `${errors} Seiten ohne Ticket-Treffer — werden übersprungen`);
-      addLog(0, 'ok', `Scan fertig — ${toVerify.length} Seiten zur Bestätigung`);
+      if (nichtErkannt.length > 0) {
+        addLog(0, 'warn', `⚠️ ${nichtErkannt.length} Seite${nichtErkannt.length > 1 ? 'n' : ''} nicht erkannt (Seite ${nichtErkannt.map(r => r.page).join(', ')}) — bitte manuell ausfüllen`);
+      }
+      addLog(0, 'ok', `Scan fertig — ${erkannt.length} erkannt, ${nichtErkannt.length} manuell ausfüllen`);
 
     } catch (err: any) {
       toast.error('Fehler: ' + err.message);
@@ -361,6 +367,12 @@ export default function PdfRuecklauf() {
   async function importAll() {
     setImporting(true);
     let saved = 0, skipped = 0;
+
+    // Nicht erkannte Seiten melden
+    const nichtErkannt = verifyItems.filter(v => (v as any).manuelleEingabe && !v.ticket_id);
+    if (nichtErkannt.length > 0) {
+      toast.error(`⚠️ ${nichtErkannt.length} Seite${nichtErkannt.length > 1 ? 'n' : ''} nicht erkannt (${nichtErkannt.map(v => 'S.' + v.page).join(', ')}) — bitte manuell nachtragen`);
+    }
 
     for (const item of verifyItems) {
       if (!item.ticket_id) { skipped++; continue; }
@@ -640,6 +652,9 @@ export default function PdfRuecklauf() {
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
                   {confirmedCount} bestätigt · {problemCount} mit Hinweisen
+                  {verifyItems.filter(v => (v as any).manuelleEingabe).length > 0 && (
+                    <span className="text-red-500 ml-1">· {verifyItems.filter(v => (v as any).manuelleEingabe).length} nicht erkannt</span>
+                  )}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -665,6 +680,7 @@ export default function PdfRuecklauf() {
                   className={`w-6 h-6 rounded-md text-xs font-mono transition-colors
                     ${i === verifyIndex ? 'bg-[#1e3a5f] text-white' :
                       v.confirmed ? 'bg-emerald-100 text-emerald-700' :
+                      (v as any).manuelleEingabe ? 'bg-red-100 text-red-700' :
                       v.needsReview ? 'bg-amber-100 text-amber-700' :
                       'bg-gray-100 text-gray-500'}`}>
                   {i + 1}
@@ -698,13 +714,22 @@ export default function PdfRuecklauf() {
               {/* Rechts: Daten */}
               <div className="flex flex-col overflow-y-auto border-l border-gray-100">
                 <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-[#1e3a5f] text-xl">{currentVerify.a_nummer}</span>
-                    {currentVerify.confirmed && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✓ Bestätigt</span>}
-                    {currentVerify.needsReview && !currentVerify.confirmed && (
-                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Bitte prüfen</span>
-                    )}
-                  </div>
+                  {(currentVerify as any).manuelleEingabe ? (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-2">
+                      <p className="text-sm font-bold text-red-700">⚠️ Seite {currentVerify.page} — nicht erkannt</p>
+                      <p className="text-xs text-red-600 mt-1">
+                        {currentVerify.error || 'OCR konnte keine A-Nummer lesen'}. Bitte alle Felder manuell ausfüllen.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-[#1e3a5f] text-xl">{currentVerify.a_nummer}</span>
+                      {currentVerify.confirmed && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✓ Bestätigt</span>}
+                      {currentVerify.needsReview && !currentVerify.confirmed && (
+                        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Bitte prüfen</span>
+                      )}
+                    </div>
+                  )}
                   {currentVerify.reviewReasons.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
                       {currentVerify.reviewReasons.map((r, i) => (
