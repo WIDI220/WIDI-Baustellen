@@ -101,7 +101,7 @@ export default function StartPage() {
       </div>
 
       {/* Nav */}
-      <nav className="s-nav" style={{ position:'relative', zIndex:10, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 clamp(16px, 4vw, 48px)', height:64, background:'rgba(255,255,255,0.7)', backdropFilter:'blur(20px)', borderBottom:'1px solid rgba(255,255,255,0.8)' }}>
+      <nav className="s-nav" style={{ position:'relative', zIndex:10, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 48px', height:64, background:'rgba(255,255,255,0.7)', backdropFilter:'blur(20px)', borderBottom:'1px solid rgba(255,255,255,0.8)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <div style={{ width:36, height:36, borderRadius:11, background:'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 4px 12px rgba(37,99,235,0.35)' }}>
             <HardHat size={18} style={{ color:'#fff' }} />
