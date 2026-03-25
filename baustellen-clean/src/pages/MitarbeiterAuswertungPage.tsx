@@ -6,11 +6,11 @@ import {
   LineChart, Line, CartesianGrid, Legend, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts';
-import { Users, Clock, Euro, TrendingUp, ChevronLeft, ChevronRight, Award, Target, Zap, BarChart2, Sun, Stethoscope, Calendar } from 'lucide-react';
+import { Users, Clock, Euro, TrendingUp, ChevronLeft, ChevronRight, Award, Target, Zap, BarChart2, Sun, Stethoscope, Calendar, Download, FileText } from 'lucide-react';
 
 const STUNDENSATZ = 38.08;
 const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-const TABS = ['Übersicht', 'Einzelperson', 'Monatsvergleich'] as const;
+const TABS = ['Übersicht', 'Einzelperson', 'Monatsvergleich', 'Monatsabschluss'] as const;
 type Tab = typeof TABS[number];
 
 function fmt(n: number) { return n.toFixed(1).replace('.', ','); }
@@ -104,6 +104,58 @@ export default function MitarbeiterAuswertungPage() {
     }
     setPendingToggle(null);
     refetchAbw();
+  }
+
+  const { data: abwesenheitenMonat = [] } = useQuery({
+    queryKey: ['abwesenheiten-monat', year, month],
+    queryFn: async () => {
+      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
+      const bis2 = `${year}-${String(month).padStart(2,'0')}-31`;
+      const { data } = await supabase
+        .from('mitarbeiter_abwesenheiten')
+        .select('*, employees(name)')
+        .gte('datum', von2)
+        .lte('datum', bis2);
+      return data ?? [];
+    },
+  });
+
+  const { data: begehungenMonat = [] } = useQuery({
+    queryKey: ['begehungen-monat', year, month],
+    queryFn: async () => {
+      const kw1 = `${year}-W01`; const kw53 = `${year}-W53`;
+      const { data } = await supabase
+        .from('begehungen')
+        .select('*')
+        .gte('kw', `${year}-W01`)
+        .lte('kw', `${year}-W53`);
+      // Filter by month approximation via datum_von
+      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
+      const bis2 = `${year}-${String(month).padStart(2,'0')}-31`;
+      return (data ?? []).filter((b: any) => b.datum_von >= von2 && b.datum_von <= bis2);
+    },
+  });
+
+  function exportMonatsabschlussCSV() {
+    const rows = maStats.map(e => {
+      const urlaubTage = (abwesenheitenMonat as any[]).filter((a:any) => {
+        const emp = employees as any[];
+        const em = emp.find((x:any) => x.id === e.id);
+        return a.employee_id === e.id && a.typ === 'urlaub';
+      }).length;
+      const krankTage = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ === 'krank').length;
+      return [e.name, e.tH.toFixed(1), e.bH.toFixed(1), e.gesamt.toFixed(1), e.kosten.toFixed(2), urlaubTage, krankTage].join(';');
+    });
+    const header = 'Mitarbeiter;Ticket-Std;Baustellen-Std;Gesamt-Std;Kosten (€);Urlaub-Tage;Krank-Tage';
+    const csv = '﻿' + [header, ...rows].join('
+');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Monatsabschluss_${monatLabel.replace(' ','_')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const emps = employees as any[];
@@ -505,6 +557,133 @@ export default function MitarbeiterAuswertungPage() {
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {/* ═══════════════════ TAB: MONATSABSCHLUSS ═══════════════════ */}
+      {activeTab === 'Monatsabschluss' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* Header mit Monat-Nav + Export */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', borderRadius: 16, border: '1px solid #f1f5f9', padding: '16px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button onClick={prevMonth} style={{ width:34, height:34, borderRadius:10, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronLeft size={15}/></button>
+              <div style={{ textAlign:'center' }}>
+                <p style={{ fontSize:18, fontWeight:900, color:'#0f172a', margin:0, letterSpacing:'-.03em' }}>{monatLabel}</p>
+                <p style={{ fontSize:11, color:'#94a3b8', margin:'1px 0 0' }}>Monatsabschluss</p>
+              </div>
+              <button onClick={nextMonth} style={{ width:34, height:34, borderRadius:10, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronRight size={15}/></button>
+            </div>
+            <button onClick={exportMonatsabschlussCSV}
+              style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 18px', background:'linear-gradient(135deg,#8b5cf6,#7c3aed)', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 12px rgba(139,92,246,.3)' }}>
+              <Download size={14}/> CSV exportieren
+            </button>
+          </div>
+
+          {/* Gesamt-KPIs */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
+            {[
+              { label:'Gesamtstunden', value:`${maStats.reduce((s,e)=>s+e.gesamt,0).toFixed(1)}h`, color:'#8b5cf6', border:'#ddd6fe' },
+              { label:'Ticket-Stunden', value:`${maStats.reduce((s,e)=>s+e.tH,0).toFixed(1)}h`, color:'#3b82f6', border:'#bfdbfe' },
+              { label:'Baustellen-Std.', value:`${maStats.reduce((s,e)=>s+e.bH,0).toFixed(1)}h`, color:'#10b981', border:'#bbf7d0' },
+              { label:'Personalkosten', value:new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(maStats.reduce((s,e)=>s+e.kosten,0)), color:'#f59e0b', border:'#fde68a' },
+            ].map((k,i) => (
+              <div key={i} style={{ background:'#fff', borderRadius:14, border:`1px solid ${k.border}`, padding:'14px 18px', position:'relative', overflow:'hidden' }}>
+                <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color }} />
+                <p style={{ fontSize:22, fontWeight:900, color:k.color, margin:'0 0 2px', letterSpacing:'-.04em' }}>{k.value}</p>
+                <p style={{ fontSize:11, color:'#64748b', margin:0 }}>{k.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Mitarbeiter-Tabelle */}
+          <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', overflow:'hidden' }}>
+            <div style={{ padding:'14px 20px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', gap:8 }}>
+              <FileText size={16} style={{ color:'#8b5cf6' }} />
+              <p style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:0 }}>Mitarbeiter-Übersicht · {monatLabel}</p>
+            </div>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+              <thead>
+                <tr style={{ background:'#f8fafc', borderBottom:'1px solid #f1f5f9' }}>
+                  {['Mitarbeiter','Ticket-Std.','Baustellen-Std.','Gesamt','Kosten','Urlaub','Krank'].map(h => (
+                    <th key={h} style={{ padding:'10px 16px', textAlign: h==='Mitarbeiter'?'left':'right', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {maStats.map((e, i) => {
+                  const urlaubTage = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ==='urlaub').length;
+                  const krankTage  = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ==='krank').length;
+                  return (
+                    <tr key={e.id} style={{ borderBottom:'1px solid #f8fafc' }}
+                      onMouseEnter={ev=>(ev.currentTarget as HTMLElement).style.background='#f8fafc'}
+                      onMouseLeave={ev=>(ev.currentTarget as HTMLElement).style.background='transparent'}>
+                      <td style={{ padding:'13px 16px' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                          <div style={{ width:32, height:32, borderRadius:10, background:`${e.farbe}15`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                            <span style={{ fontSize:12, fontWeight:800, color:e.farbe }}>{e.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}</span>
+                          </div>
+                          <span style={{ fontWeight:600, color:'#0f172a' }}>{e.name}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding:'13px 16px', textAlign:'right', color:'#3b82f6', fontWeight:600 }}>{e.tH.toFixed(1)}h</td>
+                      <td style={{ padding:'13px 16px', textAlign:'right', color:'#10b981', fontWeight:600 }}>{e.bH.toFixed(1)}h</td>
+                      <td style={{ padding:'13px 16px', textAlign:'right' }}>
+                        <span style={{ fontWeight:800, color:e.farbe, fontSize:14 }}>{e.gesamt.toFixed(1)}h</span>
+                      </td>
+                      <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:700, color:'#0f172a' }}>
+                        {new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(e.kosten)}
+                      </td>
+                      <td style={{ padding:'13px 16px', textAlign:'right' }}>
+                        {urlaubTage > 0
+                          ? <span style={{ background:'#f0fdf4', color:'#15803d', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:6 }}>{urlaubTage}T</span>
+                          : <span style={{ color:'#e2e8f0' }}>—</span>}
+                      </td>
+                      <td style={{ padding:'13px 16px', textAlign:'right' }}>
+                        {krankTage > 0
+                          ? <span style={{ background:'#fef2f2', color:'#dc2626', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:6 }}>{krankTage}T</span>
+                          : <span style={{ color:'#e2e8f0' }}>—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {/* Summenzeile */}
+                <tr style={{ background:'#f8fafc', borderTop:'2px solid #f1f5f9' }}>
+                  <td style={{ padding:'13px 16px', fontWeight:800, color:'#0f172a' }}>Gesamt</td>
+                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:800, color:'#3b82f6' }}>{maStats.reduce((s,e)=>s+e.tH,0).toFixed(1)}h</td>
+                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:800, color:'#10b981' }}>{maStats.reduce((s,e)=>s+e.bH,0).toFixed(1)}h</td>
+                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:900, color:'#0f172a', fontSize:15 }}>{maStats.reduce((s,e)=>s+e.gesamt,0).toFixed(1)}h</td>
+                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:900, color:'#0f172a', fontSize:15 }}>
+                    {new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(maStats.reduce((s,e)=>s+e.kosten,0))}
+                  </td>
+                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:700, color:'#15803d' }}>
+                    {(abwesenheitenMonat as any[]).filter((a:any)=>a.typ==='urlaub').length}T
+                  </td>
+                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:700, color:'#dc2626' }}>
+                    {(abwesenheitenMonat as any[]).filter((a:any)=>a.typ==='krank').length}T
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Stunden-Chart */}
+          <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:24 }}>
+            <p style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Stunden-Vergleich · {monatLabel}</p>
+            <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 20px' }}>Tickets vs. Baustellen pro Mitarbeiter</p>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={maStats.map(e=>({ name:e.kuerzel||e.name.split(' ')[0], Tickets:Math.round(e.tH*10)/10, Baustellen:Math.round(e.bH*10)/10 }))} barGap={4} barCategoryGap="35%">
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
+                <XAxis dataKey="name" tick={{fontSize:11,fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} unit="h"/>
+                <Tooltip content={<CustomTooltip/>}/>
+                <Legend wrapperStyle={{fontSize:12}}/>
+                <Bar dataKey="Tickets" fill="#3b82f6" radius={[5,5,0,0]}/>
+                <Bar dataKey="Baustellen" fill="#10b981" radius={[5,5,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
         </div>
       )}
 
