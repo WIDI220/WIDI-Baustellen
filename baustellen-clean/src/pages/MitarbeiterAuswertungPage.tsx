@@ -158,6 +158,31 @@ export default function MitarbeiterAuswertungPage() {
     URL.revokeObjectURL(url);
   }
 
+  function exportMonatsabschlussePDF() {
+    const urlaubGesamt = (abwesenheitenMonat as any[]).filter((a:any)=>a.typ==='urlaub').length;
+    const krankGesamt  = (abwesenheitenMonat as any[]).filter((a:any)=>a.typ==='krank').length;
+    const rows = maStats.map(e => {
+      const uT = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ==='urlaub').length;
+      const kT = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ==='krank').length;
+      return `<tr><td><strong>${e.name}</strong></td><td style="text-align:right;color:#60a5fa">${e.tH.toFixed(1)}h</td><td style="text-align:right;color:#34d399">${e.bH.toFixed(1)}h</td><td style="text-align:right;font-weight:700">${e.gesamt.toFixed(1)}h</td><td style="text-align:right">${new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(e.kosten)}</td><td style="text-align:right;color:#34d399">${uT>0?uT+'T':'—'}</td><td style="text-align:right;color:#f87171">${kT>0?kT+'T':'—'}</td></tr>`;
+    }).join('');
+    const gH = maStats.reduce((s,e)=>s+e.gesamt,0);
+    const gK = maStats.reduce((s,e)=>s+e.kosten,0);
+    const fmt = (n:number) => new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(n);
+    const html = widiHeader('Monatsabschluss', monatLabel) + `
+      <div class="kpi-grid kpi-grid-4" style="margin-bottom:20px">
+        <div class="kpi-card accent-purple"><div class="kpi-val">${gH.toFixed(1)}h</div><div class="kpi-lbl">Gesamtstunden</div></div>
+        <div class="kpi-card accent-blue"><div class="kpi-val">${maStats.reduce((s,e)=>s+e.tH,0).toFixed(1)}h</div><div class="kpi-lbl">Ticket-Std.</div></div>
+        <div class="kpi-card accent-green"><div class="kpi-val">${maStats.reduce((s,e)=>s+e.bH,0).toFixed(1)}h</div><div class="kpi-lbl">Baustellen-Std.</div></div>
+        <div class="kpi-card accent-amber"><div class="kpi-val">${fmt(gK)}</div><div class="kpi-lbl">Personalkosten</div></div>
+      </div>
+      <div class="section"><div class="section-header">Mitarbeiter · ${monatLabel}</div>
+        <table><thead><tr><th>Mitarbeiter</th><th style="text-align:right">Tickets</th><th style="text-align:right">Baustellen</th><th style="text-align:right">Gesamt</th><th style="text-align:right">Kosten</th><th style="text-align:right">Urlaub</th><th style="text-align:right">Krank</th></tr></thead>
+        <tbody>${rows}<tr class="total"><td>Gesamt</td><td style="text-align:right">${maStats.reduce((s,e)=>s+e.tH,0).toFixed(1)}h</td><td style="text-align:right">${maStats.reduce((s,e)=>s+e.bH,0).toFixed(1)}h</td><td style="text-align:right">${gH.toFixed(1)}h</td><td style="text-align:right">${fmt(gK)}</td><td style="text-align:right">${urlaubGesamt}T</td><td style="text-align:right">${krankGesamt}T</td></tr></tbody></table>
+      </div>` + widiFooter();
+    printAsPDF(html, `WIDI Monatsabschluss ${monatLabel}`);
+  }
+
   const emps = employees as any[];
   const tw = ticketStunden as any[];
   const bw = bauStunden as any[];
