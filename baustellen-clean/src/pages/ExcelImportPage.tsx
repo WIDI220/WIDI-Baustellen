@@ -7,6 +7,7 @@ import { parseExcelFile, ParsedTicketRow } from '@/lib/excel-parser';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { logActivity } from '@/lib/activityLog';
 import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, Info } from 'lucide-react';
 
 export default function ExcelImportPage() {
@@ -47,6 +48,8 @@ export default function ExcelImportPage() {
     setImporting(true);
     const validRows = parseResult.rows.filter(r => !r.isDuplicate);
     let inserted = 0, updated = 0, skipped = 0, failed = 0;
+    const andereMonatTickets: { a_nummer: string; datum: string; monat: string }[] = [];
+    const [refYear, refMonth] = activeMonth.split('-').map(Number);
 
     try {
       // Import-Run erstellen
@@ -85,6 +88,15 @@ export default function ExcelImportPage() {
             continue;
           }
 
+          // Prüfen ob Ticket in anderen Monat fällt
+          if (eingangsdatum) {
+            const d = new Date(eingangsdatum);
+            if (d.getFullYear() !== refYear || (d.getMonth() + 1) !== refMonth) {
+              const monatLabel = d.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+              andereMonatTickets.push({ a_nummer: row.a_nummer, datum: eingangsdatum, monat: monatLabel });
+            }
+          }
+
           if (existing) {
             if (eingangsdatum && !existing.eingangsdatum) {
               await supabase.from('tickets').update({ eingangsdatum }).eq('id', existing.id);
@@ -117,11 +129,12 @@ export default function ExcelImportPage() {
         inserted, updated, skipped_duplicates: skipped, failed,
       }).eq('id', importRun.id);
 
-      setReport({ inserted, updated, skipped, failed });
+      setReport({ inserted, updated, skipped, failed, andereMonatTickets, warnings: parseResult.warnings ?? [] });
       queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
 
       if (inserted > 0) {
+        supabase.auth.getUser().then(({data}) => logActivity(data.user?.email, `Excel-Import: ${inserted} Tickets für ${activeMonth} importiert`, 'excel_import', undefined, { monat: activeMonth, anzahl: inserted }));
         toast.success(`✅ ${inserted} Tickets für ${activeMonth} importiert!`);
       } else if (updated > 0) {
         toast.success(`🔄 ${updated} Tickets aktualisiert`);
@@ -238,8 +251,43 @@ export default function ExcelImportPage() {
                 <CheckCircle className="h-4 w-4" /> Import abgeschlossen
               </h4>
               <p className="text-sm text-green-700">✅ {report.inserted} neu importiert</p>
-              <p className="text-sm text-green-700">🔄 {report.updated} aktualisiert</p>
-              <p className="text-sm text-muted-foreground">⏭ {report.skipped} Duplikate übersprungen</p>
+              {report.updated > 0 && (
+                <p className="text-sm text-blue-600">🔄 {report.updated} bereits vorhanden (aktualisiert)</p>
+              )}
+              {report.skipped > 0 && (
+                <p className="text-sm text-muted-foreground">⏭ {report.skipped} Duplikate in Excel übersprungen</p>
+              )}
+              {report.failed > 0 && (
+                <p className="text-sm text-red-600">❌ {report.failed} fehlgeschlagen</p>
+              )}
+              {report.andereMonatTickets && report.andereMonatTickets.length > 0 && (
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm font-semibold text-amber-800 mb-2">
+                    ⚠️ {report.andereMonatTickets.length} Tickets in anderen Monaten:
+                  </p>
+                  <div className="max-h-40 overflow-y-auto">
+                    {Object.entries(
+                      report.andereMonatTickets.reduce((acc: Record<string,number>, t: any) => {
+                        acc[t.monat] = (acc[t.monat] || 0) + 1; return acc;
+                      }, {})
+                    ).sort().map(([monat, anzahl]) => (
+                      <p key={monat} className="text-xs text-amber-700">→ {monat}: {anzahl as number} Ticket{(anzahl as number) > 1 ? 's' : ''}</p>
+                    ))}
+                  </div>
+                  <p className="text-xs text-amber-600 mt-1">Diese wurden trotzdem importiert.</p>
+                </div>
+              )}
+              {report.warnings && report.warnings.length > 0 && (
+                <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <p className="text-sm font-semibold text-gray-700 mb-1">ℹ️ {report.warnings.length} Parser-Hinweise</p>
+                  <div className="max-h-32 overflow-y-auto">
+                    {report.warnings.slice(0, 15).map((w: string, i: number) => (
+                      <p key={i} className="text-xs text-gray-600 font-mono">{w}</p>
+                    ))}
+                    {report.warnings.length > 15 && <p className="text-xs text-gray-500">... +{report.warnings.length - 15} weitere</p>}
+                  </div>
+                </div>
+              )}
               {report.failed > 0 && <p className="text-sm text-red-600">❌ {report.failed} fehlgeschlagen – siehe Browser-Konsole</p>}
             </div>
           )}
