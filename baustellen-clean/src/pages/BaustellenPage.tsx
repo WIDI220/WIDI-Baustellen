@@ -9,7 +9,9 @@ import { Select, SelectOption } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Search, HardHat, ArrowRight, Pencil, Trash2, Calendar, TrendingUp, AlertTriangle, Lightbulb } from 'lucide-react';
+import { Plus, Search, HardHat, ArrowRight, Pencil, Trash2, Calendar, TrendingUp, AlertTriangle, Lightbulb, FileDown } from 'lucide-react';
+import { printAsPDF, widiHeader, widiFooter } from '@/lib/pdfExport';
+import { logActivity } from '@/lib/activityLog';
 import { fmtEur, fmtDate } from '@/lib/utils';
 import { berechneKosten } from '@/lib/berechnung';
 import { erkenneBudget, budgetAnzeige } from '@/lib/budgetErkennung';
@@ -64,13 +66,25 @@ export default function BaustellenPage() {
       if (editItem) { const {error}=await supabase.from('baustellen').update(payload).eq('id',editItem.id); if(error)throw error; }
       else { const {error}=await supabase.from('baustellen').insert(payload); if(error)throw error; }
     },
-    onSuccess: () => { toast.success(editItem?'Aktualisiert':'Baustelle angelegt'); setDialog(false); setEditItem(null); setForm(EMPTY); queryClient.invalidateQueries({queryKey:['baustellen-list']}); queryClient.invalidateQueries({queryKey:['bs-dashboard']}); },
+    onSuccess: async () => {
+      toast.success(editItem?'Aktualisiert':'Baustelle angelegt');
+      const { data: userData } = await supabase.auth.getUser();
+      await logActivity(userData.user?.email, editItem ? `Baustelle bearbeitet: ${form.name}` : `Baustelle angelegt: ${form.name}`, 'baustelle', editItem?.id, { name: form.name, status: form.status });
+      setDialog(false); setEditItem(null); setForm(EMPTY);
+      queryClient.invalidateQueries({queryKey:['baustellen-list']});
+      queryClient.invalidateQueries({queryKey:['bs-dashboard']});
+    },
     onError: (e:any) => toast.error(e.message),
   });
 
   const del = useMutation({
     mutationFn: async (id:string) => { const {error}=await supabase.from('baustellen').delete().eq('id',id); if(error)throw error; },
-    onSuccess: () => { toast.success('Gelöscht'); queryClient.invalidateQueries({queryKey:['baustellen-list']}); },
+    onSuccess: async (_: any, id: string) => {
+      toast.success('Gelöscht');
+      const { data: userData } = await supabase.auth.getUser();
+      await logActivity(userData.user?.email, `Baustelle gelöscht`, 'baustelle', id);
+      queryClient.invalidateQueries({queryKey:['baustellen-list']});
+    },
   });
 
   const bs = baustellen as any[], sw = stunden as any[], mat = materialien as any[], nach = nachtraege as any[];
