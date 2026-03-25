@@ -88,7 +88,7 @@ export default function AppLayoutAuswertung({ children }: { children: React.Reac
       </aside>
 
       {/* Main */}
-      <main style={{ flex:1, overflowY:'auto', padding:'28px 32px' }}>
+      <main style={{ flex:1, overflowY:'auto', padding:'28px 32px', minWidth:0 }}>
         {children}
       </main>
     </div>
