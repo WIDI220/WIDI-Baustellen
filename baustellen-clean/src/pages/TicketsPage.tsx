@@ -12,7 +12,9 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Search, ChevronLeft, ChevronRight, Trash2, Pencil, Clock, Plus, AlertTriangle, Mail, Send } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Trash2, Pencil, Clock, Plus, AlertTriangle, Mail, Send, FileDown } from 'lucide-react';
+import { printAsPDF, widiHeader, widiFooter } from '@/lib/pdfExport';
+import { logActivity } from '@/lib/activityLog';
 
 const STATUS_OPTIONS = [
   { value: 'in_bearbeitung', label: 'In Bearbeitung', bg: 'bg-blue-100', text: 'text-blue-700' },
@@ -149,6 +151,40 @@ export default function TicketsPage() {
     abrechenbar:    {color:'#f97316',bg:'#fff7ed'},
     abgerechnet:    {color:'#6b7280',bg:'#f9fafb'},
   };
+
+  function exportTicketsPDF() {
+    const monatLabel = new Date().toLocaleString('de-DE', { month:'long', year:'numeric' });
+    const rows = (tickets as any[]).map((t: any) => `
+      <tr>
+        <td><strong>${t.a_nummer || '—'}</strong></td>
+        <td>${t.gewerk || '—'}</td>
+        <td><span class="badge badge-${t.status==='erledigt'||t.status==='abgerechnet'?'green':t.status==='in_bearbeitung'?'amber':'blue'}">${t.status?.replace('_',' ') || '—'}</span></td>
+        <td>${t.beschreibung ? t.beschreibung.slice(0,50)+(t.beschreibung.length>50?'...':'') : '—'}</td>
+        <td style="text-align:right">${t.stunden_gesamt ? t.stunden_gesamt+'h' : '—'}</td>
+        <td>${t.updated_at ? new Date(t.updated_at).toLocaleDateString('de-DE') : '—'}</td>
+      </tr>`).join('');
+
+    const offen = (tickets as any[]).filter((t:any) => t.status === 'in_bearbeitung').length;
+    const erledigt = (tickets as any[]).filter((t:any) => ['erledigt','abgerechnet'].includes(t.status)).length;
+    const gesamtStd = (tickets as any[]).reduce((s:number,t:any) => s + Number(t.stunden_gesamt||0), 0);
+
+    const html = widiHeader('Ticket-Übersicht', monatLabel) + `
+      <div class="kpi-grid kpi-grid-4" style="margin-bottom:20px">
+        <div class="kpi-card accent-blue"><div class="kpi-val">${(tickets as any[]).length}</div><div class="kpi-lbl">Tickets gesamt</div></div>
+        <div class="kpi-card accent-amber"><div class="kpi-val">${offen}</div><div class="kpi-lbl">In Bearbeitung</div></div>
+        <div class="kpi-card accent-green"><div class="kpi-val">${erledigt}</div><div class="kpi-lbl">Erledigt</div></div>
+        <div class="kpi-card accent-purple"><div class="kpi-val">${gesamtStd.toFixed(1)}h</div><div class="kpi-lbl">Stunden gesamt</div></div>
+      </div>
+      <div class="section">
+        <div class="section-header">Alle Tickets</div>
+        <table>
+          <thead><tr><th>A-Nummer</th><th>Gewerk</th><th>Status</th><th>Beschreibung</th><th style="text-align:right">Stunden</th><th>Zuletzt</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>` + widiFooter();
+
+    printAsPDF(html, 'WIDI Ticket-Übersicht');
+  }
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:20, paddingBottom:32, fontFamily:"'Inter',system-ui,sans-serif" }}>
@@ -387,12 +423,19 @@ function TicketDetail({ ticket, onClose, userId }: { ticket: any; onClose: () =>
       await supabase.from('status_history').insert({ ticket_id: ticket.id, old_status: ticket.status, new_status: newStatus, changed_by: userId });
       const { error } = await supabase.from('tickets').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', ticket.id);
       if (error) throw error;
+      const { data: userData } = await supabase.auth.getUser();
+      await logActivity(userData.user?.email, `Status geändert: ${ticket.a_nummer} → ${newStatus}`, 'ticket', ticket.id, { a_nummer: ticket.a_nummer, old_status: ticket.status, new_status: newStatus });
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['tickets-list'] }); toast.success('Status aktualisiert'); onClose(); },
   });
 
   const deleteTicket = useMutation({
-    mutationFn: async () => { const { error } = await supabase.from('tickets').delete().eq('id', ticket.id); if (error) throw error; },
+    mutationFn: async () => {
+      const { error } = await supabase.from('tickets').delete().eq('id', ticket.id);
+      if (error) throw error;
+      const { data: userData } = await supabase.auth.getUser();
+      await logActivity(userData.user?.email, `Ticket gelöscht: ${ticket.a_nummer}`, 'ticket', ticket.id, { a_nummer: ticket.a_nummer });
+    },
     onSuccess: () => { toast.success('Ticket gelöscht'); queryClient.invalidateQueries({ queryKey: ['tickets-list'] }); onClose(); },
   });
 
@@ -408,6 +451,9 @@ function TicketDetail({ ticket, onClose, userId }: { ticket: any; onClose: () =>
       if (isNaN(stunden) || stunden <= 0) throw new Error('Ungültige Stunden');
       const { error } = await supabase.from('ticket_worklogs').insert({ ticket_id: ticket.id, employee_id: stundenForm.employee_id, stunden, leistungsdatum: stundenForm.leistungsdatum });
       if (error) throw error;
+      const { data: userData } = await supabase.auth.getUser();
+      const emp = (employees as any[]).find((e: any) => e.id === stundenForm.employee_id);
+      await logActivity(userData.user?.email, `Stunden eingetragen: ${ticket.a_nummer} · ${emp?.name ?? '?'} · ${stunden}h`, 'ticket_worklog', ticket.id, { a_nummer: ticket.a_nummer, mitarbeiter: emp?.name, stunden, datum: stundenForm.leistungsdatum });
     },
     onSuccess: () => { toast.success('Stunden eingetragen'); setStundenForm({ employee_id: '', stunden: '', leistungsdatum: new Date().toISOString().split('T')[0] }); setShowStunden(false); refetchWorklogs(); queryClient.invalidateQueries({ queryKey: ['tickets-list'] }); },
     onError: (e: any) => toast.error(e.message),
