@@ -35,6 +35,9 @@ export default function TicketsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+  const [showNeu, setShowNeu] = useState(false);
+  const [neuForm, setNeuForm] = useState({ a_nummer: '', gewerk: 'Hochbau', eingangsdatum: new Date().toISOString().split('T')[0] });
+  const [neuLoading, setNeuLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [gewerkFilter, setGewerkFilter] = useState('all');
   const [page, setPage] = useState(0);
@@ -171,7 +174,53 @@ export default function TicketsPage() {
           </h1>
           <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>{totalCount} Tickets gefunden</p>
         </div>
+        <button onClick={() => setShowNeu(!showNeu)}
+          style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 18px', background:'#10b981', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 12px rgba(16,185,129,.3)', transition:'all .15s' }}>
+          <Plus className="h-4 w-4" /> Ticket anlegen
+        </button>
       </div>
+
+      {/* Manuelles Formular */}
+      {showNeu && (
+        <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:16, padding:'18px 20px', display:'flex', flexDirection:'column', gap:14 }}>
+          <p style={{ fontSize:13, fontWeight:700, color:'#065f46', margin:0 }}>Neues Ticket manuell anlegen</p>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:'#64748b', display:'block', marginBottom:5, textTransform:'uppercase', letterSpacing:'.05em' }}>A-Nummer *</label>
+              <input
+                type="text" placeholder="z.B. A26-01234"
+                value={neuForm.a_nummer}
+                onChange={e => setNeuForm(f => ({ ...f, a_nummer: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && ticketManuellAnlegen()}
+                style={{ width:'100%', padding:'8px 12px', border:'1px solid #bbf7d0', borderRadius:10, fontSize:13, background:'#fff', color:'#0f172a' }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:'#64748b', display:'block', marginBottom:5, textTransform:'uppercase', letterSpacing:'.05em' }}>Gewerk</label>
+              <select value={neuForm.gewerk} onChange={e => setNeuForm(f => ({ ...f, gewerk: e.target.value }))}
+                style={{ width:'100%', padding:'8px 12px', border:'1px solid #bbf7d0', borderRadius:10, fontSize:13, background:'#fff', color:'#0f172a', appearance:'none' }}>
+                <option value="Hochbau">Hochbau</option>
+                <option value="Elektro">Elektro</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize:11, fontWeight:600, color:'#64748b', display:'block', marginBottom:5, textTransform:'uppercase', letterSpacing:'.05em' }}>Eingangsdatum</label>
+              <input type="date" value={neuForm.eingangsdatum} onChange={e => setNeuForm(f => ({ ...f, eingangsdatum: e.target.value }))}
+                style={{ width:'100%', padding:'8px 12px', border:'1px solid #bbf7d0', borderRadius:10, fontSize:13, background:'#fff', color:'#0f172a' }} />
+            </div>
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={ticketManuellAnlegen} disabled={neuLoading}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'9px 20px', background:'#10b981', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', opacity: neuLoading ? 0.6 : 1 }}>
+              {neuLoading ? '...' : <><Plus className="h-4 w-4" /> Anlegen</>}
+            </button>
+            <button onClick={() => setShowNeu(false)}
+              style={{ padding:'9px 16px', background:'#fff', border:'1px solid #bbf7d0', borderRadius:10, fontSize:13, color:'#64748b', cursor:'pointer' }}>
+              Abbrechen
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filter Bar */}
       <div style={{ background:'#fff', borderRadius:16, border:'1px solid #f1f5f9', padding:'12px 16px', display:'flex', flexWrap:'wrap', gap:8, alignItems:'center' }}>
