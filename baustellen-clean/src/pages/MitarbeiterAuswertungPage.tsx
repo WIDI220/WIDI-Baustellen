@@ -575,11 +575,10 @@ export default function MitarbeiterAuswertungPage() {
               </div>
               <button onClick={nextMonth} style={{ width:34, height:34, borderRadius:10, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronRight size={15}/></button>
             </div>
-              <button onClick={exportMonatsabschlussCSV}
-                style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 18px', background:'linear-gradient(135deg,#8b5cf6,#7c3aed)', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 12px rgba(139,92,246,.3)' }}>
-                <Download size={14}/> CSV
-              </button>
-            </div>
+            <button onClick={exportMonatsabschlussCSV}
+              style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 18px', background:'linear-gradient(135deg,#8b5cf6,#7c3aed)', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 12px rgba(139,92,246,.3)' }}>
+              <Download size={14}/> CSV exportieren
+            </button>
           </div>
 
           {/* Gesamt-KPIs */}
