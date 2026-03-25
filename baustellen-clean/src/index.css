@@ -61,3 +61,137 @@ body {
 .pulse { animation: pulse-glow 2s infinite; }
 
 .mono { font-family: 'DM Mono', monospace; }
+
+/* ═══════════════════════════════════════════
+   MOBILE RESPONSIVE — WIDI App
+   ═══════════════════════════════════════════ */
+
+/* Bottom Nav — nur mobile */
+.mobile-bottom-nav {
+  display: none;
+}
+
+/* Mobile Breakpoint */
+@media (max-width: 768px) {
+
+  /* Sidebar ausblenden */
+  aside {
+    display: none !important;
+  }
+
+  /* Main content volle Breite */
+  main {
+    padding: 16px 16px 80px !important;
+  }
+
+  /* Bottom Nav einblenden */
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 64px;
+    background: #0f172a;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    z-index: 100;
+    align-items: stretch;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .mobile-bottom-nav a,
+  .mobile-bottom-nav button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    color: rgba(255,255,255,0.35);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: color 0.15s;
+  }
+
+  .mobile-bottom-nav a.active,
+  .mobile-bottom-nav button.active {
+    color: #f59e0b;
+  }
+
+  .mobile-bottom-nav svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* Tabellen → Cards */
+  .mobile-table-hide {
+    display: none !important;
+  }
+
+  .mobile-card-show {
+    display: flex !important;
+  }
+
+  /* Header kompakter */
+  h1 { font-size: 20px !important; }
+  h2 { font-size: 17px !important; }
+
+  /* KPI Grids */
+  .kpi-4 { grid-template-columns: repeat(2,1fr) !important; }
+  .kpi-3 { grid-template-columns: repeat(2,1fr) !important; }
+
+  /* Dialog / Modal volle Breite */
+  [role="dialog"] > div {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    border-radius: 20px 20px 0 0 !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+  }
+
+  /* Inputs größer für Touch */
+  input, select, textarea, button {
+    min-height: 44px;
+  }
+
+  /* Cards full width */
+  .grid { gap: 10px !important; }
+
+  /* Overflow scroll für Tabellen die bleiben */
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Startseite: Karten 2-spaltig */
+  .start-cards {
+    grid-template-columns: repeat(2,1fr) !important;
+    gap: 12px !important;
+  }
+
+  /* Sidebar Breite null */
+  [style*="width:220px"],
+  [style*="width: 220px"] {
+    display: none !important;
+  }
+}
+
+/* Safe area für iPhone */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .mobile-bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom);
+    height: calc(64px + env(safe-area-inset-bottom));
+  }
+
+  @media (max-width: 768px) {
+    main {
+      padding-bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+    }
+  }
+}
