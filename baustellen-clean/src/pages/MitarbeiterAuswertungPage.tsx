@@ -6,7 +6,7 @@ import {
   LineChart, Line, CartesianGrid, Legend, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts';
-import { Users, Clock, Euro, TrendingUp, ChevronLeft, ChevronRight, Award, Target, Zap, BarChart2 } from 'lucide-react';
+import { Users, Clock, Euro, TrendingUp, ChevronLeft, ChevronRight, Award, Target, Zap, BarChart2, Sun, Stethoscope, Calendar } from 'lucide-react';
 
 const STUNDENSATZ = 38.08;
 const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
@@ -40,6 +40,8 @@ export default function MitarbeiterAuswertungPage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedMA, setSelectedMA] = useState<string | null>(null);
+  const [kalYear, setKalYear] = useState(now.getFullYear());
+  const [pendingToggle, setPendingToggle] = useState<string | null>(null);
 
   const von = `${monatStr(year, month)}-01`;
   const bis = `${monatStr(year, month)}-31`;
@@ -72,6 +74,37 @@ export default function MitarbeiterAuswertungPage() {
     queryKey: ['ausw-bau-all'],
     queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum'); return data ?? []; },
   });
+
+  const { data: abwesenheiten = [], refetch: refetchAbw } = useQuery({
+    queryKey: ['abwesenheiten', selectedMA ?? 'none', kalYear],
+    queryFn: async () => {
+      if (!selectedMA) return [];
+      const { data } = await supabase
+        .from('mitarbeiter_abwesenheiten')
+        .select('*')
+        .eq('employee_id', selectedMA)
+        .gte('datum', `${kalYear}-01-01`)
+        .lte('datum', `${kalYear}-12-31`);
+      return data ?? [];
+    },
+    enabled: !!selectedMA,
+  });
+
+  async function toggleAbwesenheit(empId: string, datum: string, typ: 'urlaub' | 'krank') {
+    const existing = (abwesenheiten as any[]).find((a: any) => a.datum === datum);
+    setPendingToggle(datum);
+    if (existing) {
+      if (existing.typ === typ) {
+        await supabase.from('mitarbeiter_abwesenheiten').delete().eq('id', existing.id);
+      } else {
+        await supabase.from('mitarbeiter_abwesenheiten').update({ typ }).eq('id', existing.id);
+      }
+    } else {
+      await supabase.from('mitarbeiter_abwesenheiten').insert({ employee_id: empId, datum, typ });
+    }
+    setPendingToggle(null);
+    refetchAbw();
+  }
 
   const emps = employees as any[];
   const tw = ticketStunden as any[];
@@ -353,6 +386,121 @@ export default function MitarbeiterAuswertungPage() {
                       <Bar dataKey="Baustellen" fill="#10b981" radius={[5, 5, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
+                </div>
+
+                {/* ── KALENDER ── */}
+                <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,.04)' }}>
+                  <div style={{ padding: '18px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Calendar size={18} style={{ color: '#8b5cf6' }} />
+                      <div>
+                        <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>Urlaub & Krankheitstage {kalYear}</p>
+                        <p style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0' }}>
+                          Klick auf Tag zum Erfassen · Nochmal klicken zum Ändern · Doppelklick zum Löschen
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+                        {[['#10b981','Urlaub'],['#ef4444','Krank']].map(([c,l]) => (
+                          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: 3, background: c }} />
+                            <span style={{ color: '#64748b' }}>{l}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button onClick={() => setKalYear(y => y - 1)} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                          <ChevronLeft size={14} />
+                        </button>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', minWidth: 36, textAlign: 'center' }}>{kalYear}</span>
+                        <button onClick={() => setKalYear(y => y + 1)} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Stats */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', borderBottom: '1px solid #f1f5f9' }}>
+                    {[
+                      { label: 'Urlaubstage', value: (abwesenheiten as any[]).filter((a:any) => a.typ==='urlaub').length, color: '#10b981', icon: Sun },
+                      { label: 'Krankheitstage', value: (abwesenheiten as any[]).filter((a:any) => a.typ==='krank').length, color: '#ef4444', icon: Stethoscope },
+                      { label: 'Abwesenheitstage', value: (abwesenheiten as any[]).length, color: '#8b5cf6', icon: Calendar },
+                    ].map((s,i) => (
+                      <div key={i} style={{ padding: '14px 20px', borderRight: i<2?'1px solid #f1f5f9':'none', display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: `${s.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <s.icon size={16} style={{ color: s.color }} />
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 20, fontWeight: 900, color: s.color, margin: 0, letterSpacing: '-.03em' }}>{s.value}</p>
+                          <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{s.label}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Monatskalender Grid */}
+                  <div style={{ padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
+                    {Array.from({ length: 12 }, (_, moIdx) => {
+                      const moNr = moIdx + 1;
+                      const ersterTag = new Date(kalYear, moIdx, 1);
+                      const letzterTag = new Date(kalYear, moIdx + 1, 0).getDate();
+                      let startWt = ersterTag.getDay();
+                      if (startWt === 0) startWt = 7;
+                      const abwMap: Record<string, string> = {};
+                      (abwesenheiten as any[]).forEach((a: any) => { abwMap[a.datum] = a.typ; });
+                      const WOCHENTAGE = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+                      return (
+                        <div key={moIdx}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', margin: '0 0 6px', letterSpacing: '-.01em' }}>
+                            {new Date(kalYear, moIdx, 1).toLocaleString('de-DE', { month: 'long' })}
+                          </p>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 3 }}>
+                            {WOCHENTAGE.map(wt => (
+                              <div key={wt} style={{ fontSize: 7, color: '#cbd5e1', textAlign: 'center', fontWeight: 600, padding: '1px 0' }}>{wt}</div>
+                            ))}
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
+                            {Array.from({ length: startWt - 1 }, (_, k) => <div key={`e${k}`} />)}
+                            {Array.from({ length: letzterTag }, (_, d) => {
+                              const tag = d + 1;
+                              const datumStr = `${kalYear}-${String(moNr).padStart(2,'0')}-${String(tag).padStart(2,'0')}`;
+                              const typ = abwMap[datumStr];
+                              const isWe = new Date(kalYear, moIdx, tag).getDay() === 0 || new Date(kalYear, moIdx, tag).getDay() === 6;
+                              const isToday = datumStr === new Date().toISOString().slice(0,10);
+                              const isPending = pendingToggle === datumStr;
+                              return (
+                                <div key={tag}
+                                  title={typ === 'urlaub' ? 'Urlaub · Klick = Krank · Doppelklick = Löschen' : typ === 'krank' ? 'Krank · Klick = Urlaub · Doppelklick = Löschen' : 'Klick = Urlaub · Shift+Klick = Krank'}
+                                  onClick={(ev) => {
+                                    if (isWe || isPending) return;
+                                    const nextTyp: 'urlaub'|'krank' = ev.shiftKey ? 'krank' : typ === 'urlaub' ? 'krank' : 'urlaub';
+                                    toggleAbwesenheit(selectedEmp.id, datumStr, nextTyp);
+                                  }}
+                                  onDoubleClick={() => {
+                                    if (!typ || isPending) return;
+                                    supabase.from('mitarbeiter_abwesenheiten').delete().eq('employee_id', selectedEmp.id).eq('datum', datumStr).then(() => refetchAbw());
+                                  }}
+                                  style={{
+                                    aspectRatio: '1', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 8, fontWeight: typ || isToday ? 700 : 400,
+                                    cursor: isWe ? 'default' : 'pointer',
+                                    background: isPending ? '#f1f5f9' : typ === 'urlaub' ? '#dcfce7' : typ === 'krank' ? '#fee2e2' : isToday ? '#eff6ff' : isWe ? 'transparent' : '#f8fafc',
+                                    color: isPending ? '#cbd5e1' : typ === 'urlaub' ? '#15803d' : typ === 'krank' ? '#dc2626' : isToday ? '#2563eb' : isWe ? '#e2e8f0' : '#64748b',
+                                    border: isToday && !typ ? '1px solid #bfdbfe' : 'none',
+                                    transition: 'all .1s ease',
+                                    userSelect: 'none',
+                                  }}>
+                                  {tag}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             );
