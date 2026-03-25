@@ -163,7 +163,7 @@ export default function AppLayoutDGUV({ children }: { children: React.ReactNode 
           </button>
         </div>
       </aside>
-      <main style={{ flex:1, overflowY:'auto', padding:'28px 32px' }}>{children}</main>
+      <main style={{ flex:1, overflowY:'auto', padding:'28px 32px', minWidth:0 }}>{children}</main>
     </div>
   );
 }
