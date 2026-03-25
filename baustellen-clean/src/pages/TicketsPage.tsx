@@ -12,8 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Search, ChevronLeft, ChevronRight, Trash2, Pencil, Clock, Plus, AlertTriangle, Mail, Send, FileDown } from 'lucide-react';
-import { printAsPDF, widiHeader, widiFooter } from '@/lib/pdfExport';
+import { Search, ChevronLeft, ChevronRight, Trash2, Pencil, Clock, Plus, AlertTriangle, Mail, Send } from 'lucide-react';
 import { logActivity } from '@/lib/activityLog';
 
 const STATUS_OPTIONS = [
@@ -35,6 +34,7 @@ export default function TicketsPage() {
   const { activeMonth } = useMonth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
   const [statusFilter, setStatusFilter] = useState('all');
   const [gewerkFilter, setGewerkFilter] = useState('all');
   const [page, setPage] = useState(0);
@@ -152,39 +152,7 @@ export default function TicketsPage() {
     abgerechnet:    {color:'#6b7280',bg:'#f9fafb'},
   };
 
-  function exportTicketsPDF() {
-    const monatLabel = new Date().toLocaleString('de-DE', { month:'long', year:'numeric' });
-    const rows = (tickets as any[]).map((t: any) => `
-      <tr>
-        <td><strong>${t.a_nummer || '—'}</strong></td>
-        <td>${t.gewerk || '—'}</td>
-        <td><span class="badge badge-${t.status==='erledigt'||t.status==='abgerechnet'?'green':t.status==='in_bearbeitung'?'amber':'blue'}">${t.status?.replace('_',' ') || '—'}</span></td>
-        <td>${t.beschreibung ? t.beschreibung.slice(0,50)+(t.beschreibung.length>50?'...':'') : '—'}</td>
-        <td style="text-align:right">${t.stunden_gesamt ? t.stunden_gesamt+'h' : '—'}</td>
-        <td>${t.updated_at ? new Date(t.updated_at).toLocaleDateString('de-DE') : '—'}</td>
-      </tr>`).join('');
 
-    const offen = (tickets as any[]).filter((t:any) => t.status === 'in_bearbeitung').length;
-    const erledigt = (tickets as any[]).filter((t:any) => ['erledigt','abgerechnet'].includes(t.status)).length;
-    const gesamtStd = (tickets as any[]).reduce((s:number,t:any) => s + Number(t.stunden_gesamt||0), 0);
-
-    const html = widiHeader('Ticket-Übersicht', monatLabel) + `
-      <div class="kpi-grid kpi-grid-4" style="margin-bottom:20px">
-        <div class="kpi-card accent-blue"><div class="kpi-val">${(tickets as any[]).length}</div><div class="kpi-lbl">Tickets gesamt</div></div>
-        <div class="kpi-card accent-amber"><div class="kpi-val">${offen}</div><div class="kpi-lbl">In Bearbeitung</div></div>
-        <div class="kpi-card accent-green"><div class="kpi-val">${erledigt}</div><div class="kpi-lbl">Erledigt</div></div>
-        <div class="kpi-card accent-purple"><div class="kpi-val">${gesamtStd.toFixed(1)}h</div><div class="kpi-lbl">Stunden gesamt</div></div>
-      </div>
-      <div class="section">
-        <div class="section-header">Alle Tickets</div>
-        <table>
-          <thead><tr><th>A-Nummer</th><th>Gewerk</th><th>Status</th><th>Beschreibung</th><th style="text-align:right">Stunden</th><th>Zuletzt</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>` + widiFooter();
-
-    printAsPDF(html, 'WIDI Ticket-Übersicht');
-  }
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:20, paddingBottom:32, fontFamily:"'Inter',system-ui,sans-serif" }}>
