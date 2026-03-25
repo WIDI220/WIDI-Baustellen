@@ -38,6 +38,34 @@ export default function TicketsPage() {
   const [showNeu, setShowNeu] = useState(false);
   const [neuForm, setNeuForm] = useState({ a_nummer: '', gewerk: 'Hochbau', eingangsdatum: new Date().toISOString().split('T')[0] });
   const [neuLoading, setNeuLoading] = useState(false);
+
+  async function ticketManuellAnlegen() {
+    if (!neuForm.a_nummer.trim()) { toast.error('A-Nummer erforderlich'); return; }
+    setNeuLoading(true);
+    try {
+      let a = neuForm.a_nummer.trim().toUpperCase().replace(/\s+/g, '');
+      if (!/^A\d{2}-\d{4,6}$/.test(a)) {
+        const num = a.replace(/^A?\d{0,2}-?/, '');
+        const year = new Date().getFullYear().toString().slice(-2);
+        a = `A${year}-${num.padStart(5, '0')}`;
+      }
+      const { data: existing } = await supabase.from('tickets').select('id').eq('a_nummer', a).maybeSingle();
+      if (existing) { toast.error(`${a} existiert bereits`); setNeuLoading(false); return; }
+      const { error } = await supabase.from('tickets').insert({
+        a_nummer: a, gewerk: neuForm.gewerk, status: 'in_bearbeitung',
+        eingangsdatum: neuForm.eingangsdatum || null,
+      });
+      if (error) throw error;
+      toast.success(`✅ ${a} angelegt`);
+      setShowNeu(false);
+      setNeuForm({ a_nummer: '', gewerk: 'Hochbau', eingangsdatum: new Date().toISOString().split('T')[0] });
+      queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setNeuLoading(false);
+    }
+  }
   const [statusFilter, setStatusFilter] = useState('all');
   const [gewerkFilter, setGewerkFilter] = useState('all');
   const [page, setPage] = useState(0);
