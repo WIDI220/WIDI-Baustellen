@@ -44,7 +44,8 @@ export default function MitarbeiterAuswertungPage() {
   const [pendingToggle, setPendingToggle] = useState<string | null>(null);
 
   const von = `${monatStr(year, month)}-01`;
-  const bis = `${monatStr(year, month)}-31`;
+  const letzterTag = new Date(year, month, 0).getDate();
+  const bis = `${monatStr(year, month)}-${String(letzterTag).padStart(2, '0')}`;
   const monatLabel = new Date(year, month - 1, 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
 
   const prevMonth = () => { if (month === 1) { setYear(y => y - 1); setMonth(12); } else setMonth(m => m - 1); };
@@ -525,15 +526,17 @@ export default function MitarbeiterAuswertungPage() {
                               const isPending = pendingToggle === datumStr;
                               return (
                                 <div key={tag}
-                                  title={typ === 'urlaub' ? 'Urlaub · Klick = Krank · Doppelklick = Löschen' : typ === 'krank' ? 'Krank · Klick = Urlaub · Doppelklick = Löschen' : 'Klick = Urlaub · Shift+Klick = Krank'}
-                                  onClick={(ev) => {
+                                  title={!typ ? 'Klick = Urlaub' : typ === 'urlaub' ? 'Urlaub · nochmal = Krank' : 'Krank · nochmal = Löschen'}
+                                  onClick={() => {
                                     if (isWe || isPending) return;
-                                    const nextTyp: 'urlaub'|'krank' = ev.shiftKey ? 'krank' : typ === 'urlaub' ? 'krank' : 'urlaub';
-                                    toggleAbwesenheit(selectedEmp.id, datumStr, nextTyp);
-                                  }}
-                                  onDoubleClick={() => {
-                                    if (!typ || isPending) return;
-                                    supabase.from('mitarbeiter_abwesenheiten').delete().eq('employee_id', selectedEmp.id).eq('datum', datumStr).then(() => refetchAbw());
+                                    if (!typ) {
+                                      toggleAbwesenheit(selectedEmp.id, datumStr, 'urlaub');
+                                    } else if (typ === 'urlaub') {
+                                      toggleAbwesenheit(selectedEmp.id, datumStr, 'krank');
+                                    } else {
+                                      const existing = (abwesenheiten as any[]).find((a: any) => a.datum === datumStr);
+                                      if (existing) supabase.from('mitarbeiter_abwesenheiten').delete().eq('id', existing.id).then(() => refetchAbw());
+                                    }
                                   }}
                                   style={{
                                     aspectRatio: '1', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
