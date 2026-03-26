@@ -43,11 +43,16 @@ export default function TicketsPage() {
   async function exportTicketsExcel() {
     try {
       // Alle Tickets des aktiven Monats mit Worklogs laden
+      const [expYear, expMonth] = activeMonth.split('-').map(Number);
+      const lastDay = new Date(expYear, expMonth, 0).getDate();
+      const expFrom = `${activeMonth}-01`;
+      const expTo = `${activeMonth}-${String(lastDay).padStart(2,'0')}`;
+
       const { data: allTickets } = await supabase
         .from('tickets')
         .select('*, ticket_worklogs(stunden, leistungsdatum, employees(name, kuerzel))')
-        .gte('eingangsdatum', `${activeMonth}-01`)
-        .lte('eingangsdatum', `${activeMonth}-31`)
+        .gte('eingangsdatum', expFrom)
+        .lte('eingangsdatum', expTo)
         .order('a_nummer');
 
       if (!allTickets || allTickets.length === 0) {
