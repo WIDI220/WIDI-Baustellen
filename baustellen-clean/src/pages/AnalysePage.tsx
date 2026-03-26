@@ -1,20 +1,25 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useMonth } from '@/contexts/MonthContext';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis } from 'recharts';
-import { TrendingUp, Clock, Ticket, Users, FileDown, Award, Target, Zap, BarChart2 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { TrendingUp, Clock, Ticket, Users } from 'lucide-react';
 
-const COLORS = ['#1e3a5f','#0ea5e9','#f97316','#8b5cf6','#22c55e','#ec4899','#14b8a6','#f59e0b','#6366f1'];
+const FARBEN = ['#2563eb','#10b981','#f59e0b','#8b5cf6','#ef4444','#06b6d4'];
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-lg px-3 py-2 text-sm">
-      <p className="font-semibold text-gray-800 mb-1">{label}</p>
-      {payload.map((p: any, i: number) => <p key={i} style={{ color: p.color }} className="font-medium">{typeof p.value === 'number' ? p.value.toFixed(2) : p.value} {p.name}</p>)}
+    <div style={{ background:'#1e293b', border:'1px solid rgba(255,255,255,.1)', borderRadius:12, padding:'10px 14px' }}>
+      <p style={{ color:'#94a3b8', fontSize:11, marginBottom:6, fontWeight:600 }}>{label}</p>
+      {payload.map((p: any) => (
+        <div key={p.name} style={{ display:'flex', justifyContent:'space-between', gap:20, fontSize:12, marginBottom:2 }}>
+          <span style={{ color:p.color, fontWeight:500 }}>{p.name}</span>
+          <span style={{ fontWeight:700, color:'#fff' }}>{p.value}{p.name === 'Stunden' ? 'h' : ''}</span>
+        </div>
+      ))}
     </div>
   );
-};
+}
 
 export default function AnalysePage() {
   const { activeMonth } = useMonth();
@@ -22,293 +27,211 @@ export default function AnalysePage() {
   const from = `${year}-${month}-01`;
   const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate();
   const to = `${year}-${month}-${String(lastDay).padStart(2,'0')}`;
-  const monthName = new Date(parseInt(year), parseInt(month)-1, 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+  const monthName = new Date(parseInt(year), parseInt(month)-1, 1)
+    .toLocaleString('de-DE', { month:'long', year:'numeric' });
 
-  const { data: employees = [] } = useQuery({ queryKey: ['employees'], queryFn: async () => { const { data } = await supabase.from('employees').select('*').eq('aktiv', true); return data ?? []; } });
-  const { data: worklogs = [] } = useQuery({ queryKey: ['worklogs-analyse', activeMonth], queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('*, employees(id,name,kuerzel,gewerk), tickets(a_nummer,gewerk,status)').gte('leistungsdatum', from).lte('leistungsdatum', to); return data ?? []; } });
-  const { data: tickets = [] } = useQuery({ queryKey: ['tickets-analyse', activeMonth], queryFn: async () => { const { data } = await supabase.from('tickets').select('*').gte('eingangsdatum', from).lte('eingangsdatum', to); return data ?? []; } });
-  const { data: allWorklogs = [] } = useQuery({ queryKey: ['all-worklogs'], queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('*, employees(id,name,kuerzel,gewerk)'); return data ?? []; } });
+  const { data: employees = [] } = useQuery({
+    queryKey: ['employees'],
+    queryFn: async () => { const { data } = await supabase.from('employees').select('*').eq('aktiv', true); return data ?? []; },
+  });
+  const { data: worklogs = [] } = useQuery({
+    queryKey: ['worklogs-analyse', activeMonth],
+    queryFn: async () => {
+      const { data } = await supabase.from('ticket_worklogs')
+        .select('*, employees(id,name,kuerzel), tickets(id,a_nummer,gewerk,status)')
+        .gte('leistungsdatum', from).lte('leistungsdatum', to);
+      return data ?? [];
+    },
+  });
+  const { data: tickets = [] } = useQuery({
+    queryKey: ['tickets-analyse', activeMonth],
+    queryFn: async () => {
+      const { data } = await supabase.from('tickets').select('*')
+        .gte('eingangsdatum', from).lte('eingangsdatum', to);
+      return data ?? [];
+    },
+  });
 
-  // Statistiken pro Mitarbeiter
-  const empStats = (employees as any[]).map((emp: any) => {
-    const logs = (worklogs as any[]).filter((w: any) => w.employee_id === emp.id);
-    const stunden = logs.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
-    const ticketIds = new Set(logs.map((w: any) => w.ticket_id));
-    const avgStunden = ticketIds.size > 0 ? stunden / ticketIds.size : 0;
+  const t = tickets as any[];
+  const w = worklogs as any[];
+  const emps = employees as any[];
 
-    // Alle Monate für Trend
-    const allLogs = (allWorklogs as any[]).filter((w: any) => w.employee_id === emp.id);
-    const allStunden = allLogs.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+  const totalH = w.reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
+  const totalT = t.length;
+  const erledigt = t.filter((x: any) => ['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length;
+  const aktiveMA = new Set(w.map((x: any) => x.employee_id)).size;
+  const erledigungsQuote = totalT > 0 ? Math.round(erledigt / totalT * 100) : 0;
 
+  // Mitarbeiter Stats
+  const maData = emps.map((emp: any, i: number) => {
+    const logs = w.filter((x: any) => x.employee_id === emp.id);
+    const stunden = logs.reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
+    const ticketSet = new Set(logs.map((x: any) => x.ticket_id));
     return {
-      name: emp.kuerzel,
+      name: emp.kuerzel || emp.name.split(' ')[0],
       fullName: emp.name,
-      stunden: Math.round(stunden * 100) / 100,
-      tickets: ticketIds.size,
-      gewerk: emp.gewerk,
-      avgStunden: Math.round(avgStunden * 100) / 100,
-      allStunden: Math.round(allStunden * 100) / 100,
-      efficiency: ticketIds.size > 0 ? Math.round((ticketIds.size / Math.max(stunden, 0.25)) * 100) / 100 : 0,
+      Stunden: Math.round(stunden * 10) / 10,
+      Tickets: ticketSet.size,
+      farbe: FARBEN[i % FARBEN.length],
     };
-  }).sort((a: any, b: any) => b.stunden - a.stunden);
-
-  const activeEmp = empStats.filter((e: any) => e.stunden > 0);
-  const totalH = activeEmp.reduce((s: any, e: any) => s + e.stunden, 0);
-  const totalTickets = (tickets as any[]).length;
-  const erledigtT = (tickets as any[]).filter((t: any) => ['erledigt','abrechenbar','abgerechnet'].includes(t.status)).length;
-  const avgHperTicket = erledigtT > 0 ? totalH / erledigtT : 0;
-  const erledigungsQuote = totalTickets > 0 ? Math.round(erledigtT / totalTickets * 100) : 0;
-
-  // Tagesverlauf
-  const tagMap: Record<string, number> = {};
-  (worklogs as any[]).forEach((w: any) => { if (w.leistungsdatum) tagMap[w.leistungsdatum] = (tagMap[w.leistungsdatum] ?? 0) + Number(w.stunden ?? 0); });
-  const tagData = Object.entries(tagMap).map(([d, s]) => ({ datum: d.slice(5), stunden: Math.round(Number(s)*10)/10 })).sort((a, b) => a.datum.localeCompare(b.datum));
+  }).filter((e: any) => e.Stunden > 0 || e.Tickets > 0)
+    .sort((a: any, b: any) => b.Stunden - a.Stunden);
 
   // Gewerk
-  const hochbauH = (worklogs as any[]).filter((w: any) => w.employees?.gewerk === 'Hochbau').reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
-  const elektroH = (worklogs as any[]).filter((w: any) => w.employees?.gewerk === 'Elektro').reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+  const hochbauT = t.filter((x: any) => x.gewerk === 'Hochbau');
+  const elektroT = t.filter((x: any) => x.gewerk === 'Elektro');
+  const hochbauIds = new Set(hochbauT.map((x: any) => x.id));
+  const elektroIds = new Set(elektroT.map((x: any) => x.id));
+  const hochbauH = w.filter((x: any) => hochbauIds.has(x.ticket_id)).reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
+  const elektroH = w.filter((x: any) => elektroIds.has(x.ticket_id)).reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
+  const hochbauErl = hochbauT.filter((x:any) => ['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length;
+  const elektroErl = elektroT.filter((x:any) => ['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length;
+
   const gewerkData = [
-    { name: 'Hochbau', stunden: Math.round(hochbauH*10)/10, tickets: (tickets as any[]).filter((t: any) => t.gewerk === 'Hochbau').length },
-    { name: 'Elektro', stunden: Math.round(elektroH*10)/10, tickets: (tickets as any[]).filter((t: any) => t.gewerk === 'Elektro').length },
+    { name: 'Hochbau', 'Tickets gesamt': hochbauT.length, Erledigt: hochbauErl, Stunden: Math.round(hochbauH*10)/10 },
+    { name: 'Elektro', 'Tickets gesamt': elektroT.length, Erledigt: elektroErl, Stunden: Math.round(elektroH*10)/10 },
   ];
 
-  // Top Performer
-  const topPerformer = [...activeEmp].sort((a: any, b: any) => b.tickets - a.tickets)[0];
-  const mostHours = [...activeEmp].sort((a: any, b: any) => b.stunden - a.stunden)[0];
-
-  // Radar Daten (normalisiert 0-100)
-  const maxStunden = Math.max(...activeEmp.map((e: any) => e.stunden), 1);
-  const maxTickets = Math.max(...activeEmp.map((e: any) => e.tickets), 1);
-  const radarData = activeEmp.slice(0, 6).map((e: any) => ({
-    name: e.name,
-    Stunden: Math.round(e.stunden / maxStunden * 100),
-    Tickets: Math.round(e.tickets / maxTickets * 100),
-    Effizienz: Math.min(Math.round(e.efficiency * 20), 100),
-  }));
-
-  const kpis = [
-    { icon: Clock, label: 'Stunden gesamt', value: `${totalH.toFixed(1)}h`, sub: `Ø ${avgHperTicket.toFixed(2)}h/Ticket`, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
-    { icon: Users, label: 'Aktive Mitarbeiter', value: activeEmp.length, sub: `von ${(employees as any[]).length} gesamt`, color: 'text-purple-600', bg: 'bg-purple-50', border: 'border-purple-100' },
-    { icon: Ticket, label: 'Tickets erledigt', value: `${erledigtT}/${totalTickets}`, sub: `${erledigungsQuote}% Quote`, color: 'text-orange-600', bg: 'bg-orange-50', border: 'border-orange-100' },
-    { icon: Target, label: 'Erledigungsquote', value: `${erledigungsQuote}%`, sub: erledigungsQuote >= 80 ? '🟢 Sehr gut' : erledigungsQuote >= 60 ? '🟡 Gut' : '🔴 Ausbaufähig', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
-    { icon: Award, label: 'Top Tickets', value: topPerformer?.name ?? '–', sub: `${topPerformer?.tickets ?? 0} Tickets`, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' },
-    { icon: Zap, label: 'Meiste Stunden', value: mostHours?.name ?? '–', sub: `${mostHours?.stunden ?? 0}h`, color: 'text-sky-600', bg: 'bg-sky-50', border: 'border-sky-100' },
-  ];
+  const kpiStyle = (color: string) => ({
+    background:'#fff', borderRadius:16, padding:'18px 20px',
+    border:`1px solid ${color}20`, position:'relative' as const, overflow:'hidden' as const,
+  });
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Analyse</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{monthName}</p>
-        </div>
-        <button
-          onClick={() => window.open(`https://widi-220-ticketflow-control.vercel.app/api/monatsbericht?month=${activeMonth}`, '_blank')}
-          className="flex items-center gap-2 px-4 py-2 bg-[#1e3a5f] text-white rounded-xl text-sm font-medium hover:bg-[#162d4a] transition-colors shadow-sm"
-        >
-          <FileDown className="h-4 w-4" /> Monatsbericht PDF
-        </button>
+    <div style={{ fontFamily:"'Inter',system-ui,sans-serif", display:'flex', flexDirection:'column', gap:20 }}>
+
+      {/* Header */}
+      <div>
+        <h1 style={{ fontSize:24, fontWeight:900, color:'#0f172a', margin:0, letterSpacing:'-.03em' }}>
+          Analyse <span style={{ color:'#3b82f6' }}>{monthName}</span>
+        </h1>
+        <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>Ticket-Auswertung · Stunden · Mitarbeiter-Leistung</p>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-        {kpis.map(({ icon: Icon, label, value, sub, color, bg, border }) => (
-          <div key={label} className={`bg-white rounded-2xl border ${border} shadow-sm p-4`}>
-            <div className={`w-8 h-8 ${bg} rounded-xl flex items-center justify-center mb-2`}>
-              <Icon className={`h-4 w-4 ${color}`} />
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
+        {[
+          { label:'Tickets gesamt', value: totalT, icon:Ticket, color:'#3b82f6' },
+          { label:'Erledigt', value:`${erledigt} (${erledigungsQuote}%)`, icon:TrendingUp, color:'#10b981' },
+          { label:'Stunden gesamt', value:`${totalH.toFixed(1)}h`, icon:Clock, color:'#8b5cf6' },
+          { label:'Aktive Mitarbeiter', value: aktiveMA, icon:Users, color:'#f59e0b' },
+        ].map((k, i) => (
+          <div key={i} style={kpiStyle(k.color)}>
+            <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color }} />
+            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8 }}>
+              <div style={{ width:32, height:32, borderRadius:9, background:`${k.color}15`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <k.icon size={15} style={{ color:k.color }} />
+              </div>
+              <span style={{ fontSize:10, color:'#94a3b8', fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em' }}>{k.label}</span>
             </div>
-            <p className="text-xl font-bold text-gray-900 leading-tight">{value}</p>
-            <p className="text-xs font-medium text-gray-600 mt-0.5">{label}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+            <p style={{ fontSize:28, fontWeight:900, color:k.color, margin:0, letterSpacing:'-.04em' }}>{k.value}</p>
           </div>
         ))}
       </div>
 
-      {activeEmp.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-16 text-center text-gray-400">
-          Keine Stundenbuchungen für {monthName}
-        </div>
-      ) : (<>
-        {/* Charts Reihe 1 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-1">Stunden pro Mitarbeiter</h2>
-            <p className="text-xs text-gray-400 mb-4">Gesamtstunden im Monat</p>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={activeEmp}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="stunden" name="Stunden" radius={[6,6,0,0]}>
-                  {activeEmp.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+      {/* Mitarbeiter Chart — volle Breite */}
+      {maData.length > 0 ? (
+        <div style={{ background:'#fff', borderRadius:18, padding:'24px 28px', border:'1px solid #f1f5f9' }}>
+          <h2 style={{ fontSize:16, fontWeight:800, color:'#0f172a', margin:'0 0 3px', letterSpacing:'-.02em' }}>
+            Mitarbeiter-Leistung · {monthName}
+          </h2>
+          <p style={{ fontSize:12, color:'#94a3b8', margin:'0 0 20px' }}>Stunden und Tickets pro Mitarbeiter im Vergleich</p>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={maData} barGap={6} barCategoryGap="30%">
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize:12, fill:'#64748b' }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="s" tick={{ fontSize:11, fill:'#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
+              <YAxis yAxisId="t" orientation="right" tick={{ fontSize:11, fill:'#94a3b8' }} axisLine={false} tickLine={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend wrapperStyle={{ fontSize:12, paddingTop:12 }} />
+              <Bar yAxisId="s" dataKey="Stunden" fill="#2563eb" radius={[6,6,0,0]} />
+              <Bar yAxisId="t" dataKey="Tickets" fill="#10b981" radius={[6,6,0,0]} />
+            </BarChart>
+          </ResponsiveContainer>
 
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-1">Tickets pro Mitarbeiter</h2>
-            <p className="text-xs text-gray-400 mb-4">Anzahl bearbeiteter Tickets</p>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={activeEmp}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="tickets" name="Tickets" radius={[6,6,0,0]}>
-                  {activeEmp.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Charts Reihe 2 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-1">Ø Stunden pro Ticket</h2>
-            <p className="text-xs text-gray-400 mb-4">Effizienzindikator – niedriger = effizienter</p>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={activeEmp.filter((e: any) => e.tickets > 0)}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="avgStunden" name="Ø Std/Ticket" radius={[6,6,0,0]} fill="#8b5cf6" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {tagData.length > 1 ? (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h2 className="text-sm font-semibold text-gray-700 mb-1">Stunden Tagesverlauf</h2>
-              <p className="text-xs text-gray-400 mb-4">Arbeitslast über den Monat</p>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={tagData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                  <XAxis dataKey="datum" tick={{ fontSize: 10, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Line type="monotone" dataKey="stunden" name="Stunden" stroke="#1e3a5f" strokeWidth={2.5} dot={{ r: 3, fill: '#1e3a5f' }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h2 className="text-sm font-semibold text-gray-700 mb-1">Gewerk-Vergleich</h2>
-              <p className="text-xs text-gray-400 mb-4">Stunden und Tickets nach Gewerk</p>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={gewerkData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                  <XAxis type="number" tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                  <YAxis dataKey="name" type="category" width={60} tick={{ fontSize: 12, fill: '#6b7280' }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend />
-                  <Bar dataKey="stunden" name="Stunden" fill="#1e3a5f" radius={[0,6,6,0]} />
-                  <Bar dataKey="tickets" name="Tickets" fill="#f97316" radius={[0,6,6,0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </div>
-
-        {/* Radar + Gesamtstunden */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {radarData.length >= 3 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h2 className="text-sm font-semibold text-gray-700 mb-1">Team Performance Radar</h2>
-              <p className="text-xs text-gray-400 mb-4">Stunden · Tickets · Effizienz (normalisiert 0–100)</p>
-              <ResponsiveContainer width="100%" height={240}>
-                <RadarChart data={radarData}>
-                  <PolarGrid stroke="#f3f4f6" />
-                  <PolarAngleAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} />
-                  <Radar name="Stunden" dataKey="Stunden" stroke="#1e3a5f" fill="#1e3a5f" fillOpacity={0.15} />
-                  <Radar name="Tickets" dataKey="Tickets" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.15} />
-                  <Legend />
-                  <Tooltip content={<CustomTooltip />} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-1">Gesamtstunden aller Zeiten</h2>
-            <p className="text-xs text-gray-400 mb-4">Kumuliert über alle Monate</p>
-            <div className="space-y-2.5">
-              {empStats.filter((e: any) => e.allStunden > 0).sort((a: any, b: any) => b.allStunden - a.allStunden).map((e: any, i: number) => {
-                const maxAll = Math.max(...empStats.map((x: any) => x.allStunden), 1);
-                return (
-                  <div key={e.name} className="flex items-center gap-3">
-                    <span className="text-xs text-gray-400 w-4 text-right font-mono">{i+1}</span>
-                    <span className="font-mono font-bold text-xs w-8" style={{ color: COLORS[i % COLORS.length] }}>{e.name}</span>
-                    <div className="flex-1 bg-gray-100 rounded-full h-2">
-                      <div className="h-2 rounded-full transition-all" style={{ width: `${(e.allStunden/maxAll)*100}%`, backgroundColor: COLORS[i % COLORS.length] }} />
-                    </div>
-                    <span className="text-xs font-mono font-semibold text-gray-700 w-14 text-right">{e.allStunden}h</span>
+          {/* Mitarbeiter-Karten */}
+          <div style={{ display:'grid', gridTemplateColumns:`repeat(${maData.length},1fr)`, gap:10, marginTop:20, paddingTop:18, borderTop:'1px solid #f1f5f9' }}>
+            {maData.map((e: any, i: number) => (
+              <div key={i} style={{ background:'#f8fafc', borderRadius:12, padding:'12px 14px', border:'1px solid #f1f5f9' }}>
+                <div style={{ width:36, height:36, borderRadius:10, background:`${e.farbe}15`, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:8 }}>
+                  <span style={{ fontSize:12, fontWeight:800, color:e.farbe }}>{e.name.slice(0,2).toUpperCase()}</span>
+                </div>
+                <p style={{ fontSize:12, fontWeight:700, color:'#0f172a', margin:'0 0 2px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.fullName}</p>
+                <div style={{ display:'flex', justifyContent:'space-between', marginTop:8, paddingTop:8, borderTop:'1px solid #e2e8f0' }}>
+                  <div style={{ textAlign:'center' }}>
+                    <p style={{ fontSize:16, fontWeight:900, color:'#2563eb', margin:0 }}>{e.Stunden}h</p>
+                    <p style={{ fontSize:10, color:'#94a3b8', margin:0 }}>Stunden</p>
                   </div>
-                );
-              })}
-            </div>
+                  <div style={{ textAlign:'center' }}>
+                    <p style={{ fontSize:16, fontWeight:900, color:'#10b981', margin:0 }}>{e.Tickets}</p>
+                    <p style={{ fontSize:10, color:'#94a3b8', margin:0 }}>Tickets</p>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
+      ) : null}
 
-        {/* Detail Tabelle */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <BarChart2 className="h-4 w-4 text-gray-400" />
-            <h2 className="text-sm font-semibold text-gray-700">Detailübersicht · {monthName}</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">#</th>
-                  <th className="text-left py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Mitarbeiter</th>
-                  <th className="text-right py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Stunden</th>
-                  <th className="text-right py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Tickets</th>
-                  <th className="text-right py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Ø Std/Ticket</th>
-                  <th className="text-right py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Tickets/h</th>
-                  <th className="py-2.5 px-3 font-medium text-gray-400 text-xs uppercase tracking-wide">Anteil</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeEmp.map((e: any, i: number) => (
-                  <tr key={e.name} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                    <td className="py-3 px-3 text-xs text-gray-400 font-mono">{i+1}</td>
-                    <td className="py-3 px-3">
-                      <span className="font-mono font-bold mr-2 text-sm" style={{ color: COLORS[i % COLORS.length] }}>{e.name}</span>
-                      <span className="text-gray-500 text-xs">{e.fullName}</span>
-                      <span className="ml-2 text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-md">{e.gewerk}</span>
-                    </td>
-                    <td className="py-3 px-3 text-right font-mono font-semibold text-gray-800">{e.stunden}h</td>
-                    <td className="py-3 px-3 text-right text-gray-600 font-medium">{e.tickets}</td>
-                    <td className="py-3 px-3 text-right font-mono text-gray-600">{e.avgStunden}h</td>
-                    <td className="py-3 px-3 text-right font-mono text-gray-500">{e.efficiency}</td>
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-                          <div className="rounded-full h-1.5" style={{ width: `${totalH > 0 ? e.stunden/totalH*100 : 0}%`, backgroundColor: COLORS[i % COLORS.length] }} />
-                        </div>
-                        <span className="text-xs text-gray-400 w-8 text-right">{totalH > 0 ? Math.round(e.stunden/totalH*100) : 0}%</span>
-                      </div>
-                    </td>
-                  </tr>
+      {/* Gewerk — volle Breite, groß */}
+      <div style={{ background:'#fff', borderRadius:18, padding:'24px 28px', border:'1px solid #f1f5f9' }}>
+        <h2 style={{ fontSize:16, fontWeight:800, color:'#0f172a', margin:'0 0 3px', letterSpacing:'-.02em' }}>Gewerk Vergleich</h2>
+        <p style={{ fontSize:12, color:'#94a3b8', margin:'0 0 20px' }}>Tickets gesamt · Erledigt · Stunden nach Hochbau und Elektro</p>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={gewerkData} barGap={8} barCategoryGap="45%">
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+            <XAxis dataKey="name" tick={{ fontSize:15, fill:'#0f172a', fontWeight:'bold' as const }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize:11, fill:'#94a3b8' }} axisLine={false} tickLine={false} />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend wrapperStyle={{ fontSize:12, paddingTop:12 }} />
+            <Bar dataKey="Tickets gesamt" fill="rgba(37,99,235,0.85)" radius={[8,8,0,0]} />
+            <Bar dataKey="Erledigt"       fill="rgba(16,185,129,0.85)" radius={[8,8,0,0]} />
+            <Bar dataKey="Stunden"        fill="rgba(139,92,246,0.85)" radius={[8,8,0,0]} />
+          </BarChart>
+        </ResponsiveContainer>
+
+        {/* Gewerk Zusammenfassung */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginTop:20, paddingTop:18, borderTop:'1px solid #f1f5f9' }}>
+          {[
+            { name:'Hochbau', emoji:'🏗', tickets:hochbauT.length, erledigt:hochbauErl, stunden:Math.round(hochbauH*10)/10 },
+            { name:'Elektro', emoji:'⚡', tickets:elektroT.length, erledigt:elektroErl, stunden:Math.round(elektroH*10)/10 },
+          ].map((g, i) => {
+            const quote = g.tickets > 0 ? Math.round(g.erledigt/g.tickets*100) : 0;
+            return (
+              <div key={i} style={{ background:'#f8fafc', borderRadius:14, padding:'16px 18px', border:'1px solid #f1f5f9' }}>
+                <p style={{ fontSize:14, fontWeight:800, color:'#0f172a', margin:'0 0 14px' }}>{g.emoji} {g.name}</p>
+                {[
+                  { label:'Tickets gesamt', val:g.tickets, color:'#2563eb', pct: totalT > 0 ? g.tickets/totalT : 0 },
+                  { label:'Erledigt', val:g.erledigt, color:'#10b981', pct: g.tickets > 0 ? g.erledigt/g.tickets : 0 },
+                  { label:'Stunden', val:`${g.stunden}h`, color:'#8b5cf6', pct: totalH > 0 ? g.stunden/totalH : 0 },
+                ].map((row, j) => (
+                  <div key={j} style={{ marginBottom:10 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                      <span style={{ fontSize:12, color:'#64748b' }}>{row.label}</span>
+                      <strong style={{ fontSize:12, color:row.color }}>{row.val}</strong>
+                    </div>
+                    <div style={{ height:4, background:'#e2e8f0', borderRadius:99, overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${Math.round(row.pct*100)}%`, background:row.color, borderRadius:99, transition:'width .5s ease' }} />
+                    </div>
+                  </div>
                 ))}
-                <tr className="bg-gray-50">
-                  <td className="py-2.5 px-3"></td>
-                  <td className="py-2.5 px-3 text-xs font-bold text-gray-600">GESAMT</td>
-                  <td className="py-2.5 px-3 text-right font-mono font-bold text-gray-800">{totalH.toFixed(1)}h</td>
-                  <td className="py-2.5 px-3 text-right font-bold text-gray-800">{activeEmp.reduce((s: number, e: any) => s + e.tickets, 0)}</td>
-                  <td className="py-2.5 px-3 text-right font-mono text-gray-600">{avgHperTicket.toFixed(2)}h</td>
-                  <td className="py-2.5 px-3"></td>
-                  <td className="py-2.5 px-3"></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                <div style={{ display:'flex', justifyContent:'space-between', paddingTop:10, borderTop:'1px solid #e2e8f0', marginTop:4 }}>
+                  <span style={{ fontSize:12, color:'#64748b' }}>Erledigungsquote</span>
+                  <strong style={{ fontSize:14, color: quote >= 70 ? '#10b981' : '#f59e0b' }}>{quote}%</strong>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </>)}
+      </div>
+
+      {/* Leer-State */}
+      {maData.length === 0 && t.length === 0 && (
+        <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'48px 24px', textAlign:'center' }}>
+          <p style={{ color:'#94a3b8', fontSize:14, fontWeight:600, margin:0 }}>Keine Daten für {monthName}</p>
+          <p style={{ color:'#cbd5e1', fontSize:13, margin:'4px 0 0' }}>Importiere Tickets oder trage Stunden ein</p>
+        </div>
+      )}
     </div>
   );
 }
