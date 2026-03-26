@@ -8,10 +8,9 @@ const ACCENT = '#f59e0b';
 const ACCENT_LIGHT = 'rgba(245,158,11,0.15)';
 
 const NAV = [
-  { to: '/dguv',            icon: Upload,    label: 'Verarbeitung' },
-  { to: '/dguv/roadmap',    icon: Calendar,  label: 'Roadmap' },
-  { to: '/dguv/auswertung', icon: BarChart2, label: 'Auswertung' },
-  { to: '/dguv/abgleich',   icon: RefreshCw, label: 'Abgleich & Auswertung' },
+  { to: '/dguv',          icon: Upload,    label: 'Verarbeitung' },
+  { to: '/dguv/roadmap',  icon: Calendar,  label: 'Roadmap' },
+  { to: '/dguv/abgleich', icon: BarChart2, label: 'Prüfungsauswertung' },
 ];
 
 function parseCSV(text: string): Record<string, string>[] {
