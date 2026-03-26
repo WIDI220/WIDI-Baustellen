@@ -11,7 +11,7 @@ const NAV = [
   { to: '/dguv',            icon: Upload,    label: 'Verarbeitung' },
   { to: '/dguv/roadmap',    icon: Calendar,  label: 'Roadmap' },
   { to: '/dguv/auswertung', icon: BarChart2, label: 'Auswertung' },
-  { to: '/dguv/abgleich',   icon: RefreshCw, label: 'Abgleich' },
+  { to: '/dguv/abgleich',   icon: RefreshCw, label: 'Abgleich & Auswertung' },
 ];
 
 function parseCSV(text: string): Record<string, string>[] {
@@ -163,7 +163,7 @@ export default function AppLayoutDGUV({ children }: { children: React.ReactNode 
           </button>
         </div>
       </aside>
-      <main style={{ flex:1, overflowY:'auto', padding:'28px 32px', minWidth:0 }}>{children}</main>
+      <main style={{ flex:1, overflowY:'auto', padding:'28px 32px' }}>{children}</main>
     </div>
   );
 }
