@@ -89,7 +89,7 @@ export default function AufgabenPage() {
   });
 
   const { data: jahresStats = [] } = useQuery({
-    queryKey: ['begehungen-stats', aktTyp],
+    queryKey: ['begehungen-stats', aktTyp, aktKW.split('-')[0]],
     queryFn: async () => {
       const year = aktKW.split('-')[0];
       const { data } = await supabase
@@ -117,7 +117,7 @@ export default function AufgabenPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['begehungen'] });
-      qc.invalidateQueries({ queryKey: ['begehungen-stats'] });
+      qc.invalidateQueries({ queryKey: ['begehungen-stats', aktTyp] });
       toast.success('Eintrag gespeichert');
       setShowForm(false);
       setForm({ datum_von: '', datum_bis: '', mitarbeiter: '', stunden: '', bemerkung: '' });
@@ -160,7 +160,7 @@ export default function AufgabenPage() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 10 }}>
         {TABS.map(tab => (
-          <button key={tab.key} onClick={() => { setAktTyp(tab.key); setShowForm(false); }}
+          <button key={tab.key} onClick={() => { setAktTyp(tab.key); setShowForm(false); setForm({ datum_von: '', datum_bis: '', mitarbeiter: '', stunden: '', bemerkung: '' }); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 14, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, transition: 'all .15s',
               background: aktTyp === tab.key ? tab.color : '#f1f5f9',
               color: aktTyp === tab.key ? '#fff' : '#64748b',
