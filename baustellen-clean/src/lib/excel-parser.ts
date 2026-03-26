@@ -138,8 +138,13 @@ export function parseExcelFile(
       eingangsdatum.setFullYear(ticketYear);
     }
 
+    // Gewerk erkennen: neues Format = Text in Spalte 2 ("Elektro"/"Hochbau")
+    // Altes Format = 'x' in Spalte 3
+    const gewerkText = String(row[2] ?? '').trim().toLowerCase();
     const elektroMark = String(row[3] ?? '').trim().toLowerCase();
-    const gewerk: 'Hochbau' | 'Elektro' = elektroMark === 'x' ? 'Elektro' : 'Hochbau';
+    const gewerk: 'Hochbau' | 'Elektro' =
+      gewerkText === 'elektro' ? 'Elektro' :
+      elektroMark === 'x' ? 'Elektro' : 'Hochbau';
 
     let isDuplicate = false;
     if (seenNummern.has(a_nummer)) {
