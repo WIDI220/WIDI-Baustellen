@@ -46,14 +46,7 @@ export default function TicketsDashboard() {
   const prevYear = prevDate.getFullYear().toString();
   const prevMonth = String(prevDate.getMonth()+1).padStart(2,'0');
 
-  // Alle Tickets (kein Datumsfilter — Status ist aktuell)
-  const { data: allTickets = [] } = useQuery({
-    queryKey: ['tickets-dash-all', activeMonth],
-    queryFn: async () => {
-      const { data } = await supabase.from('tickets').select('*');
-      return data ?? [];
-    },
-  });
+
 
   // Worklogs des Monats — für Stunden
   const { data: worklogs = [] } = useQuery({
@@ -92,8 +85,7 @@ export default function TicketsDashboard() {
     queryFn: async () => { const { data } = await supabase.from('employees').select('*').eq('aktiv', true); return data ?? []; },
   });
 
-  const t = allTickets as any[];       // alle Tickets für Status
-  const mt = monthTickets as any[];    // Monatsticktes für Gewerk
+  const t = monthTickets as any[];    // nur Monat
   const w = worklogs as any[];
   const pw = prevWorklogs as any[];
   const emps = employees as any[];
@@ -108,7 +100,7 @@ export default function TicketsDashboard() {
     name: s.label, value: t.filter((x:any) => x.status === s.value).length, color: s.color,
   })).filter(s => s.value > 0);
 
-  const erledigtGesamt = t.filter((x:any) => ['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length;
+  const erledigtMonat = t.filter((x:any) => ['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length;
   const inBearb = t.filter((x:any) => x.status === 'in_bearbeitung').length;
 
   // Gewerk — nach Worklogs des Monats, verknüpft mit Ticket-Gewerk
@@ -118,8 +110,8 @@ export default function TicketsDashboard() {
   const elektroH = elektroW.reduce((s:number,x:any)=>s+Number(x.stunden??0),0);
 
   // Tickets des Monats nach Gewerk
-  const hochbauT = mt.filter((x:any) => x.gewerk === 'Hochbau');
-  const elektroT = mt.filter((x:any) => x.gewerk === 'Elektro');
+  const hochbauT = t.filter((x:any) => x.gewerk === 'Hochbau');
+  const elektroT = t.filter((x:any) => x.gewerk === 'Elektro');
   const hochbauErl = hochbauT.filter((x:any)=>['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length;
   const elektroErl = elektroT.filter((x:any)=>['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length;
 
@@ -158,21 +150,21 @@ export default function TicketsDashboard() {
           <h1 style={{ fontSize:24, fontWeight:900, color:'#0f172a', margin:0, letterSpacing:'-.03em' }}>
             Tickets <span style={{ color:'#10b981' }}>Dashboard</span>
           </h1>
-          <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>{monthName} · {mt.length} neue Tickets · {t.length} gesamt</p>
+          <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>{monthName} · {t.length} Tickets</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:8, background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:12, padding:'6px 14px' }}>
           <div style={{ width:6, height:6, borderRadius:'50%', background:'#10b981' }} />
-          <span style={{ fontSize:12, fontWeight:600, color:'#065f46' }}>{erledigtGesamt} erledigt gesamt</span>
+          <span style={{ fontSize:12, fontWeight:600, color:'#065f46' }}>{erledigtMonat} erledigt</span>
         </div>
       </div>
 
       {/* KPI Cards */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
         {[
-          { label:'Tickets gesamt', val:t.length,            sub:`${mt.length} neu in ${monthName.split(' ')[0]}`, color:'#2563eb' },
+          { label:'Tickets im Monat', val:t.length, sub:`${monthName}`, color:'#2563eb' },
           { label:'Stunden gesamt', val:`${totalH.toFixed(1)}h`, sub: trend!==null?`${trend>=0?'+':''}${trend.toFixed(1)}% vs. Vormonat`:'kein Vormonat', color:'#8b5cf6', trend },
-          { label:'In Bearbeitung', val:inBearb,              sub:`${t.length>0?Math.round(inBearb/t.length*100):0}% aller Tickets`, color:'#f59e0b' },
-          { label:'Erledigt',       val:erledigtGesamt,       sub:`${t.length>0?Math.round(erledigtGesamt/t.length*100):0}% Erledigungsquote`, color:'#10b981' },
+          { label:'In Bearbeitung', val:inBearb, sub:`${t.length>0?Math.round(inBearb/t.length*100):0}% der Monatstickets`, color:'#f59e0b' },
+          { label:'Erledigt',       val:erledigtMonat,       sub:`${t.length>0?Math.round(erledigtMonat/t.length*100):0}% Erledigungsquote`, color:'#10b981' },
         ].map((k,i)=>(
           <div key={i} className="dc" style={{ ...card(k.color), animationDelay:`${i*.06}s` }}>
             <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color }} />
@@ -247,7 +239,7 @@ export default function TicketsDashboard() {
         {/* Status Pie */}
         <div style={{ background:'#fff', borderRadius:18, padding:24, border:'1px solid #f1f5f9' }}>
           <h2 style={{ fontSize:15, fontWeight:800, color:'#0f172a', margin:'0 0 3px' }}>Status Verteilung</h2>
-          <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 8px' }}>Alle {t.length} Tickets · aktueller Stand</p>
+          <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 8px' }}>{t.length} Tickets · {monthName}</p>
           {t.length===0 ? (
             <div style={{ height:200, display:'flex', alignItems:'center', justifyContent:'center', color:'#cbd5e1', fontSize:13 }}>Keine Tickets</div>
           ) : (
