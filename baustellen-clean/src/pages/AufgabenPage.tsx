@@ -45,7 +45,6 @@ interface Eintrag {
   typ: BegehungTyp;
   kw: string;
   datum_von: string;
-  datum_bis: string;
   mitarbeiter: string;
   stunden: number | null;
   bemerkung: string | null;
@@ -63,7 +62,7 @@ export default function AufgabenPage() {
   const [aktTyp, setAktTyp] = useState<BegehungTyp>('sicherheitsbeleuchtung');
   const [aktKW, setAktKW] = useState(getKW(new Date()));
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ datum_von: '', datum_bis: '', mitarbeiter: '', stunden: '', bemerkung: '' });
+  const [form, setForm] = useState({ datum_von: '', mitarbeiter: '', stunden: '', bemerkung: '' });
 
   const aktTab = TABS.find(t => t.key === aktTyp)!;
 
@@ -108,7 +107,6 @@ export default function AufgabenPage() {
         typ: aktTyp,
         kw: aktKW,
         datum_von: form.datum_von,
-        datum_bis: form.datum_bis || form.datum_von,
         mitarbeiter: form.mitarbeiter,
         stunden: form.stunden ? parseFloat(form.stunden.replace(',', '.')) : null,
         bemerkung: form.bemerkung || null,
@@ -120,7 +118,7 @@ export default function AufgabenPage() {
       qc.invalidateQueries({ queryKey: ['begehungen-stats', aktTyp] });
       toast.success('Eintrag gespeichert');
       setShowForm(false);
-      setForm({ datum_von: '', datum_bis: '', mitarbeiter: '', stunden: '', bemerkung: '' });
+      setForm({ datum_von: '', mitarbeiter: '', stunden: '', bemerkung: '' });
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -160,7 +158,7 @@ export default function AufgabenPage() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 10 }}>
         {TABS.map(tab => (
-          <button key={tab.key} onClick={() => { setAktTyp(tab.key); setShowForm(false); setForm({ datum_von: '', datum_bis: '', mitarbeiter: '', stunden: '', bemerkung: '' }); }}
+          <button key={tab.key} onClick={() => { setAktTyp(tab.key); setShowForm(false); setForm({ datum_von: '', mitarbeiter: '', stunden: '', bemerkung: '' }); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 14, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, transition: 'all .15s',
               background: aktTyp === tab.key ? tab.color : '#f1f5f9',
               color: aktTyp === tab.key ? '#fff' : '#64748b',
@@ -232,11 +230,7 @@ export default function AufgabenPage() {
                 <input type="date" value={form.datum_von} onChange={e => setForm(f => ({ ...f, datum_von: e.target.value }))}
                   style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, background: '#fff', color: '#0f172a' }} />
               </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.05em' }}>Bis</label>
-                <input type="date" value={form.datum_bis} onChange={e => setForm(f => ({ ...f, datum_bis: e.target.value }))}
-                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13, background: '#fff', color: '#0f172a' }} />
-              </div>
+
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.05em' }}>Stunden</label>
                 <input type="text" placeholder="z.B. 2,5" value={form.stunden} onChange={e => setForm(f => ({ ...f, stunden: e.target.value }))}
@@ -292,7 +286,7 @@ export default function AufgabenPage() {
               <div key={e.id} className="eintrag-row" style={{ display: 'grid', gridTemplateColumns: '120px 140px 120px 80px 1fr 40px', gap: 12, padding: '13px 20px', borderBottom: '1px solid #f8fafc', alignItems: 'center', background: 'transparent', transition: 'background .1s', animation: `fadeUp .3s ease ${i*.05}s both` }}>
                 <span style={{ fontSize: 12, color: '#0f172a', fontWeight: 500 }}>
                   {new Date(e.datum_von).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' })}
-                  {e.datum_bis && e.datum_bis !== e.datum_von && ` – ${new Date(e.datum_bis).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' })}`}
+
                 </span>
                 <span style={{ fontSize: 11, color: '#64748b', background: `${aktTab.color}15`, padding: '2px 8px', borderRadius: 6, display: 'inline-block', fontWeight: 600 }}>
                   {kwLabel(e.kw)}
