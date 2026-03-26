@@ -131,10 +131,7 @@ export default function MitarbeiterAuswertungPage() {
         .select('*')
         .gte('datum_von', von2)
         .lte('datum_von', bis2);
-      // Filter by month approximation via datum_von
-      const von2x = `${year}-${String(month).padStart(2,'0')}-01`;
-      const bis2x = `${year}-${String(month).padStart(2,'0')}-31`;
-      return (data ?? []).filter((b: any) => b.datum_von >= von2 && b.datum_von <= bis2);
+      return data ?? [];
     },
   });
 
@@ -171,7 +168,9 @@ export default function MitarbeiterAuswertungPage() {
   const maStats = useMemo(() => emps.map((e, i) => {
     const tH = tw.filter(w => w.employee_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
     const bH = bw.filter(w => w.mitarbeiter_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-    const begH = (begehungenMonat as any[]).filter(b => b.mitarbeiter === e.name).reduce((s: number, b: any) => s + Number(b.stunden ?? 0), 0);
+    const begH = (begehungenMonat as any[])
+      .filter(b => b.mitarbeiter?.trim().toLowerCase() === e.name?.trim().toLowerCase())
+      .reduce((s: number, b: any) => s + Number(b.stunden ?? 0), 0);
     const gesamt = tH + bH + begH;
     const satz = Number(e.stundensatz ?? STUNDENSATZ);
     const kosten = gesamt * satz;
