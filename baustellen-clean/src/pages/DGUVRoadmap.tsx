@@ -43,49 +43,40 @@ function getColor(key: string, optimal: boolean) {
   return map[key] ?? {rgb:'148,163,184',acc:'#94a3b8',glow:'rgba(148,163,184,.4)'};
 }
 
-// Optimale Verteilung berechnen — max 2000 pro Monat
+// Optimale Verteilung — ALLE Geräte gleichmäßig auf 12 Monate
 function calcOptimal(raw: Map<string, number>): Map<string, number> {
-  const LIMIT = 2000;
   const keys = Array.from(raw.keys()).filter(k => k.startsWith('2026')).sort();
+  const gesamt = Array.from(raw.values()).filter((_, i) => keys[i]?.startsWith('2026')).reduce((s,v) => s+v, 0);
+  const totalAll = Array.from(raw.entries())
+    .filter(([k]) => k.startsWith('2026'))
+    .reduce((s,[,v]) => s+v, 0);
+  const basis = Math.floor(totalAll / 12);
+  const rest = totalAll % 12;
   const opt = new Map<string, number>();
-  keys.forEach(k => opt.set(k, raw.get(k) ?? 0));
-
-  // 3 Passes: Überschuss auf Nachbarmonate verteilen
-  for (let pass = 0; pass < 5; pass++) {
-    for (const key of keys) {
-      const cnt = opt.get(key) ?? 0;
-      if (cnt <= LIMIT) continue;
-      let overflow = cnt - LIMIT;
-      const idx = keys.indexOf(key);
-
-      // Verteile erst auf nächsten Monat, dann vorherigen
-      const neighbors = [keys[idx+1], keys[idx-1], keys[idx+2], keys[idx-1]].filter(Boolean);
-      for (const nb of neighbors) {
-        if (overflow <= 0) break;
-        const nbCnt = opt.get(nb) ?? 0;
-        if (nbCnt >= LIMIT) continue;
-        const space = LIMIT - nbCnt;
-        const move = Math.min(overflow, space);
-        opt.set(nb, nbCnt + move);
-        overflow -= move;
-      }
-      opt.set(key, LIMIT + overflow); // Rest bleibt wenn kein Platz
-    }
-  }
+  keys.forEach((k, i) => opt.set(k, basis + (i < rest ? 1 : 0)));
   return opt;
+}
+
+// Begründung pro Monat berechnen
+function calcBegruendung(key: string, ist: number, opt: number): string {
+  const diff = opt - ist;
+  if (Math.abs(diff) < 50) return 'Bereits nahe der optimalen Auslastung';
+  if (diff > 0) return `+${diff.toLocaleString('de-DE')} Geräte zusätzlich einplanen`;
+  return `${diff.toLocaleString('de-DE')} Geräte in andere Monate verschieben`;
 }
 
 interface MonatData {
   key: string; label: string; short: string;
   istCount: number; optCount: number;
   standorte: [string,number][]; etagen: [string,number][];
+  begruendung: string; verschoben: number;
 }
 
 function CardEl({ m, optimal, active }: { m: MonatData; optimal: boolean; active?: boolean }) {
   const cnt = optimal ? m.optCount : m.istCount;
   const { rgb, acc, glow } = getColor(m.key, optimal);
-  const w = active ? 200 : 165;
-  const h = active ? 255 : 210;
+  const w = active ? 240 : 185;
+  const h = active ? 300 : 240;
   const diff = m.optCount - m.istCount;
   const hasDiff = optimal && diff !== 0;
 
@@ -175,6 +166,8 @@ export default function DGUVRoadmap() {
           optCount: optMap.get(key) ?? val.count,
           standorte: Object.entries(val.standorte).sort(([,a],[,b])=>b-a).slice(0,6) as [string,number][],
           etagen: Object.entries(val.etagen).sort(([,a],[,b])=>b-a).slice(0,8) as [string,number][],
+          begruendung: calcBegruendung(key, val.count, optMap.get(key) ?? val.count),
+          verschoben: (optMap.get(key) ?? val.count) - val.count,
         };
       });
     return { monate: result, istMap };
@@ -300,6 +293,40 @@ export default function DGUVRoadmap() {
         </div>
       )}
 
+      {/* Prüfer-Rechnung */}
+      {(() => {
+        const totalGeraete = monate.reduce((s,m) => s + (optimal ? m.optCount : m.istCount), 0);
+        const aktiveMonat = active ? (optimal ? active.optCount : active.istCount) : 0;
+        const arbeitstage = 21; // Ø Arbeitstage pro Monat
+        const aktivePruefer = Math.ceil(monate.length > 0 ? 2/3 * 5 : 3); // 2/3 von 5 MA
+        const proPersonTag = aktivePruefer > 0 ? Math.round(aktiveMonat / arbeitstage / aktivePruefer) : 0;
+        const proPersonMonat = aktivePruefer > 0 ? Math.round(aktiveMonat / aktivePruefer) : 0;
+        return (
+          <div style={{ background:'rgba(255,255,255,.04)', border:'1px solid rgba(255,255,255,.08)', borderRadius:16, padding:'14px 20px', display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:16, alignItems:'center' }}>
+            <div style={{ textAlign:'center' }}>
+              <p style={{ fontSize:22, fontWeight:900, color: optimal ? '#10b981' : '#f59e0b', margin:'0 0 2px', letterSpacing:'-.03em' }}>{aktiveMonat.toLocaleString('de-DE')}</p>
+              <p style={{ fontSize:10, color:'rgba(255,255,255,.25)', margin:0, textTransform:'uppercase', letterSpacing:'.05em' }}>Geräte {active?.short}</p>
+            </div>
+            <div style={{ textAlign:'center', borderLeft:'1px solid rgba(255,255,255,.08)', paddingLeft:16 }}>
+              <p style={{ fontSize:22, fontWeight:900, color:'#60a5fa', margin:'0 0 2px', letterSpacing:'-.03em' }}>{aktivePruefer}</p>
+              <p style={{ fontSize:10, color:'rgba(255,255,255,.25)', margin:0, textTransform:'uppercase', letterSpacing:'.05em' }}>Prüfer aktiv (2/3)</p>
+            </div>
+            <div style={{ textAlign:'center', borderLeft:'1px solid rgba(255,255,255,.08)', paddingLeft:16 }}>
+              <p style={{ fontSize:22, fontWeight:900, color:'#a78bfa', margin:'0 0 2px', letterSpacing:'-.03em' }}>{arbeitstage}</p>
+              <p style={{ fontSize:10, color:'rgba(255,255,255,.25)', margin:0, textTransform:'uppercase', letterSpacing:'.05em' }}>Arbeitstage</p>
+            </div>
+            <div style={{ textAlign:'center', borderLeft:'1px solid rgba(255,255,255,.08)', paddingLeft:16 }}>
+              <p style={{ fontSize:22, fontWeight:900, color:'#34d399', margin:'0 0 2px', letterSpacing:'-.03em' }}>{proPersonMonat.toLocaleString('de-DE')}</p>
+              <p style={{ fontSize:10, color:'rgba(255,255,255,.25)', margin:0, textTransform:'uppercase', letterSpacing:'.05em' }}>Geräte/Person/Monat</p>
+            </div>
+            <div style={{ textAlign:'center', borderLeft:'1px solid rgba(255,255,255,.08)', paddingLeft:16 }}>
+              <p style={{ fontSize:22, fontWeight:900, color:'#fbbf24', margin:'0 0 2px', letterSpacing:'-.03em' }}>{proPersonTag}</p>
+              <p style={{ fontSize:10, color:'rgba(255,255,255,.25)', margin:0, textTransform:'uppercase', letterSpacing:'.05em' }}>Geräte/Person/Tag</p>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Stage + Detail */}
       <div style={{ flex:1, display:'flex', gap:20, alignItems:'center', minHeight:360 }}>
         <div style={{ flex:1, position:'relative', height:340, perspective:1100, display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -336,6 +363,21 @@ export default function DGUVRoadmap() {
             </div>
           </div>
 
+          {/* Optimal Begründung */}
+          {optimal && (
+            <div style={{ background:`rgba(${rgb},.12)`, border:`1px solid rgba(${rgb},.2)`, borderRadius:12, padding:'10px 12px', marginBottom:12 }}>
+              <p style={{ fontSize:10, fontWeight:700, color:acc, textTransform:'uppercase', letterSpacing:'.06em', margin:'0 0 4px' }}>
+                {active.verschoben >= 0 ? '↑ Aufstocken' : '↓ Reduzieren'}
+              </p>
+              <p style={{ fontSize:12, color:'rgba(255,255,255,.75)', margin:'0 0 6px', lineHeight:1.4 }}>{active.begruendung}</p>
+              <div style={{ display:'flex', gap:12, fontSize:11 }}>
+                <div><span style={{ color:'rgba(255,255,255,.35)' }}>IST: </span><span style={{ color:'rgba(255,255,255,.7)', fontWeight:600 }}>{active.istCount.toLocaleString('de-DE')}</span></div>
+                <div><span style={{ color:'rgba(255,255,255,.35)' }}>→ SOLL: </span><span style={{ color:acc, fontWeight:700 }}>{active.optCount.toLocaleString('de-DE')}</span></div>
+                <div><span style={{ color: active.verschoben >= 0 ? '#10b981' : '#f87171', fontWeight:700 }}>{active.verschoben >= 0 ? '+' : ''}{active.verschoben.toLocaleString('de-DE')}</span></div>
+              </div>
+            </div>
+          )}
+
           <div style={{ display:'flex', gap:6, marginBottom:10 }}>
             {(['Standorte','Etagen'] as const).map(tab=>(
               <button key={tab} onClick={()=>setDetailTab(tab)}
@@ -361,6 +403,23 @@ export default function DGUVRoadmap() {
           </div>
         </div>
       </div>
+
+      {/* Optimal Summary Bar */}
+      {optimal && (
+        <div style={{ background:'rgba(255,255,255,.04)', border:'1px solid rgba(255,255,255,.08)', borderRadius:16, padding:'14px 20px', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16 }}>
+          {[
+            { label:'Gesamt Geräte', val: monate.reduce((s,m)=>s+m.istCount,0).toLocaleString('de-DE'), color:'rgba(255,255,255,.5)' },
+            { label:'Ø pro Monat (SOLL)', val: Math.round(monate.reduce((s,m)=>s+m.istCount,0)/12).toLocaleString('de-DE'), color:'#10b981' },
+            { label:'Monate reduziert', val: monate.filter(m=>m.optCount < m.istCount).length.toString(), color:'#f87171' },
+            { label:'Monate aufgestockt', val: monate.filter(m=>m.optCount > m.istCount).length.toString(), color:'#34d399' },
+          ].map((s,i)=>(
+            <div key={i} style={{ textAlign:'center' }}>
+              <p style={{ fontSize:18, fontWeight:900, color:s.color, margin:'0 0 2px', letterSpacing:'-.03em' }}>{s.val}</p>
+              <p style={{ fontSize:10, color:'rgba(255,255,255,.25)', margin:0, textTransform:'uppercase', letterSpacing:'.05em' }}>{s.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Dots */}
       <div style={{ display:'flex', justifyContent:'center', gap:5 }}>
