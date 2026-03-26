@@ -12,7 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { Search, ChevronLeft, ChevronRight, Trash2, Pencil, Clock, Plus, AlertTriangle, Mail, Send } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Trash2, Pencil, Clock, Plus, AlertTriangle, Mail, Send, FileDown } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { logActivity } from '@/lib/activityLog';
 
 const STATUS_OPTIONS = [
@@ -38,6 +39,60 @@ export default function TicketsPage() {
   const [showNeu, setShowNeu] = useState(false);
   const [neuForm, setNeuForm] = useState({ a_nummer: '', gewerk: 'Hochbau', eingangsdatum: new Date().toISOString().split('T')[0] });
   const [neuLoading, setNeuLoading] = useState(false);
+
+  async function exportTicketsExcel() {
+    try {
+      // Alle Tickets des aktiven Monats mit Worklogs laden
+      const { data: allTickets } = await supabase
+        .from('tickets')
+        .select('*, ticket_worklogs(stunden, leistungsdatum, employees(name, kuerzel))')
+        .gte('eingangsdatum', `${activeMonth}-01`)
+        .lte('eingangsdatum', `${activeMonth}-31`)
+        .order('a_nummer');
+
+      if (!allTickets || allTickets.length === 0) {
+        toast.error('Keine Tickets für diesen Monat');
+        return;
+      }
+
+      const rows: any[] = [];
+
+      for (const t of allTickets) {
+        const worklogs = (t.ticket_worklogs as any[]) || [];
+
+        if (worklogs.length === 0) {
+          // Ticket ohne Stunden
+          const nr = t.a_nummer?.replace(/^A\d{2}-0*/, '') || '';
+          rows.push([nr, nr, nr, '', '3', nr, '', nr, nr, '', null, null]);
+        } else {
+          // Stunden pro Mitarbeiter gruppieren
+          const maMap: Record<string, number> = {};
+          for (const w of worklogs) {
+            const kuerzel = w.employees?.kuerzel || '?';
+            maMap[kuerzel] = (maMap[kuerzel] || 0) + Number(w.stunden || 0);
+          }
+
+          const kuerzelStr = Object.keys(maMap).join('/');
+          const stundenGesamt = Object.values(maMap).reduce((s, v) => s + v, 0);
+          const nr = t.a_nummer?.replace(/^A\d{2}-0*/, '') || '';
+
+          rows.push([nr, nr, nr, t.gewerk || '', '3', nr, kuerzelStr, nr, nr, '', null, Math.round(stundenGesamt * 4) / 4]);
+        }
+      }
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+
+      // Spaltenbreiten wie Vorlage
+      ws['!cols'] = [8,6,6,8,4,6,8,6,6,6,6,6].map(w => ({ wch: w }));
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Tabelle1');
+      XLSX.writeFile(wb, `Tickets_${activeMonth}.xlsx`);
+      toast.success(`${rows.length} Tickets exportiert`);
+    } catch(e: any) {
+      toast.error('Export fehlgeschlagen: ' + e.message);
+    }
+  }
 
   async function ticketManuellAnlegen() {
     if (!neuForm.a_nummer.trim()) { toast.error('A-Nummer erforderlich'); return; }
@@ -202,6 +257,10 @@ export default function TicketsPage() {
           </h1>
           <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>{totalCount} Tickets gefunden</p>
         </div>
+        <button onClick={exportTicketsExcel}
+          style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 16px', background:'rgba(16,185,129,0.1)', border:'1px solid rgba(16,185,129,0.2)', borderRadius:12, color:'#10b981', fontSize:13, fontWeight:600, cursor:'pointer', transition:'all .15s' }}>
+          <FileDown size={14}/> Excel Export
+        </button>
         <button onClick={() => setShowNeu(!showNeu)}
           style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 18px', background:'#10b981', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 12px rgba(16,185,129,.3)', transition:'all .15s' }}>
           <Plus className="h-4 w-4" /> Ticket anlegen
