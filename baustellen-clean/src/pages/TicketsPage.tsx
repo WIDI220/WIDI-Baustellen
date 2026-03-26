@@ -42,55 +42,58 @@ export default function TicketsPage() {
 
   async function exportTicketsExcel() {
     try {
-      // Alle Tickets des aktiven Monats mit Worklogs laden
       const [expYear, expMonth] = activeMonth.split('-').map(Number);
       const lastDay = new Date(expYear, expMonth, 0).getDate();
       const expFrom = `${activeMonth}-01`;
       const expTo = `${activeMonth}-${String(lastDay).padStart(2,'0')}`;
 
-      const { data: allTickets } = await supabase
+      const { data: allTickets, error } = await supabase
         .from('tickets')
-        .select('*, ticket_worklogs(stunden, leistungsdatum, employees(name, kuerzel))')
+        .select('*, ticket_worklogs(stunden, employees(name, kuerzel))')
         .gte('eingangsdatum', expFrom)
         .lte('eingangsdatum', expTo)
         .order('a_nummer');
 
+      if (error) throw error;
       if (!allTickets || allTickets.length === 0) {
-        toast.error('Keine Tickets für diesen Monat');
+        toast.error('Keine Tickets für ' + activeMonth);
         return;
       }
+
+      // Kürzel Fremdpersonal → Spalte 10, eigene MA → Spalte 11
+      const FREMD = new Set(['UG','SG','SB','CR','FW','AJ','ZW','BK','SR','PW']);
 
       const rows: any[] = [];
 
       for (const t of allTickets) {
         const worklogs = (t.ticket_worklogs as any[]) || [];
+        const nr = parseInt((t.a_nummer || '').replace('A26-','').replace('A25-',''), 10) || t.a_nummer || '';
 
-        if (worklogs.length === 0) {
-          // Ticket ohne Stunden
-          const nr = t.a_nummer?.replace(/^A\d{2}-0*/, '') || '';
-          rows.push([nr, nr, nr, '', '3', nr, '', nr, nr, '', null, null]);
-        } else {
-          // Stunden pro Mitarbeiter gruppieren
-          const maMap: Record<string, number> = {};
-          for (const w of worklogs) {
-            const kuerzel = w.employees?.kuerzel || '?';
-            maMap[kuerzel] = (maMap[kuerzel] || 0) + Number(w.stunden || 0);
+        let fremdH = 0, eigenH = 0;
+        const fremdK: string[] = [], eigenK: string[] = [];
+
+        for (const w of worklogs) {
+          const k = (w.employees?.kuerzel || '').toUpperCase().trim();
+          const h = Number(w.stunden || 0);
+          if (FREMD.has(k)) {
+            fremdH += h;
+            if (!fremdK.includes(k)) fremdK.push(k);
+          } else if (k) {
+            eigenH += h;
+            if (!eigenK.includes(k)) eigenK.push(k);
           }
-
-          const kuerzelStr = Object.keys(maMap).join('/');
-          const stundenGesamt = Object.values(maMap).reduce((s, v) => s + v, 0);
-          const nr = t.a_nummer?.replace(/^A\d{2}-0*/, '') || '';
-
-          rows.push([nr, nr, nr, t.gewerk || '', '3', nr, kuerzelStr, nr, nr, '', null, Math.round(stundenGesamt * 4) / 4]);
         }
+
+        const alleK = [...fremdK, ...eigenK].join('/');
+        const sp10 = fremdH > 0 ? Math.round(fremdH * 4) / 4 : null;
+        const sp11 = eigenH > 0 ? Math.round(eigenH * 4) / 4 : null;
+
+        rows.push([nr, nr, nr, nr, '3', nr, alleK, nr, nr, null, sp10, sp11]);
       }
 
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(rows);
-
-      // Spaltenbreiten wie Vorlage
-      ws['!cols'] = [8,6,6,8,4,6,8,6,6,6,6,6].map(w => ({ wch: w }));
-
+      ws['!cols'] = [7,7,7,7,4,7,10,7,7,7,8,8].map(w => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, ws, 'Tabelle1');
       XLSX.writeFile(wb, `Tickets_${activeMonth}.xlsx`);
       toast.success(`${rows.length} Tickets exportiert`);
