@@ -124,15 +124,16 @@ export default function MitarbeiterAuswertungPage() {
   const { data: begehungenMonat = [] } = useQuery({
     queryKey: ['begehungen-monat', year, month],
     queryFn: async () => {
-      const kw1 = `${year}-W01`; const kw53 = `${year}-W53`;
+      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
+      const bis2 = `${year}-${String(month).padStart(2,'0')}-31`;
       const { data } = await supabase
         .from('begehungen')
         .select('*')
-        .gte('kw', `${year}-W01`)
-        .lte('kw', `${year}-W53`);
+        .gte('datum_von', von2)
+        .lte('datum_von', bis2);
       // Filter by month approximation via datum_von
-      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
-      const bis2 = `${year}-${String(month).padStart(2,'0')}-31`;
+      const von2x = `${year}-${String(month).padStart(2,'0')}-01`;
+      const bis2x = `${year}-${String(month).padStart(2,'0')}-31`;
       return (data ?? []).filter((b: any) => b.datum_von >= von2 && b.datum_von <= bis2);
     },
   });
@@ -145,9 +146,9 @@ export default function MitarbeiterAuswertungPage() {
         return a.employee_id === e.id && a.typ === 'urlaub';
       }).length;
       const krankTage = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ === 'krank').length;
-      return [e.name, e.tH.toFixed(1), e.bH.toFixed(1), e.gesamt.toFixed(1), e.kosten.toFixed(2), urlaubTage, krankTage].join(';');
+      return [e.name, e.tH.toFixed(1), e.bH.toFixed(1), (e.begH||0).toFixed(1), e.gesamt.toFixed(1), e.kosten.toFixed(2), urlaubTage, krankTage].join(';');
     });
-    const header = 'Mitarbeiter;Ticket-Std;Baustellen-Std;Gesamt-Std;Kosten (€);Urlaub-Tage;Krank-Tage';
+    const header = 'Mitarbeiter;Ticket-Std;Baustellen-Std;Begehungen-Std;Gesamt-Std;Kosten (€);Urlaub-Tage;Krank-Tage';
     const csv = '\uFEFF' + [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -165,14 +166,17 @@ export default function MitarbeiterAuswertungPage() {
   const bw = bauStunden as any[];
 
   // MA-Stats für aktuellen Monat
+  const begehungen = begehungenMonat as any[];
+
   const maStats = useMemo(() => emps.map((e, i) => {
     const tH = tw.filter(w => w.employee_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
     const bH = bw.filter(w => w.mitarbeiter_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-    const gesamt = tH + bH;
+    const begH = (begehungenMonat as any[]).filter(b => b.mitarbeiter === e.name).reduce((s: number, b: any) => s + Number(b.stunden ?? 0), 0);
+    const gesamt = tH + bH + begH;
     const satz = Number(e.stundensatz ?? STUNDENSATZ);
     const kosten = gesamt * satz;
-    return { ...e, tH, bH, gesamt, kosten, satz, farbe: FARBEN[i % FARBEN.length] };
-  }).sort((a, b) => b.gesamt - a.gesamt), [emps, tw, bw]);
+    return { ...e, tH, bH, begH, gesamt, kosten, satz, farbe: FARBEN[i % FARBEN.length] };
+  }).sort((a, b) => b.gesamt - a.gesamt), [emps, tw, bw, begehungenMonat]);
 
   const totalH = maStats.reduce((s, e) => s + e.gesamt, 0);
   const totalKosten = maStats.reduce((s, e) => s + e.kosten, 0);
@@ -585,12 +589,13 @@ export default function MitarbeiterAuswertungPage() {
           </div>
 
           {/* Gesamt-KPIs */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12 }}>
             {[
               { label:'Gesamtstunden', value:`${maStats.reduce((s,e)=>s+e.gesamt,0).toFixed(1)}h`, color:'#8b5cf6', border:'#ddd6fe' },
               { label:'Ticket-Stunden', value:`${maStats.reduce((s,e)=>s+e.tH,0).toFixed(1)}h`, color:'#3b82f6', border:'#bfdbfe' },
               { label:'Baustellen-Std.', value:`${maStats.reduce((s,e)=>s+e.bH,0).toFixed(1)}h`, color:'#10b981', border:'#bbf7d0' },
-              { label:'Personalkosten', value:new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(maStats.reduce((s,e)=>s+e.kosten,0)), color:'#f59e0b', border:'#fde68a' },
+              { label:'Begehungs-Std.', value:`${maStats.reduce((s,e)=>s+(e.begH||0),0).toFixed(1)}h`, color:'#f59e0b', border:'#fde68a' },
+              { label:'Personalkosten', value:new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(maStats.reduce((s,e)=>s+e.kosten,0)), color:'#8b5cf6', border:'#ddd6fe' },
             ].map((k,i) => (
               <div key={i} style={{ background:'#fff', borderRadius:14, border:`1px solid ${k.border}`, padding:'14px 18px', position:'relative', overflow:'hidden' }}>
                 <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color }} />
@@ -609,7 +614,7 @@ export default function MitarbeiterAuswertungPage() {
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
               <thead>
                 <tr style={{ background:'#f8fafc', borderBottom:'1px solid #f1f5f9' }}>
-                  {['Mitarbeiter','Ticket-Std.','Baustellen-Std.','Gesamt','Kosten','Urlaub','Krank'].map(h => (
+                  {['Mitarbeiter','Ticket-Std.','Baustellen-Std.','Begehungen','Gesamt','Kosten','Urlaub','Krank'].map(h => (
                     <th key={h} style={{ padding:'10px 16px', textAlign: h==='Mitarbeiter'?'left':'right', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>{h}</th>
                   ))}
                 </tr>
@@ -632,6 +637,7 @@ export default function MitarbeiterAuswertungPage() {
                       </td>
                       <td style={{ padding:'13px 16px', textAlign:'right', color:'#3b82f6', fontWeight:600 }}>{e.tH.toFixed(1)}h</td>
                       <td style={{ padding:'13px 16px', textAlign:'right', color:'#10b981', fontWeight:600 }}>{e.bH.toFixed(1)}h</td>
+                      <td style={{ padding:'13px 16px', textAlign:'right', color:'#f59e0b', fontWeight:600 }}>{(e.begH||0).toFixed(1)}h</td>
                       <td style={{ padding:'13px 16px', textAlign:'right' }}>
                         <span style={{ fontWeight:800, color:e.farbe, fontSize:14 }}>{e.gesamt.toFixed(1)}h</span>
                       </td>
@@ -656,6 +662,7 @@ export default function MitarbeiterAuswertungPage() {
                   <td style={{ padding:'13px 16px', fontWeight:800, color:'#0f172a' }}>Gesamt</td>
                   <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:800, color:'#3b82f6' }}>{maStats.reduce((s,e)=>s+e.tH,0).toFixed(1)}h</td>
                   <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:800, color:'#10b981' }}>{maStats.reduce((s,e)=>s+e.bH,0).toFixed(1)}h</td>
+                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:800, color:'#f59e0b' }}>{maStats.reduce((s,e)=>s+(e.begH||0),0).toFixed(1)}h</td>
                   <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:900, color:'#0f172a', fontSize:15 }}>{maStats.reduce((s,e)=>s+e.gesamt,0).toFixed(1)}h</td>
                   <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:900, color:'#0f172a', fontSize:15 }}>
                     {new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(maStats.reduce((s,e)=>s+e.kosten,0))}
