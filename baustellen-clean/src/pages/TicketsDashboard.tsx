@@ -78,12 +78,17 @@ export default function TicketsDashboard() {
 
   const hochbauT = t.filter((x: any) => x.gewerk === 'Hochbau');
   const elektroT = t.filter((x: any) => x.gewerk === 'Elektro');
-  const hochbauH = w.filter((x: any) => x.employees?.gewerk === 'Hochbau').reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
-  const elektroH = w.filter((x: any) => x.employees?.gewerk === 'Elektro').reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
+  // Stunden nach Ticket-Gewerk filtern (nicht employee.gewerk)
+  const hochbauIds = new Set(hochbauT.map((x: any) => x.id));
+  const elektroIds = new Set(elektroT.map((x: any) => x.id));
+  const hochbauH = w.filter((x: any) => hochbauIds.has(x.ticket_id)).reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
+  const elektroH = w.filter((x: any) => elektroIds.has(x.ticket_id)).reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
+  const hochbauErledigt = hochbauT.filter((x:any) => ['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length;
+  const elektroErledigt = elektroT.filter((x:any) => ['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length;
 
   const gewerkData = [
-    { name: 'Hochbau', Tickets: hochbauT.length, Stunden: Math.round(hochbauH * 10) / 10, Erledigt: hochbauT.filter((x:any) => ['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length },
-    { name: 'Elektro', Tickets: elektroT.length, Stunden: Math.round(elektroH * 10) / 10, Erledigt: elektroT.filter((x:any) => ['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length },
+    { name: 'Hochbau', Tickets: hochbauT.length, Stunden: Math.round(hochbauH * 10) / 10, Erledigt: hochbauErledigt },
+    { name: 'Elektro', Tickets: elektroT.length, Stunden: Math.round(elektroH * 10) / 10, Erledigt: elektroErledigt },
   ];
 
   const statusData = STATUS_CFG.map(s => ({
