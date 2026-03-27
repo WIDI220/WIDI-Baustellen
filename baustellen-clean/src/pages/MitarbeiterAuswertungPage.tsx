@@ -6,11 +6,11 @@ import {
   LineChart, Line, CartesianGrid, Legend, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts';
-import { Users, Clock, Euro, TrendingUp, ChevronLeft, ChevronRight, Award, Target, Zap, BarChart2, Sun, Stethoscope, Calendar, Download, FileText } from 'lucide-react';
+import { Users, Clock, Euro, TrendingUp, ChevronLeft, ChevronRight, Award, Target, Zap, BarChart2 } from 'lucide-react';
 
 const STUNDENSATZ = 38.08;
 const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-const TABS = ['Übersicht', 'Einzelperson', 'Monatsvergleich', 'Monatsabschluss'] as const;
+const TABS = ['Übersicht', 'Einzelperson', 'Monatsvergleich'] as const;
 type Tab = typeof TABS[number];
 
 function fmt(n: number) { const r = Math.round(n*4)/4; const s = r % 1 === 0 ? r.toFixed(0) : r % 0.5 === 0 ? r.toFixed(1) : r.toFixed(2); return s.replace('.', ','); }
@@ -40,12 +40,9 @@ export default function MitarbeiterAuswertungPage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedMA, setSelectedMA] = useState<string | null>(null);
-  const [kalYear, setKalYear] = useState(now.getFullYear());
-  const [pendingToggle, setPendingToggle] = useState<string | null>(null);
 
   const von = `${monatStr(year, month)}-01`;
-  const letzterTag = new Date(year, month, 0).getDate();
-  const bis = `${monatStr(year, month)}-${String(letzterTag).padStart(2, '0')}`;
+  const bis = `${monatStr(year, month)}-31`;
   const monatLabel = new Date(year, month - 1, 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
 
   const prevMonth = () => { if (month === 1) { setYear(y => y - 1); setMonth(12); } else setMonth(m => m - 1); };
@@ -76,106 +73,19 @@ export default function MitarbeiterAuswertungPage() {
     queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum'); return data ?? []; },
   });
 
-  const { data: abwesenheiten = [], refetch: refetchAbw } = useQuery({
-    queryKey: ['abwesenheiten', selectedMA ?? 'none', kalYear],
-    queryFn: async () => {
-      if (!selectedMA) return [];
-      const { data } = await supabase
-        .from('mitarbeiter_abwesenheiten')
-        .select('*')
-        .eq('employee_id', selectedMA)
-        .gte('datum', `${kalYear}-01-01`)
-        .lte('datum', `${kalYear}-12-31`);
-      return data ?? [];
-    },
-    enabled: !!selectedMA,
-  });
-
-  async function toggleAbwesenheit(empId: string, datum: string, typ: 'urlaub' | 'krank') {
-    const existing = (abwesenheiten as any[]).find((a: any) => a.datum === datum);
-    setPendingToggle(datum);
-    if (existing) {
-      if (existing.typ === typ) {
-        await supabase.from('mitarbeiter_abwesenheiten').delete().eq('id', existing.id);
-      } else {
-        await supabase.from('mitarbeiter_abwesenheiten').update({ typ }).eq('id', existing.id);
-      }
-    } else {
-      await supabase.from('mitarbeiter_abwesenheiten').insert({ employee_id: empId, datum, typ });
-    }
-    setPendingToggle(null);
-    refetchAbw();
-  }
-
-  const { data: abwesenheitenMonat = [] } = useQuery({
-    queryKey: ['abwesenheiten-monat', year, month],
-    queryFn: async () => {
-      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
-      const bis2 = `${year}-${String(month).padStart(2,'0')}-31`;
-      const { data } = await supabase
-        .from('mitarbeiter_abwesenheiten')
-        .select('*, employees(name)')
-        .gte('datum', von2)
-        .lte('datum', bis2);
-      return data ?? [];
-    },
-  });
-
-  const { data: begehungenMonat = [] } = useQuery({
-    queryKey: ['begehungen-monat', year, month],
-    queryFn: async () => {
-      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
-      const bis2 = `${year}-${String(month).padStart(2,'0')}-31`;
-      const { data } = await supabase
-        .from('begehungen')
-        .select('*')
-        .gte('datum_von', von2)
-        .lte('datum_von', bis2);
-      return data ?? [];
-    },
-  });
-
-  function exportMonatsabschlussCSV() {
-    const rows = maStats.map(e => {
-      const urlaubTage = (abwesenheitenMonat as any[]).filter((a:any) => {
-        const emp = employees as any[];
-        const em = emp.find((x:any) => x.id === e.id);
-        return a.employee_id === e.id && a.typ === 'urlaub';
-      }).length;
-      const krankTage = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ === 'krank').length;
-      return [e.name, e.tH.toFixed(1), e.bH.toFixed(1), (e.begH||0).toFixed(1), e.gesamt.toFixed(1), e.kosten.toFixed(2), urlaubTage, krankTage].join(';');
-    });
-    const header = 'Mitarbeiter;Ticket-Std;Baustellen-Std;Begehungen-Std;Gesamt-Std;Kosten (€);Urlaub-Tage;Krank-Tage';
-    const csv = '\uFEFF' + [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Monatsabschluss_${monatLabel.replace(' ','_')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-
-
   const emps = employees as any[];
   const tw = ticketStunden as any[];
   const bw = bauStunden as any[];
 
   // MA-Stats für aktuellen Monat
-  const begehungen = begehungenMonat as any[];
-
   const maStats = useMemo(() => emps.map((e, i) => {
     const tH = tw.filter(w => w.employee_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
     const bH = bw.filter(w => w.mitarbeiter_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-    const begH = (begehungenMonat as any[])
-      .filter(b => b.mitarbeiter?.trim().toLowerCase() === e.name?.trim().toLowerCase())
-      .reduce((s: number, b: any) => s + Number(b.stunden ?? 0), 0);
-    const gesamt = tH + bH + begH;
+    const gesamt = tH + bH;
     const satz = Number(e.stundensatz ?? STUNDENSATZ);
     const kosten = gesamt * satz;
-    return { ...e, tH, bH, begH, gesamt, kosten, satz, farbe: FARBEN[i % FARBEN.length] };
-  }).sort((a, b) => b.gesamt - a.gesamt), [emps, tw, bw, begehungenMonat]);
+    return { ...e, tH, bH, gesamt, kosten, satz, farbe: FARBEN[i % FARBEN.length] };
+  }).sort((a, b) => b.gesamt - a.gesamt), [emps, tw, bw]);
 
   const totalH = maStats.reduce((s, e) => s + e.gesamt, 0);
   const totalKosten = maStats.reduce((s, e) => s + e.kosten, 0);
@@ -204,49 +114,32 @@ export default function MitarbeiterAuswertungPage() {
   });
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, paddingBottom: 40, fontFamily:"'Inter',system-ui,sans-serif" }}>
-      <style>{`
-        @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-        .ma-kpi { animation:fadeUp 0.4s ease forwards; opacity:0; }
-        .ma-kpi:nth-child(1){animation-delay:0.05s}
-        .ma-kpi:nth-child(2){animation-delay:0.1s}
-        .ma-kpi:nth-child(3){animation-delay:0.15s}
-        .ma-kpi:nth-child(4){animation-delay:0.2s}
-        .ma-row:hover { background:#f8fafc !important; }
-      `}</style>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, paddingBottom: 40 }}>
 
       {/* Header */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', flexWrap:'wrap', gap:12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ fontSize:24, fontWeight:800, color:'#0f172a', margin:'0 0 4px', letterSpacing:'-.03em' }}>
-            Mitarbeiter <span style={{ color:'#8b5cf6' }}>Auswertung</span>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: '#0f172a', margin: '0 0 4px', letterSpacing: '-.03em' }}>
+            Mitarbeiter <span style={{ color: '#8b5cf6' }}>Auswertung</span>
           </h1>
-          <p style={{ fontSize:13, color:'#94a3b8', margin:0 }}>Kombinierte Auswertung Tickets + Baustellen</p>
+          <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>Kombinierte Auswertung Tickets + Baustellen</p>
         </div>
         {/* Monatsnavigation */}
-        <div style={{ display:'flex', alignItems:'center', gap:8, background:'#fff', border:'1px solid #e2e8f0', borderRadius:14, padding:'8px 12px' }}>
-          <button onClick={prevMonth} style={{ padding:'5px 9px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, cursor:'pointer', color:'#64748b', display:'flex', transition:'all .15s' }}
-            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#f1f5f9';}}
-            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#f8fafc';}}>
-            <ChevronLeft size={14} />
-          </button>
-          <span style={{ fontSize:14, fontWeight:700, color:'#0f172a', minWidth:150, textAlign:'center' }}>{monatLabel}</span>
-          <button onClick={nextMonth} style={{ padding:'5px 9px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, cursor:'pointer', color:'#64748b', display:'flex', transition:'all .15s' }}
-            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#f1f5f9';}}
-            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#f8fafc';}}>
-            <ChevronRight size={14} />
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: '8px 12px', boxShadow: '0 2px 8px rgba(0,0,0,.04)' }}>
+          <button onClick={prevMonth} style={{ padding: '4px 8px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b', display: 'flex' }}><ChevronLeft size={14} /></button>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', minWidth: 140, textAlign: 'center' }}>{monatLabel}</span>
+          <button onClick={nextMonth} style={{ padding: '4px 8px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b', display: 'flex' }}><ChevronRight size={14} /></button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ display:'flex', gap:3, background:'#f1f5f9', borderRadius:14, padding:4, width:'fit-content' }}>
+      <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', borderRadius: 14, padding: 4, width: 'fit-content' }}>
         {TABS.map(t => (
           <button key={t} onClick={() => setActiveTab(t)} style={{
-            padding:'8px 22px', borderRadius:11, border:'none', cursor:'pointer', fontSize:13, fontWeight:600, transition:'all .15s',
+            padding: '8px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, transition: 'all .15s',
             background: activeTab === t ? '#fff' : 'transparent',
-            color: activeTab === t ? '#0f172a' : '#94a3b8',
-            boxShadow: activeTab === t ? '0 2px 8px rgba(0,0,0,.07)' : 'none',
+            color: activeTab === t ? '#0f172a' : '#64748b',
+            boxShadow: activeTab === t ? '0 2px 8px rgba(0,0,0,.08)' : 'none',
           }}>{t}</button>
         ))}
       </div>
@@ -256,21 +149,25 @@ export default function MitarbeiterAuswertungPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
           {/* KPIs */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
             {[
-              { label:'Aktive Mitarbeiter', value:aktivMA, sub:`von ${emps.length} gesamt`, icon:Users, color:'#8b5cf6', border:'#ddd6fe' },
-              { label:'Stunden gesamt', value:`${fmt(totalH)}h`, sub:monatLabel, icon:Clock, color:'#2563eb', border:'#bfdbfe' },
-              { label:'Personalkosten', value:fmtEur(totalKosten), sub:'inkl. alle MA', icon:Euro, color:'#10b981', border:'#bbf7d0' },
-              { label:'Top Performer', value:topMA?.kuerzel??'–', sub:topMA?`${fmt(topMA.gesamt)}h`:'', icon:Award, color:'#f59e0b', border:'#fde68a' },
+              { label: 'Aktive Mitarbeiter', value: aktivMA, sub: `von ${emps.length} gesamt`, icon: Users, color: '#8b5cf6', bg: 'linear-gradient(135deg,#faf5ff,#ede9fe)' },
+              { label: 'Stunden gesamt', value: `${fmt(totalH)}h`, sub: monatLabel, icon: Clock, color: '#3b82f6', bg: 'linear-gradient(135deg,#eff6ff,#dbeafe)' },
+              { label: 'Personalkosten', value: fmtEur(totalKosten), sub: 'inkl. alle MA', icon: Euro, color: '#10b981', bg: 'linear-gradient(135deg,#f0fdf4,#dcfce7)' },
+              { label: 'Top Performer', value: topMA?.kuerzel ?? '–', sub: topMA ? `${fmt(topMA.gesamt)}h` : '', icon: Award, color: '#f59e0b', bg: 'linear-gradient(135deg,#fffbeb,#fef3c7)' },
             ].map(k => (
-              <div key={k.label} className="ma-kpi" style={{ background:'#fff', borderRadius:18, padding:'20px', border:`1px solid ${k.border}`, position:'relative', overflow:'hidden' }}>
-                <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color, borderRadius:'18px 18px 0 0' }} />
-                <div style={{ width:38, height:38, background:`${k.color}15`, border:`1px solid ${k.color}25`, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:14 }}>
-                  <k.icon size={18} style={{ color:k.color }} />
+              <div key={k.label} style={{ background: k.bg, borderRadius: 16, padding: '18px 20px', border: '1px solid rgba(0,0,0,.04)', position: 'relative', overflow: 'hidden' }}>
+                <div style={{ position: 'absolute', top: -8, right: -8, width: 50, height: 50, borderRadius: '50%', background: k.color, opacity: .1 }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <p style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', margin: '0 0 6px' }}>{k.label}</p>
+                    <p style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: '0 0 3px', letterSpacing: '-.02em' }}>{k.value}</p>
+                    <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{k.sub}</p>
+                  </div>
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: k.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <k.icon size={16} style={{ color: '#fff' }} />
+                  </div>
                 </div>
-                <p style={{ fontSize:26, fontWeight:900, color:'#0f172a', margin:'0 0 2px', letterSpacing:'-.04em' }}>{k.value}</p>
-                <p style={{ fontSize:12, fontWeight:600, color:'#64748b', margin:'0 0 3px' }}>{k.label}</p>
-                <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{k.sub}</p>
               </div>
             ))}
           </div>
@@ -307,7 +204,9 @@ export default function MitarbeiterAuswertungPage() {
                 <tbody>
                   {maStats.map((e, i) => (
                     <tr key={e.id} onClick={() => { setSelectedMA(e.id); setActiveTab('Einzelperson'); }}
-                      className="ma-row" style={{ borderBottom:'1px solid #f8fafc', cursor:'pointer', transition:'background .1s' }}
+                      style={{ borderBottom: '1px solid #f8fafc', cursor: 'pointer', transition: 'background .1s' }}
+                      onMouseEnter={el => (el.currentTarget as HTMLElement).style.background = '#f8fafc'}
+                      onMouseLeave={el => (el.currentTarget as HTMLElement).style.background = 'transparent'}
                     >
                       <td style={{ padding: '12px 12px', fontWeight: 600, color: '#0f172a' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -444,256 +343,9 @@ export default function MitarbeiterAuswertungPage() {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-
-                {/* ── KALENDER ── */}
-                <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,.04)' }}>
-                  <div style={{ padding: '18px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Calendar size={18} style={{ color: '#8b5cf6' }} />
-                      <div>
-                        <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>Urlaub & Krankheitstage {kalYear}</p>
-                        <p style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0' }}>
-                          Klick auf Tag zum Erfassen · Nochmal klicken zum Ändern · Doppelklick zum Löschen
-                        </p>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ display: 'flex', gap: 8, fontSize: 12 }}>
-                        {[['#10b981','Urlaub'],['#ef4444','Krank']].map(([c,l]) => (
-                          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <div style={{ width: 10, height: 10, borderRadius: 3, background: c }} />
-                            <span style={{ color: '#64748b' }}>{l}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <button onClick={() => setKalYear(y => y - 1)} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-                          <ChevronLeft size={14} />
-                        </button>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', minWidth: 36, textAlign: 'center' }}>{kalYear}</span>
-                        <button onClick={() => setKalYear(y => y + 1)} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-                          <ChevronRight size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Stats */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', borderBottom: '1px solid #f1f5f9' }}>
-                    {[
-                      { label: 'Urlaubstage', value: (abwesenheiten as any[]).filter((a:any) => a.typ==='urlaub').length, color: '#10b981', icon: Sun },
-                      { label: 'Krankheitstage', value: (abwesenheiten as any[]).filter((a:any) => a.typ==='krank').length, color: '#ef4444', icon: Stethoscope },
-                      { label: 'Abwesenheitstage', value: (abwesenheiten as any[]).length, color: '#8b5cf6', icon: Calendar },
-                    ].map((s,i) => (
-                      <div key={i} style={{ padding: '14px 20px', borderRight: i<2?'1px solid #f1f5f9':'none', display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 10, background: `${s.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <s.icon size={16} style={{ color: s.color }} />
-                        </div>
-                        <div>
-                          <p style={{ fontSize: 20, fontWeight: 900, color: s.color, margin: 0, letterSpacing: '-.03em' }}>{s.value}</p>
-                          <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{s.label}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Monatskalender Grid */}
-                  <div style={{ padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
-                    {Array.from({ length: 12 }, (_, moIdx) => {
-                      const moNr = moIdx + 1;
-                      const ersterTag = new Date(kalYear, moIdx, 1);
-                      const letzterTag = new Date(kalYear, moIdx + 1, 0).getDate();
-                      let startWt = ersterTag.getDay();
-                      if (startWt === 0) startWt = 7;
-                      const abwMap: Record<string, string> = {};
-                      (abwesenheiten as any[]).forEach((a: any) => { abwMap[a.datum] = a.typ; });
-                      const WOCHENTAGE = ['Mo','Di','Mi','Do','Fr','Sa','So'];
-                      return (
-                        <div key={moIdx}>
-                          <p style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', margin: '0 0 6px', letterSpacing: '-.01em' }}>
-                            {new Date(kalYear, moIdx, 1).toLocaleString('de-DE', { month: 'long' })}
-                          </p>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 3 }}>
-                            {WOCHENTAGE.map(wt => (
-                              <div key={wt} style={{ fontSize: 7, color: '#cbd5e1', textAlign: 'center', fontWeight: 600, padding: '1px 0' }}>{wt}</div>
-                            ))}
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
-                            {Array.from({ length: startWt - 1 }, (_, k) => <div key={`e${k}`} />)}
-                            {Array.from({ length: letzterTag }, (_, d) => {
-                              const tag = d + 1;
-                              const datumStr = `${kalYear}-${String(moNr).padStart(2,'0')}-${String(tag).padStart(2,'0')}`;
-                              const typ = abwMap[datumStr];
-                              const isWe = new Date(kalYear, moIdx, tag).getDay() === 0 || new Date(kalYear, moIdx, tag).getDay() === 6;
-                              const isToday = datumStr === new Date().toISOString().slice(0,10);
-                              const isPending = pendingToggle === datumStr;
-                              return (
-                                <div key={tag}
-                                  title={!typ ? 'Klick = Urlaub' : typ === 'urlaub' ? 'Urlaub · nochmal = Krank' : 'Krank · nochmal = Löschen'}
-                                  onClick={() => {
-                                    if (isWe || isPending) return;
-                                    if (!typ) {
-                                      toggleAbwesenheit(selectedEmp.id, datumStr, 'urlaub');
-                                    } else if (typ === 'urlaub') {
-                                      toggleAbwesenheit(selectedEmp.id, datumStr, 'krank');
-                                    } else {
-                                      const existing = (abwesenheiten as any[]).find((a: any) => a.datum === datumStr);
-                                      if (existing) supabase.from('mitarbeiter_abwesenheiten').delete().eq('id', existing.id).then(() => refetchAbw());
-                                    }
-                                  }}
-                                  style={{
-                                    aspectRatio: '1', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 8, fontWeight: typ || isToday ? 700 : 400,
-                                    cursor: isWe ? 'default' : 'pointer',
-                                    background: isPending ? '#f1f5f9' : typ === 'urlaub' ? '#dcfce7' : typ === 'krank' ? '#fee2e2' : isToday ? '#eff6ff' : isWe ? 'transparent' : '#f8fafc',
-                                    color: isPending ? '#cbd5e1' : typ === 'urlaub' ? '#15803d' : typ === 'krank' ? '#dc2626' : isToday ? '#2563eb' : isWe ? '#e2e8f0' : '#64748b',
-                                    border: isToday && !typ ? '1px solid #bfdbfe' : 'none',
-                                    transition: 'all .1s ease',
-                                    userSelect: 'none',
-                                  }}>
-                                  {tag}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
               </div>
             );
           })()}
-        </div>
-      )}
-
-      {/* ═══════════════════ TAB: MONATSABSCHLUSS ═══════════════════ */}
-      {activeTab === 'Monatsabschluss' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-          {/* Header mit Monat-Nav + Export */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fff', borderRadius: 16, border: '1px solid #f1f5f9', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button onClick={prevMonth} style={{ width:34, height:34, borderRadius:10, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronLeft size={15}/></button>
-              <div style={{ textAlign:'center' }}>
-                <p style={{ fontSize:18, fontWeight:900, color:'#0f172a', margin:0, letterSpacing:'-.03em' }}>{monatLabel}</p>
-                <p style={{ fontSize:11, color:'#94a3b8', margin:'1px 0 0' }}>Monatsabschluss</p>
-              </div>
-              <button onClick={nextMonth} style={{ width:34, height:34, borderRadius:10, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronRight size={15}/></button>
-            </div>
-            <button onClick={exportMonatsabschlussCSV}
-              style={{ display:'flex', alignItems:'center', gap:7, padding:'9px 18px', background:'linear-gradient(135deg,#8b5cf6,#7c3aed)', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 12px rgba(139,92,246,.3)' }}>
-              <Download size={14}/> CSV exportieren
-            </button>
-          </div>
-
-          {/* Gesamt-KPIs */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12 }}>
-            {[
-              { label:'Gesamtstunden', value:`${maStats.reduce((s,e)=>s+e.gesamt,0).toFixed(1)}h`, color:'#8b5cf6', border:'#ddd6fe' },
-              { label:'Ticket-Stunden', value:`${maStats.reduce((s,e)=>s+e.tH,0).toFixed(1)}h`, color:'#3b82f6', border:'#bfdbfe' },
-              { label:'Baustellen-Std.', value:`${maStats.reduce((s,e)=>s+e.bH,0).toFixed(1)}h`, color:'#10b981', border:'#bbf7d0' },
-              { label:'Begehungs-Std.', value:`${maStats.reduce((s,e)=>s+(e.begH||0),0).toFixed(1)}h`, color:'#f59e0b', border:'#fde68a' },
-              { label:'Personalkosten', value:new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(maStats.reduce((s,e)=>s+e.kosten,0)), color:'#8b5cf6', border:'#ddd6fe' },
-            ].map((k,i) => (
-              <div key={i} style={{ background:'#fff', borderRadius:14, border:`1px solid ${k.border}`, padding:'14px 18px', position:'relative', overflow:'hidden' }}>
-                <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color }} />
-                <p style={{ fontSize:22, fontWeight:900, color:k.color, margin:'0 0 2px', letterSpacing:'-.04em' }}>{k.value}</p>
-                <p style={{ fontSize:11, color:'#64748b', margin:0 }}>{k.label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Mitarbeiter-Tabelle */}
-          <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', overflow:'hidden' }}>
-            <div style={{ padding:'14px 20px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', gap:8 }}>
-              <FileText size={16} style={{ color:'#8b5cf6' }} />
-              <p style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:0 }}>Mitarbeiter-Übersicht · {monatLabel}</p>
-            </div>
-            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
-              <thead>
-                <tr style={{ background:'#f8fafc', borderBottom:'1px solid #f1f5f9' }}>
-                  {['Mitarbeiter','Ticket-Std.','Baustellen-Std.','Begehungen','Gesamt','Kosten','Urlaub','Krank'].map(h => (
-                    <th key={h} style={{ padding:'10px 16px', textAlign: h==='Mitarbeiter'?'left':'right', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {maStats.map((e, i) => {
-                  const urlaubTage = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ==='urlaub').length;
-                  const krankTage  = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ==='krank').length;
-                  return (
-                    <tr key={e.id} style={{ borderBottom:'1px solid #f8fafc' }}
-                      onMouseEnter={ev=>(ev.currentTarget as HTMLElement).style.background='#f8fafc'}
-                      onMouseLeave={ev=>(ev.currentTarget as HTMLElement).style.background='transparent'}>
-                      <td style={{ padding:'13px 16px' }}>
-                        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                          <div style={{ width:32, height:32, borderRadius:10, background:`${e.farbe}15`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                            <span style={{ fontSize:12, fontWeight:800, color:e.farbe }}>{e.name.split(' ').map((n:string)=>n[0]).join('').slice(0,2)}</span>
-                          </div>
-                          <span style={{ fontWeight:600, color:'#0f172a' }}>{e.name}</span>
-                        </div>
-                      </td>
-                      <td style={{ padding:'13px 16px', textAlign:'right', color:'#3b82f6', fontWeight:600 }}>{e.tH.toFixed(1)}h</td>
-                      <td style={{ padding:'13px 16px', textAlign:'right', color:'#10b981', fontWeight:600 }}>{e.bH.toFixed(1)}h</td>
-                      <td style={{ padding:'13px 16px', textAlign:'right', color:'#f59e0b', fontWeight:600 }}>{(e.begH||0).toFixed(1)}h</td>
-                      <td style={{ padding:'13px 16px', textAlign:'right' }}>
-                        <span style={{ fontWeight:800, color:e.farbe, fontSize:14 }}>{e.gesamt.toFixed(1)}h</span>
-                      </td>
-                      <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:700, color:'#0f172a' }}>
-                        {new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(e.kosten)}
-                      </td>
-                      <td style={{ padding:'13px 16px', textAlign:'right' }}>
-                        {urlaubTage > 0
-                          ? <span style={{ background:'#f0fdf4', color:'#15803d', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:6 }}>{urlaubTage}T</span>
-                          : <span style={{ color:'#e2e8f0' }}>—</span>}
-                      </td>
-                      <td style={{ padding:'13px 16px', textAlign:'right' }}>
-                        {krankTage > 0
-                          ? <span style={{ background:'#fef2f2', color:'#dc2626', fontSize:12, fontWeight:700, padding:'2px 8px', borderRadius:6 }}>{krankTage}T</span>
-                          : <span style={{ color:'#e2e8f0' }}>—</span>}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {/* Summenzeile */}
-                <tr style={{ background:'#f8fafc', borderTop:'2px solid #f1f5f9' }}>
-                  <td style={{ padding:'13px 16px', fontWeight:800, color:'#0f172a' }}>Gesamt</td>
-                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:800, color:'#3b82f6' }}>{maStats.reduce((s,e)=>s+e.tH,0).toFixed(1)}h</td>
-                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:800, color:'#10b981' }}>{maStats.reduce((s,e)=>s+e.bH,0).toFixed(1)}h</td>
-                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:800, color:'#f59e0b' }}>{maStats.reduce((s,e)=>s+(e.begH||0),0).toFixed(1)}h</td>
-                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:900, color:'#0f172a', fontSize:15 }}>{maStats.reduce((s,e)=>s+e.gesamt,0).toFixed(1)}h</td>
-                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:900, color:'#0f172a', fontSize:15 }}>
-                    {new Intl.NumberFormat('de-DE',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(maStats.reduce((s,e)=>s+e.kosten,0))}
-                  </td>
-                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:700, color:'#15803d' }}>
-                    {(abwesenheitenMonat as any[]).filter((a:any)=>a.typ==='urlaub').length}T
-                  </td>
-                  <td style={{ padding:'13px 16px', textAlign:'right', fontWeight:700, color:'#dc2626' }}>
-                    {(abwesenheitenMonat as any[]).filter((a:any)=>a.typ==='krank').length}T
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Stunden-Chart */}
-          <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:24 }}>
-            <p style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Stunden-Vergleich · {monatLabel}</p>
-            <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 20px' }}>Tickets vs. Baustellen pro Mitarbeiter</p>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={maStats.map(e=>({ name:e.kuerzel||e.name.split(' ')[0], Tickets:Math.round(e.tH*10)/10, Baustellen:Math.round(e.bH*10)/10 }))} barGap={4} barCategoryGap="35%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
-                <XAxis dataKey="name" tick={{fontSize:11,fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
-                <YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} unit="h"/>
-                <Tooltip content={<CustomTooltip/>}/>
-                <Legend wrapperStyle={{fontSize:12}}/>
-                <Bar dataKey="Tickets" fill="#3b82f6" radius={[5,5,0,0]}/>
-                <Bar dataKey="Baustellen" fill="#10b981" radius={[5,5,0,0]}/>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
         </div>
       )}
 
