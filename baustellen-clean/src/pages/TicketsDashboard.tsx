@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useMonth } from '@/contexts/MonthContext';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+  ResponsiveContainer, Legend,
 } from 'recharts';
 import { Ticket, Clock, CheckCircle, AlertCircle, TrendingUp, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
@@ -117,14 +117,14 @@ export default function TicketsDashboard() {
 
   // Gewerk Chart: Tickets + Stunden — keine "Tickets gesamt" Bar
   const gewerkData = [
-    { name:'Hochbau', Tickets: hochbauT.length, Stunden: Math.round(hochbauH*10)/10, Erledigt: hochbauErl },
-    { name:'Elektro', Tickets: elektroT.length, Stunden: Math.round(elektroH*10)/10, Erledigt: elektroErl },
+    { name:'Hochbau', Tickets: hochbauT.length, Stunden: Math.round(hochbauH*4)/4, Erledigt: hochbauErl },
+    { name:'Elektro', Tickets: elektroT.length, Stunden: Math.round(elektroH*4)/4, Erledigt: elektroErl },
   ];
 
   // Mitarbeiter Stunden + Tickets
   const empData = emps.map((emp:any, i:number) => {
     const logs = w.filter((x:any) => x.employee_id === emp.id);
-    const stunden = Math.round(logs.reduce((s:number,x:any)=>s+Number(x.stunden??0),0)*10)/10;
+    const stunden = Math.round(logs.reduce((s:number,x:any)=>s+Number(x.stunden??0),0)*4)/4;
     const tickets = new Set(logs.map((x:any)=>x.ticket_id)).size;
     return { name: emp.kuerzel||emp.name.split(' ')[0], fullName: emp.name, Stunden: stunden, Tickets: tickets, farbe: EMP_COLORS[i%EMP_COLORS.length] };
   }).filter((e:any)=>e.Stunden>0||e.Tickets>0).sort((a:any,b:any)=>b.Stunden-a.Stunden);
@@ -162,7 +162,7 @@ export default function TicketsDashboard() {
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
         {[
           { label:'Tickets im Monat', val:t.length, sub:`${monthName}`, color:'#2563eb' },
-          { label:'Stunden gesamt', val:`${totalH.toFixed(1)}h`, sub: trend!==null?`${trend>=0?'+':''}${trend.toFixed(1)}% vs. Vormonat`:'kein Vormonat', color:'#8b5cf6', trend },
+          { label:'Stunden gesamt', val:`${(Math.round(totalH*4)/4).toFixed(2).replace(/\.00$/,'').replace(/(\.\d)0$/,'$1')}h`, sub: trend!==null?`${trend>=0?'+':''}${trend.toFixed(1)}% vs. Vormonat`:'kein Vormonat', color:'#8b5cf6', trend },
           { label:'In Bearbeitung', val:inBearb, sub:`${t.length>0?Math.round(inBearb/t.length*100):0}% der Monatstickets`, color:'#f59e0b' },
           { label:'Erledigt',       val:erledigtMonat,       sub:`${t.length>0?Math.round(erledigtMonat/t.length*100):0}% Erledigungsquote`, color:'#10b981' },
         ].map((k,i)=>(
@@ -227,7 +227,7 @@ export default function TicketsDashboard() {
                     <div style={{ fontSize:11, color:'#64748b', display:'flex', flexDirection:'column', gap:3 }}>
                       <div style={{ display:'flex', justifyContent:'space-between' }}><span>Tickets</span><strong style={{color:g.c}}>{g.t}</strong></div>
                       <div style={{ display:'flex', justifyContent:'space-between' }}><span>Erledigt</span><strong style={{color:'#10b981'}}>{g.erl}</strong></div>
-                      <div style={{ display:'flex', justifyContent:'space-between' }}><span>Stunden</span><strong style={{color:'#8b5cf6'}}>{g.h.toFixed(1)}h</strong></div>
+                      <div style={{ display:'flex', justifyContent:'space-between' }}><span>Stunden</span><strong style={{color:'#8b5cf6'}}>{(Math.round(g.h*4)/4).toFixed(2).replace(/\.00$/,'').replace(/(\.[1-9])0$/,'$1')}h</strong></div>
                     </div>
                   </div>
                 ))}
@@ -236,22 +236,43 @@ export default function TicketsDashboard() {
           )}
         </div>
 
-        {/* Status Pie */}
+        {/* Status Verteilung — Horizontal Bars */}
         <div style={{ background:'#fff', borderRadius:18, padding:24, border:'1px solid #f1f5f9' }}>
           <h2 style={{ fontSize:15, fontWeight:800, color:'#0f172a', margin:'0 0 3px' }}>Status Verteilung</h2>
-          <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 8px' }}>{t.length} Tickets · {monthName}</p>
+          <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 20px' }}>{t.length} Tickets · {monthName}</p>
           {t.length===0 ? (
             <div style={{ height:200, display:'flex', alignItems:'center', justifyContent:'center', color:'#cbd5e1', fontSize:13 }}>Keine Tickets</div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={statusData} dataKey="value" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} label={({name,value})=>`${value}`} labelLine={false}>
-                  {statusData.map((s:any,i:number)=><Cell key={i} fill={s.color} />)}
-                </Pie>
-                <Tooltip formatter={(v:any,n:any)=>[`${v} Tickets`,n]} />
-                <Legend wrapperStyle={{ fontSize:11 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+              {STATUS_CFG.map(s => {
+                const count = t.filter((x:any) => x.status === s.value).length;
+                const pct = t.length > 0 ? (count / t.length * 100) : 0;
+                return (
+                  <div key={s.value}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:5 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                        <div style={{ width:9, height:9, borderRadius:'50%', background:s.color, flexShrink:0 }} />
+                        <span style={{ fontSize:12, fontWeight:600, color:'#374151' }}>{s.label}</span>
+                      </div>
+                      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                        <span style={{ fontSize:12, color:'#94a3b8' }}>{pct.toFixed(0)}%</span>
+                        <span style={{ fontSize:13, fontWeight:800, color:s.color, minWidth:28, textAlign:'right' }}>{count}</span>
+                      </div>
+                    </div>
+                    <div style={{ height:7, background:'#f1f5f9', borderRadius:99, overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${pct}%`, background:s.color, borderRadius:99, transition:'width .8s cubic-bezier(.16,1,.3,1)' }} />
+                    </div>
+                  </div>
+                );
+              })}
+              {/* Gesamtbalken */}
+              <div style={{ marginTop:8, paddingTop:12, borderTop:'1px solid #f1f5f9', display:'flex', justifyContent:'space-between' }}>
+                <span style={{ fontSize:12, color:'#64748b', fontWeight:600 }}>Erledigungsquote</span>
+                <span style={{ fontSize:13, fontWeight:800, color:'#10b981' }}>
+                  {t.length > 0 ? Math.round(t.filter((x:any)=>['erledigt','abrechenbar','abgerechnet'].includes(x.status)).length / t.length * 100) : 0}%
+                </span>
+              </div>
+            </div>
           )}
         </div>
       </div>
