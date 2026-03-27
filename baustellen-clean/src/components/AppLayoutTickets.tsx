@@ -1,11 +1,10 @@
 import { ReactNode } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useMonth } from '@/contexts/MonthContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home } from 'lucide-react';
-import { useEffect } from 'react';
-import { logPageVisit } from '@/lib/activityLog';
-import { supabase } from '@/integrations/supabase/client';
+import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home, ClipboardList } from 'lucide-react';
 
 function MonthStepper() {
   const { activeMonth, setActiveMonth } = useMonth();
@@ -23,19 +22,21 @@ function MonthStepper() {
   const label = new Date(year, month - 1, 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
 
   return (
-    <div style={{ margin: '0 8px 4px' }}>
-      <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,0.2)', fontWeight: 600, marginBottom: 6, paddingLeft: 4 }}>Zeitraum</p>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '5px 6px' }}>
-        <button onClick={prev} style={{ padding: '3px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 6, display: 'flex', alignItems: 'center', color: 'rgba(255,255,255,0.5)', transition: 'all .15s' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.1)'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.5)'; }}>
-          <ChevronLeft size={12} />
+    <div style={{ margin: '0 12px 8px' }}>
+      <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,.3)', fontWeight: 600, marginBottom: 6, paddingLeft: 4 }}>Zeitraum</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 12, padding: '6px 8px' }}>
+        <button onClick={prev} style={{ padding: '4px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, display: 'flex', alignItems: 'center', transition: 'background .15s' }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.1)'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}
+        >
+          <ChevronLeft style={{ width: 12, height: 12, color: 'rgba(255,255,255,.6)' }} />
         </button>
-        <span style={{ fontSize: 11, fontWeight: 600, flex: 1, textAlign: 'center', color: 'rgba(255,255,255,0.85)', letterSpacing: '-.01em' }}>{label}</span>
-        <button onClick={next} style={{ padding: '3px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 6, display: 'flex', alignItems: 'center', color: 'rgba(255,255,255,0.5)', transition: 'all .15s' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.1)'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.5)'; }}>
-          <ChevronRight size={12} />
+        <span style={{ fontSize: 11, fontWeight: 600, flex: 1, textAlign: 'center', color: 'rgba(255,255,255,.9)', letterSpacing: '-.01em' }}>{label}</span>
+        <button onClick={next} style={{ padding: '4px', background: 'none', border: 'none', cursor: 'pointer', borderRadius: 8, display: 'flex', alignItems: 'center', transition: 'background .15s' }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.1)'}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'none'}
+        >
+          <ChevronRight style={{ width: 12, height: 12, color: 'rgba(255,255,255,.6)' }} />
         </button>
       </div>
     </div>
@@ -43,36 +44,39 @@ function MonthStepper() {
 }
 
 const NAV_ITEMS = [
-  { to: '/tickets/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/tickets/liste',         icon: Ticket,          label: 'Tickets' },
-  { to: '/tickets/import',        icon: FileSpreadsheet, label: 'Excel-Import' },
-  { to: '/tickets/pdf-ruecklauf', icon: FileText,        label: 'PDF-Rücklauf' },
-  { to: '/tickets/mitarbeiter',   icon: Users,           label: 'Mitarbeiter' },
-  { to: '/tickets/analyse',       icon: TrendingUp,      label: 'Analyse' },
-  { to: '/tickets/aufgaben',      icon: ClipboardCheck,  label: 'Begehungen' },
+  { to: '/tickets/dashboard',    icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/tickets/verwaltung',   icon: ClipboardList,   label: 'Verwaltung' },
+  { to: '/tickets/liste',        icon: Ticket,          label: 'Tickets' },
+  { to: '/tickets/import',       icon: FileSpreadsheet, label: 'Excel-Import' },
+  { to: '/tickets/pdf-ruecklauf',icon: FileText,        label: 'PDF-Rücklauf' },
+  { to: '/tickets/mitarbeiter',  icon: Users,           label: 'Mitarbeiter' },
+  { to: '/tickets/analyse',      icon: TrendingUp,      label: 'Analyse' },
+  { to: '/tickets/aufgaben',     icon: ClipboardCheck,  label: 'Begehungen' },
 ];
 
-const ACCENT = '#10b981';
-const ACCENT_LIGHT = 'rgba(16,185,129,0.15)';
-
-function NavItem({ to, icon: Icon, children }: { to: string; icon: any; children: string }) {
+function NavLink({ to, icon: Icon, children, badge }: { to: string; icon: any; children: string; badge?: number }) {
   const location = useLocation();
   const active = location.pathname === to || (to !== '/tickets/dashboard' && location.pathname.startsWith(to));
 
   return (
     <Link to={to} style={{
       display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-      borderRadius: 10, textDecoration: 'none', fontSize: 13, fontWeight: 500,
+      borderRadius: 12, textDecoration: 'none', fontSize: 13, fontWeight: 500,
       transition: 'all .15s',
-      background: active ? ACCENT_LIGHT : 'transparent',
-      color: active ? '#fff' : 'rgba(255,255,255,0.45)',
-      borderLeft: active ? `3px solid ${ACCENT}` : '3px solid transparent',
+      background: active ? 'rgba(16,185,129,.2)' : 'transparent',
+      color: active ? '#fff' : 'rgba(255,255,255,.55)',
+      borderLeft: active ? '3px solid #10b981' : '3px solid transparent',
     }}
-      onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.85)'; } }}
-      onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.45)'; } }}
+      onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.06)'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.9)'; }}
+      onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.55)'; } }}
     >
-      <Icon size={15} style={{ flexShrink: 0 }} />
-      {children}
+      <Icon style={{ width: 15, height: 15, flexShrink: 0 }} />
+      <span style={{ flex: 1 }}>{children}</span>
+      {badge != null && badge > 0 && (
+        <span style={{ fontSize: 10, fontWeight: 700, background: '#ef4444', color: '#fff', borderRadius: 99, padding: '1px 6px', minWidth: 18, textAlign: 'center' }}>
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </Link>
   );
 }
@@ -80,65 +84,48 @@ function NavItem({ to, icon: Icon, children }: { to: string; icon: any; children
 export default function AppLayoutTickets({ children }: { children: ReactNode }) {
   const { signOut } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user?.email) {
-        const pageNames: Record<string, string> = {
-          '/tickets/dashboard': 'Tickets Dashboard',
-          '/tickets/liste': 'Ticket-Liste',
-          '/tickets/import': 'Excel-Import',
-          '/tickets/pdf-ruecklauf': 'PDF-Rücklauf',
-          '/tickets/mitarbeiter': 'Ticket-Mitarbeiter',
-          '/tickets/analyse': 'Ticket-Analyse',
-          '/tickets/aufgaben': 'Begehungen',
-        };
-        const pageName = pageNames[location.pathname] ?? location.pathname;
-        logPageVisit(data.user.email, pageName);
-      }
-    });
-  }, [location.pathname]);
+  const { data: openCount = 0 } = useQuery({
+    queryKey: ['open-ticket-count'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'in_bearbeitung');
+      return count ?? 0;
+    },
+    refetchInterval: 60000,
+  });
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f8fafc', fontFamily: "'Inter', system-ui, sans-serif" }}>
-
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f0f4f8', fontFamily: "'Inter', system-ui, sans-serif" }}>
       {/* Sidebar */}
       <aside style={{
-        width: 220,
-        background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
+        width: 220, background: 'linear-gradient(180deg, #064e3b 0%, #065f46 100%)',
         display: 'flex', flexDirection: 'column', flexShrink: 0,
-        boxShadow: '4px 0 24px rgba(0,0,0,0.15)',
-        position: 'relative', zIndex: 10,
+        boxShadow: '4px 0 20px rgba(0,0,0,.15)',
       }}>
-
         {/* Logo */}
-        <div style={{ padding: '18px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid rgba(255,255,255,.08)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-              background: `linear-gradient(135deg, ${ACCENT}, #059669)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: `0 4px 12px rgba(16,185,129,0.4)`,
-            }}>
-              <Ticket size={17} style={{ color: '#fff' }} />
-            </div>
+            <div style={{ width: 34, height: 34, background: 'linear-gradient(135deg, #10b981, #059669)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, boxShadow: '0 4px 12px rgba(16,185,129,.3)' }}>🎫</div>
             <div>
-              <p style={{ color: '#fff', fontWeight: 800, fontSize: 13, margin: 0, letterSpacing: '-.01em' }}>WIDI</p>
-              <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, margin: 0 }}>Ticketsystem</p>
+              <p style={{ color: '#fff', fontWeight: 800, fontSize: 14, margin: 0, letterSpacing: '-.01em' }}>WIDI</p>
+              <p style={{ color: 'rgba(255,255,255,.4)', fontSize: 10, margin: 0, letterSpacing: '.04em' }}>Controlling</p>
             </div>
           </div>
+          {/* Startseite Button */}
           <button onClick={() => navigate('/')} style={{
-            width: '100%', display: 'flex', alignItems: 'center', gap: 7,
-            padding: '6px 10px', background: 'rgba(255,255,255,0.06)',
-            border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-            color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 500,
-            cursor: 'pointer', transition: 'all .15s', justifyContent: 'center',
+            width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+            padding: '7px 10px', background: 'rgba(255,255,255,.08)',
+            border: '1px solid rgba(255,255,255,.12)', borderRadius: 10,
+            color: 'rgba(255,255,255,.7)', fontSize: 12, fontWeight: 500,
+            cursor: 'pointer', transition: 'all .15s',
           }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.12)'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.5)'; }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.14)'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.08)'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.7)'; }}
           >
-            <Home size={12} /> Startseite
+            <Home size={13} /> ← Startseite
           </button>
         </div>
 
@@ -148,23 +135,23 @@ export default function AppLayoutTickets({ children }: { children: ReactNode }) 
         </div>
 
         {/* Nav */}
-        <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,0.2)', fontWeight: 600, padding: '6px 16px 4px', margin: 0 }}>Navigation</p>
+        <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,.25)', fontWeight: 600, padding: '8px 16px 4px', margin: 0 }}>Navigation</p>
         <nav style={{ flex: 1, padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
           {NAV_ITEMS.map(({ to, icon, label }) => (
-            <NavItem key={to} to={to} icon={icon}>{label}</NavItem>
+            <NavLink key={to} to={to} icon={icon} badge={label === 'Verwaltung' ? openCount : undefined}>{label}</NavLink>
           ))}
         </nav>
 
         {/* Footer */}
-        <div style={{ padding: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-          <button onClick={signOut} style={{
+        <div style={{ padding: '12px 8px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
+          <button onClick={() => signOut()} style={{
             width: '100%', display: 'flex', alignItems: 'center', gap: 8,
             padding: '8px 12px', background: 'none', border: 'none',
-            color: 'rgba(255,255,255,0.3)', fontSize: 12, fontWeight: 500,
+            color: 'rgba(255,255,255,.4)', fontSize: 12, fontWeight: 500,
             cursor: 'pointer', borderRadius: 10, transition: 'all .15s',
           }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#fca5a5'; (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.1)'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.3)'; (e.currentTarget as HTMLElement).style.background = 'none'; }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,.15)'; (e.currentTarget as HTMLElement).style.color = '#fca5a5'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.4)'; }}
           >
             <LogOut size={14} /> Abmelden
           </button>
