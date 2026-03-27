@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket } from 'lucide-react';
+import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, Shield, Settings } from 'lucide-react';
 
 const BEREICHE = [
   {
@@ -44,6 +44,34 @@ const BEREICHE = [
     punkte: ['Alle Mitarbeiter auf einen Blick', 'Tickets + Baustellen kombiniert', 'Monatsvergleich & Trends', 'Kostenanalyse pro Person'],
     badge: 'Auswertung',
     badgeColor: '#8b5cf6',
+  },
+  {
+    path: '/dguv',
+    gradient: 'linear-gradient(135deg, #78350f 0%, #b45309 100%)',
+    glow: 'rgba(245,158,11,.25)',
+    border: 'rgba(245,158,11,.2)',
+    accent: '#f59e0b',
+    icon: '⚡',
+    IconComp: Shield,
+    titel: 'DGUV',
+    sub: 'Prüfung & Roadmap',
+    punkte: ['Geräteprüfung verwalten', 'Prüfroadmap visualisieren', 'Jahresvergleich & Auswertung', 'Rohdaten hochladen & abgleichen'],
+    badge: 'DGUV',
+    badgeColor: '#f59e0b',
+  },
+  {
+    path: '/admin',
+    gradient: 'linear-gradient(135deg, #1f2937 0%, #374151 100%)',
+    glow: 'rgba(156,163,175,.2)',
+    border: 'rgba(156,163,175,.15)',
+    accent: '#9ca3af',
+    icon: '🔧',
+    IconComp: Settings,
+    titel: 'Admin',
+    sub: 'Systemverwaltung',
+    punkte: ['Aktivitätslog einsehen', 'Systemübersicht', 'Benutzerverwaltung', 'Datenbankstatus'],
+    badge: 'Admin',
+    badgeColor: '#9ca3af',
   },
 ];
 
