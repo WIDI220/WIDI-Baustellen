@@ -73,7 +73,7 @@ function NavLink({ to, icon: Icon, children, badge }: { to: string; icon: any; c
       <Icon style={{ width: 15, height: 15, flexShrink: 0 }} />
       <span style={{ flex: 1 }}>{children}</span>
       {badge != null && badge > 0 && (
-        <span style={{ fontSize: 10, fontWeight: 700, background: '#ef4444', color: '#fff', borderRadius: 99, padding: '1px 6px', minWidth: 18, textAlign: 'center' }}>
+        <span style={{ fontSize:10, fontWeight:700, background:'#ef4444', color:'#fff', borderRadius:99, padding:'1px 6px', minWidth:18, textAlign:'center' }}>
           {badge > 99 ? '99+' : badge}
         </span>
       )}
