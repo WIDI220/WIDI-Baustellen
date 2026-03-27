@@ -11,12 +11,6 @@ import AppLayoutAuswertung from '@/components/AppLayoutAuswertung';
 
 // Startseite
 import StartPage from '@/pages/StartPage';
-import AdminLogPage from '@/pages/AdminLogPage';
-import DGUVPage from '@/pages/DGUVPage';
-import DGUVRoadmap from '@/pages/DGUVRoadmap';
-import DGUVAuswertung from '@/pages/DGUVAuswertung';
-import DGUVAbgleich from '@/pages/DGUVAbgleich';
-import AppLayoutDGUV from '@/components/AppLayoutDGUV';
 
 // Auth
 import AuthPage from '@/pages/AuthPage';
@@ -43,6 +37,7 @@ import TicketMitarbeiterPage from '@/pages/TicketMitarbeiterPage'; // Ticket-Mit
 import TicketEskalationenPage from '@/pages/TicketEskalationenPage';
 import PdfRuecklauf from '@/pages/PdfRuecklauf';
 import ExcelImportPage from '@/pages/ExcelImportPage';
+import TicketVerwaltungPage from '@/pages/TicketVerwaltungPage';
 
 // ── Auswertung ────────────────────────────────────────────────
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
@@ -73,13 +68,6 @@ function AppRoutes() {
     <Routes>
       {/* ── Startseite ─────────────────────────────────── */}
       <Route path="/" element={<StartPage />} />
-      <Route path="/admin/log" element={<AdminLogPage />} />
-
-      {/* ── DGUV-Bereich ───────────────────────────────── */}
-      <Route path="/dguv" element={<AppLayoutDGUV><DGUVPage /></AppLayoutDGUV>} />
-      <Route path="/dguv/roadmap" element={<AppLayoutDGUV><DGUVRoadmap /></AppLayoutDGUV>} />
-      <Route path="/dguv/auswertung" element={<AppLayoutDGUV><DGUVAuswertung /></AppLayoutDGUV>} />
-      <Route path="/dguv/abgleich" element={<AppLayoutDGUV><DGUVAbgleich /></AppLayoutDGUV>} />
 
       {/* ── Baustellen-Bereich ─────────────────────────── */}
       <Route path="/baustellen/*" element={
@@ -107,6 +95,7 @@ function AppRoutes() {
         <AppLayoutTickets>
             <Routes>
               <Route path="dashboard" element={<TicketsDashboard />} />
+              <Route path="verwaltung" element={<TicketVerwaltungPage />} />
               <Route path="liste" element={<TicketsPage />} />
               <Route path="analyse" element={<AnalysePage />} />
               <Route path="aufgaben" element={<AufgabenPage />} />
@@ -121,7 +110,6 @@ function AppRoutes() {
       } />
 
       {/* ── Auswertungs-Bereich ────────────────────────── */}
-
       <Route path="/auswertung/*" element={
         <AppLayoutAuswertung>
           <Routes>
