@@ -1,6 +1,4 @@
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket } from 'lucide-react';
 
@@ -52,26 +50,6 @@ const BEREICHE = [
 export default function StartPage() {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
-
-  // Live-Daten Tickets
-  const { data: ticketStats } = useQuery({
-    queryKey: ['startpage-ticket-stats'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('tickets')
-        .select('status, eingangsdatum');
-      if (!data) return { offen: 0, erledigt: 0, ueberfaellig: 0 };
-      const offen = data.filter(t => t.status === 'in_bearbeitung').length;
-      const erledigt = data.filter(t => ['erledigt','abrechenbar','abgerechnet'].includes(t.status)).length;
-      const ueberfaellig = data.filter(t => {
-        if (t.status !== 'in_bearbeitung') return false;
-        const days = Math.floor((Date.now() - new Date(t.eingangsdatum).getTime()) / 86400000);
-        return days > 14;
-      }).length;
-      return { offen, erledigt, ueberfaellig };
-    },
-    refetchInterval: 60000,
-  });
 
   return (
     <div style={{
@@ -152,24 +130,6 @@ export default function StartPage() {
 
             <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 800, margin: '0 0 4px', letterSpacing: '-.02em' }}>{b.titel}</h2>
             <p style={{ color: 'rgba(255,255,255,.4)', fontSize: 12, margin: '0 0 24px', fontWeight: 500 }}>{b.sub}</p>
-
-            {/* Live-Stats für Ticketsystem */}
-            {b.badge === 'Tickets' && ticketStats && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 20, padding: '12px', background: 'rgba(0,0,0,.2)', borderRadius: 12, border: '1px solid rgba(255,255,255,.06)' }}>
-                <div style={{ textAlign: 'center' }}>
-                  <p style={{ fontSize: 20, fontWeight: 800, color: '#3b82f6', margin: 0 }}>{ticketStats.offen}</p>
-                  <p style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', margin: 0, textTransform: 'uppercase', letterSpacing: '.06em' }}>Offen</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <p style={{ fontSize: 20, fontWeight: 800, color: '#10b981', margin: 0 }}>{ticketStats.erledigt}</p>
-                  <p style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', margin: 0, textTransform: 'uppercase', letterSpacing: '.06em' }}>Erledigt</p>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <p style={{ fontSize: 20, fontWeight: 800, color: ticketStats.ueberfaellig > 0 ? '#ef4444' : 'rgba(255,255,255,.3)', margin: 0 }}>{ticketStats.ueberfaellig}</p>
-                  <p style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', margin: 0, textTransform: 'uppercase', letterSpacing: '.06em' }}>&gt;14 Tage</p>
-                </div>
-              </div>
-            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 28 }}>
               {b.punkte.map(p => (
