@@ -13,7 +13,7 @@ const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 
 const TABS = ['Übersicht', 'Einzelperson', 'Monatsvergleich', 'Monatsabschluss'] as const;
 type Tab = typeof TABS[number];
 
-function fmt(n: number) { return n.toFixed(1).replace('.', ','); }
+function fmt(n: number) { const r = Math.round(n*4)/4; const s = r % 1 === 0 ? r.toFixed(0) : r % 0.5 === 0 ? r.toFixed(1) : r.toFixed(2); return s.replace('.', ','); }
 function fmtEur(n: number) { return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n); }
 function monatStr(year: number, month: number) { return `${year}-${String(month).padStart(2, '0')}`; }
 
