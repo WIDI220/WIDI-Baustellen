@@ -2,7 +2,7 @@ import { ReactNode } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useMonth } from '@/contexts/MonthContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home } from 'lucide-react';
+import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home, Settings } from 'lucide-react';
 import { useEffect } from 'react';
 import { logPageVisit } from '@/lib/activityLog';
 import { supabase } from '@/integrations/supabase/client';
@@ -44,6 +44,7 @@ function MonthStepper() {
 
 const NAV_ITEMS = [
   { to: '/tickets/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/tickets/verwaltung',    icon: Settings,        label: 'Verwaltung' },
   { to: '/tickets/liste',         icon: Ticket,          label: 'Tickets' },
   { to: '/tickets/import',        icon: FileSpreadsheet, label: 'Excel-Import' },
   { to: '/tickets/pdf-ruecklauf', icon: FileText,        label: 'PDF-Rücklauf' },
@@ -87,6 +88,7 @@ export default function AppLayoutTickets({ children }: { children: ReactNode }) 
       if (data.user?.email) {
         const pageNames: Record<string, string> = {
           '/tickets/dashboard': 'Tickets Dashboard',
+          '/tickets/verwaltung': 'Ticket-Verwaltung',
           '/tickets/liste': 'Ticket-Liste',
           '/tickets/import': 'Excel-Import',
           '/tickets/pdf-ruecklauf': 'PDF-Rücklauf',
