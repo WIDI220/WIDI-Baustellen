@@ -125,7 +125,8 @@ export default function MitarbeiterAuswertungPage() {
     queryKey: ['begehungen-monat', year, month],
     queryFn: async () => {
       const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
-      const bis2 = `${year}-${String(month).padStart(2,'0')}-31`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const bis2 = `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
       const { data } = await supabase
         .from('begehungen')
         .select('*')
@@ -169,7 +170,20 @@ export default function MitarbeiterAuswertungPage() {
     const tH = tw.filter(w => w.employee_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
     const bH = bw.filter(w => w.mitarbeiter_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
     const begH = (begehungenMonat as any[])
-      .filter(b => b.mitarbeiter?.trim().toLowerCase() === e.name?.trim().toLowerCase())
+      .filter(b => {
+        const bMit = (b.mitarbeiter ?? '').trim().toLowerCase();
+        if (!bMit) return false;
+        const eName = (e.name ?? '').trim().toLowerCase();
+        const eKuerzel = (e.kuerzel ?? '').trim().toLowerCase();
+        // Exakter Name-Match
+        if (bMit === eName) return true;
+        // Kürzel-Match
+        if (bMit === eKuerzel) return true;
+        // Teilname-Match (Vor- oder Nachname)
+        const nameParts = eName.split(' ').filter((p: string) => p.length > 2);
+        if (nameParts.some((p: string) => bMit.includes(p))) return true;
+        return false;
+      })
       .reduce((s: number, b: any) => s + Number(b.stunden ?? 0), 0);
     const gesamt = tH + bH + begH;
     const satz = Number(e.stundensatz ?? STUNDENSATZ);
