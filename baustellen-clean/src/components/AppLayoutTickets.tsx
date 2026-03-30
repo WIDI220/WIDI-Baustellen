@@ -7,7 +7,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home, ClipboardList, Timer } from 'lucide-react';
 import { useEffect } from 'react';
 import { logPageVisit } from '@/lib/activityLog';
-import { supabase } from '@/integrations/supabase/client';
 
 function MonthStepper() {
   const { activeMonth, setActiveMonth } = useMonth();
