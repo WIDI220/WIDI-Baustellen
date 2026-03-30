@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { renderPdfPageToBase64, getPdfPageCount } from '@/lib/pdf-renderer';
 import { toast } from 'sonner';
-import { Upload, CheckCircle, XCircle, AlertCircle, RotateCcw, RefreshCw, Plus, Trash2, ChevronLeft, ChevronRight, FileText, Scan, Zap, Info } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, AlertCircle, RotateCcw, RefreshCw, Plus, Trash2, ChevronLeft, ChevronRight, FileText, Scan, Zap, Info, AlertTriangle } from 'lucide-react';
 import { logActivity } from '@/lib/activityLog';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -42,6 +42,8 @@ interface OcrPageResult {
   status: 'pending' | 'processing' | 'ok' | 'error' | 'no_match';
   a_nummer?: string | null;
   ticket_id?: string | null;
+  ticket_status?: string | null;        // NEU: aktueller Status in DB
+  already_erledigt?: boolean;           // NEU: war schon erledigt
   mitarbeiter_namen?: string[];
   mitarbeiter_ids?: (string | null)[];
   stunden_raw?: number | null;
@@ -57,12 +59,17 @@ interface OcrPageResult {
   imageBase64?: string;
 }
 
-// Verifizierungs-Item: alle Seiten die importiert werden können
 interface VerifyItem extends OcrPageResult {
   stunden_edit: string;
   datum_edit: string;
   mitarbeiter_edit: { id: string; name: string }[];
-  confirmed: boolean; // wurde vom User bestätigt
+  confirmed: boolean;
+  manuelleEingabe?: boolean;
+  // NEU: für bereits erledigte Tickets
+  override_erledigt?: boolean;          // User will überschreiben trotz bereits erledigt
+  // NEU: für nicht gefundene Tickets — manuelles Anlegen
+  neues_ticket_gewerk?: string;
+  neues_ticket_eingang?: string;
 }
 
 export default function PdfRuecklauf() {
@@ -79,7 +86,7 @@ export default function PdfRuecklauf() {
   const [importing, setImporting] = useState(false);
   const [liveLog, setLiveLog] = useState<LogEntry[]>([]);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
-  const [scanField, setScanField] = useState<string | null>(null); // welches Feld gerade gelesen wird
+  const [scanField, setScanField] = useState<string | null>(null);
   const [scanResult, setScanResult] = useState<{a_nummer:string|null, mitarbeiter:string|null, stunden:string|null, datum:string|null}>({a_nummer:null,mitarbeiter:null,stunden:null,datum:null});
 
   const { data: employees = [] } = useQuery({
@@ -210,20 +217,31 @@ export default function PdfRuecklauf() {
               const { data: ticket } = await supabase.from('tickets').select('id, a_nummer, status').eq('a_nummer', ocr.a_nummer).maybeSingle();
 
               if (!ticket) {
+                // ── NEU: Nicht in DB → manuelles Anlegen ──────────────────
                 result.status = 'no_match';
                 result.error = `${ocr.a_nummer} nicht in Datenbank`;
                 result.needsReview = true;
-                result.reviewReasons.push('Ticket nicht in Datenbank');
-                addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} nicht gefunden`);
+                result.reviewReasons.push('Ticket nicht in Datenbank — bitte manuell anlegen');
+                addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} nicht gefunden → manuell anlegen`);
               } else {
                 result.ticket_id = ticket.id;
+                result.ticket_status = ticket.status;
+
+                // ── NEU: Bereits erledigt prüfen ──────────────────────────
+                if (ticket.status === 'erledigt') {
+                  result.already_erledigt = true;
+                  result.needsReview = true;
+                  result.reviewReasons.push('Ticket bereits als erledigt eingetragen');
+                  addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} bereits erledigt!`);
+                }
+
                 const namen: string[] = [];
                 if (ocr.mitarbeiter_name) namen.push(ocr.mitarbeiter_name);
                 if (ocr.mitarbeiter_namen && Array.isArray(ocr.mitarbeiter_namen)) namen.push(...ocr.mitarbeiter_namen);
                 const splitNamen: string[] = [];
                 for (const n of namen) splitNamen.push(...n.split(/[,\/&+]/).map((s: string) => s.trim()).filter(Boolean));
                 const uniqueNamen = [...new Set(splitNamen.filter(Boolean))];
-                // Bekannte Korrekturen anwenden
+
                 const { data: maKorrekturen } = await supabase
                   .from('ocr_korrekturen')
                   .select('ocr_gelesen, korrigiert_zu, haeufigkeit')
@@ -231,11 +249,9 @@ export default function PdfRuecklauf() {
                   .order('haeufigkeit', { ascending: false });
 
                 const korrigierteNamen = uniqueNamen.map(name => {
-                  // Nur anwenden wenn Name lang genug ist (kein Kürzel)
                   if (name.length <= 5) return name;
                   const korr = (maKorrekturen ?? []).find(k =>
-                    k.ocr_gelesen.toLowerCase() === name.toLowerCase() &&
-                    k.haeufigkeit >= 2 // Mindestens 2x korrigiert für Sicherheit
+                    k.ocr_gelesen.toLowerCase() === name.toLowerCase() && k.haeufigkeit >= 2
                   );
                   return korr ? korr.korrigiert_zu : name;
                 });
@@ -256,7 +272,6 @@ export default function PdfRuecklauf() {
                   stundenRaw = result.vonbis_stunden;
                 }
 
-                // Bekannte Stunden-Korrekturen anwenden
                 const { data: stdKorrekturen } = await supabase
                   .from('ocr_korrekturen')
                   .select('ocr_gelesen, korrigiert_zu, haeufigkeit')
@@ -303,11 +318,11 @@ export default function PdfRuecklauf() {
         await new Promise(r => setTimeout(r, 150));
       }
 
-      // ALLE Seiten in Verifizierung — auch nicht erkannte als manuelle Einträge
       const erkannt = results.filter(r => r.ticket_id);
       const nichtErkannt = results.filter(r => !r.ticket_id);
+      const bereitsErledigt = results.filter(r => r.already_erledigt);
 
-      const allVerify = results.map(r => ({
+      const allVerify: VerifyItem[] = results.map(r => ({
         ...r,
         stunden_edit: String(r.stunden_valid ?? r.stunden_raw ?? ''),
         datum_edit: r.leistungsdatum ?? new Date().toISOString().split('T')[0],
@@ -316,8 +331,11 @@ export default function PdfRuecklauf() {
           name: r.mitarbeiter_namen?.[i] ?? '',
         })).filter(m => m.id),
         confirmed: false,
-        // Nicht erkannte Seiten als manuell kennzeichnen
         manuelleEingabe: !r.ticket_id,
+        override_erledigt: false,
+        // Felder für manuelles Ticket-Anlegen
+        neues_ticket_gewerk: 'Hochbau',
+        neues_ticket_eingang: new Date().toISOString().split('T')[0],
       }));
 
       setVerifyItems(allVerify);
@@ -325,10 +343,13 @@ export default function PdfRuecklauf() {
       setVerifyIndex(0);
       setCurrentImage(null);
 
-      if (nichtErkannt.length > 0) {
-        addLog(0, 'warn', `⚠️ ${nichtErkannt.length} Seite${nichtErkannt.length > 1 ? 'n' : ''} nicht erkannt (Seite ${nichtErkannt.map(r => r.page).join(', ')}) — bitte manuell ausfüllen`);
+      if (bereitsErledigt.length > 0) {
+        addLog(0, 'warn', `⚠️ ${bereitsErledigt.length} Ticket${bereitsErledigt.length > 1 ? 's' : ''} bereits erledigt — bitte prüfen`);
       }
-      addLog(0, 'ok', `Scan fertig — ${erkannt.length} erkannt, ${nichtErkannt.length} manuell ausfüllen`);
+      if (nichtErkannt.length > 0) {
+        addLog(0, 'warn', `⚠️ ${nichtErkannt.length} Seite${nichtErkannt.length > 1 ? 'n' : ''} nicht erkannt — manuell anlegen`);
+      }
+      addLog(0, 'ok', `Scan fertig — ${erkannt.length} erkannt, ${nichtErkannt.length} manuell, ${bereitsErledigt.length} bereits erledigt`);
 
     } catch (err: any) {
       toast.error('Fehler: ' + err.message);
@@ -337,7 +358,6 @@ export default function PdfRuecklauf() {
     }
   }
 
-  // Korrektur speichern damit System lernt
   async function saveKorrektur(ocrGelesen: string, korrigiertZu: string, typ: 'mitarbeiter' | 'stunden') {
     if (!ocrGelesen || !korrigiertZu || ocrGelesen.trim() === korrigiertZu.trim()) return;
     try {
@@ -366,37 +386,71 @@ export default function PdfRuecklauf() {
 
   async function importAll() {
     setImporting(true);
-    let saved = 0, skipped = 0;
-
-    // Nicht erkannte Seiten melden
-    const nichtErkannt = verifyItems.filter(v => (v as any).manuelleEingabe && !v.ticket_id);
-    if (nichtErkannt.length > 0) {
-      toast.error(`⚠️ ${nichtErkannt.length} Seite${nichtErkannt.length > 1 ? 'n' : ''} nicht erkannt (${nichtErkannt.map(v => 'S.' + v.page).join(', ')}) — bitte manuell nachtragen`);
-    }
+    let saved = 0, skipped = 0, neuAngelegt = 0;
 
     for (const item of verifyItems) {
+
+      // ── Fall 1: Bereits erledigt & kein Override → überspringen ──────────
+      if (item.already_erledigt && !item.override_erledigt) {
+        addLog(item.page, 'info', `Seite ${item.page} — ${item.a_nummer} übersprungen (bereits erledigt)`);
+        skipped++;
+        continue;
+      }
+
+      // ── Fall 2: Nicht in DB → neues Ticket anlegen ───────────────────────
+      if (item.manuelleEingabe && !item.ticket_id) {
+        if (!item.a_nummer) { skipped++; continue; }
+        const stunden = parseFloat(item.stunden_edit.replace(',', '.'));
+        if (isNaN(stunden) || stunden <= 0) { skipped++; continue; }
+        const empIds = item.mitarbeiter_edit.map(m => m.id).filter(Boolean);
+        if (empIds.length === 0) { skipped++; continue; }
+
+        try {
+          // Ticket anlegen
+          const { data: newTicket, error: ticketError } = await supabase.from('tickets').insert({
+            a_nummer: item.a_nummer,
+            eingangsdatum: item.neues_ticket_eingang ?? new Date().toISOString().split('T')[0],
+            gewerk: item.neues_ticket_gewerk ?? 'Hochbau',
+            status: 'erledigt',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }).select('id').single();
+
+          if (ticketError || !newTicket) { skipped++; continue; }
+
+          for (const empId of empIds) {
+            await supabase.from('ticket_worklogs').insert({
+              ticket_id: newTicket.id,
+              employee_id: empId,
+              stunden: roundTo025(stunden),
+              leistungsdatum: item.datum_edit,
+            });
+          }
+          neuAngelegt++;
+          saved++;
+        } catch { skipped++; }
+        continue;
+      }
+
+      // ── Fall 3: Normal (in DB, nicht erledigt oder override) ─────────────
       if (!item.ticket_id) { skipped++; continue; }
       const stunden = parseFloat(item.stunden_edit.replace(',', '.'));
       if (isNaN(stunden) || stunden <= 0) { skipped++; continue; }
       const empIds = item.mitarbeiter_edit.map(m => m.id).filter(Boolean);
       if (empIds.length === 0) { skipped++; continue; }
 
-      // Korrekturen speichern wenn Stunden geändert wurden
       const stundenOriginal = String(item.stunden_raw ?? '');
       const stundenKorrigiert = item.stunden_edit;
       if (stundenOriginal && stundenKorrigiert && stundenOriginal !== stundenKorrigiert) {
         await saveKorrektur(stundenOriginal, stundenKorrigiert, 'stunden');
       }
 
-      // Korrekturen speichern wenn Mitarbeiter geändert wurden
-      // NUR bei langen Namen (>5 Zeichen) — Kürzel wie "SB", "SG" sind zu mehrdeutig
       const originalNamen = item.mitarbeiter_namen ?? [];
       const korrigiertNamen = item.mitarbeiter_edit.map(m => m.name).filter(Boolean);
       for (let i = 0; i < originalNamen.length; i++) {
         const orig = originalNamen[i];
         const korr = korrigiertNamen[i];
         if (korr && orig !== korr && orig.length > 5) {
-          // Nur speichern wenn OCR-Name lang genug ist um eindeutig zu sein
           await saveKorrektur(orig, korr, 'mitarbeiter');
         }
       }
@@ -418,9 +472,13 @@ export default function PdfRuecklauf() {
     queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
     queryClient.invalidateQueries({ queryKey: ['tickets'] });
     queryClient.invalidateQueries({ queryKey: ['worklogs-analyse'] });
+    queryClient.invalidateQueries({ queryKey: ['verwaltung-alle'] });
+    queryClient.invalidateQueries({ queryKey: ['open-ticket-count'] });
+
     const { data: userData } = await supabase.auth.getUser();
-    await logActivity(userData.user?.email, `PDF-Rücklauf importiert: ${saved} Tickets · ${skipped} übersprungen`, 'pdf_ruecklauf', undefined, { datei: fileName, importiert: saved, uebersprungen: skipped });
-    toast.success(`✅ ${saved} importiert · ⏭ ${skipped} übersprungen`);
+    await logActivity(userData.user?.email, `PDF-Rücklauf importiert: ${saved} Tickets · ${skipped} übersprungen · ${neuAngelegt} neu angelegt`, 'pdf_ruecklauf', undefined, { datei: fileName, importiert: saved, uebersprungen: skipped, neu_angelegt: neuAngelegt });
+
+    toast.success(`✅ ${saved} importiert · ${neuAngelegt > 0 ? `${neuAngelegt} neu angelegt · ` : ''}⏭ ${skipped} übersprungen`);
     setPhase('done');
     setImporting(false);
   }
@@ -429,8 +487,9 @@ export default function PdfRuecklauf() {
   const currentVerify = verifyItems[verifyIndex];
   const confirmedCount = verifyItems.filter(v => v.confirmed).length;
   const problemCount = verifyItems.filter(v => v.needsReview).length;
+  const bereitsErledigtCount = verifyItems.filter(v => v.already_erledigt).length;
+  const nichtInDbCount = verifyItems.filter(v => v.manuelleEingabe && !v.ticket_id).length;
 
-  // Von/Bis Warnung
   function vonBisWarning(item: VerifyItem): string | null {
     if (!item.vonbis_stunden) return null;
     const std = parseFloat(item.stunden_edit.replace(',', '.'));
@@ -468,7 +527,7 @@ export default function PdfRuecklauf() {
         )}
       </div>
 
-      {/* IDLE — Upload */}
+      {/* IDLE */}
       {phase === 'idle' && (
         <div onClick={() => fileInputRef.current?.click()}
           className="group relative border border-gray-200 rounded-2xl bg-white cursor-pointer hover:border-gray-300 hover:shadow-sm transition-all duration-200 overflow-hidden">
@@ -487,37 +546,22 @@ export default function PdfRuecklauf() {
       {/* SCANNING */}
       {phase === 'scanning' && (
         <div className="grid grid-cols-5 gap-4" style={{ height: '500px' }}>
-
-          {/* Links 3/5 — Ticket mit Fokus-Ring */}
           <div className="col-span-3 relative bg-gray-950 rounded-2xl overflow-hidden flex items-center justify-center" style={{ height: '500px' }}>
             {currentImage ? (
               <div className="relative w-full h-full flex items-center justify-center">
-                <img
-                  key={currentPage}
-                  src={`data:image/png;base64,${currentImage}`}
-                  alt="Ticket"
-                  id="scanTicketImg"
-                  className="object-contain"
-                  style={{ maxWidth: '85%', maxHeight: '460px', opacity: 0.92, display: 'block' }}
-                />
-                {/* Fokus-Ring: zeigt welches Feld gerade gelesen wird */}
+                <img key={currentPage} src={`data:image/png;base64,${currentImage}`} alt="Ticket" className="object-contain"
+                  style={{ maxWidth: '85%', maxHeight: '460px', opacity: 0.92, display: 'block' }} />
                 {scanField && (
-                  <div
-                    className="absolute pointer-events-none"
-                    style={{
-                      border: '1.5px solid rgba(96,165,250,0.95)',
-                      borderRadius: '3px',
-                      boxShadow: '0 0 0 3px rgba(96,165,250,0.15)',
-                      transition: 'all 0.4s cubic-bezier(0.4,0,0.2,1)',
-                      ...(scanField === 'a_nummer'   ? { top: '8%',  left: '10%', width: '35%', height: '5%' } :
-                          scanField === 'mitarbeiter' ? { top: '68%', left: '30%', width: '55%', height: '6%' } :
-                          scanField === 'stunden'     ? { top: '75%', left: '45%', width: '15%', height: '5%' } :
-                          scanField === 'datum'       ? { top: '75%', left: '5%',  width: '25%', height: '5%' } :
-                          { opacity: 0 })
-                    }}
-                  />
+                  <div className="absolute pointer-events-none" style={{
+                    border: '1.5px solid rgba(96,165,250,0.95)', borderRadius: '3px',
+                    boxShadow: '0 0 0 3px rgba(96,165,250,0.15)', transition: 'all 0.4s cubic-bezier(0.4,0,0.2,1)',
+                    ...(scanField === 'a_nummer'   ? { top: '8%',  left: '10%', width: '35%', height: '5%' } :
+                        scanField === 'mitarbeiter' ? { top: '68%', left: '30%', width: '55%', height: '6%' } :
+                        scanField === 'stunden'     ? { top: '75%', left: '45%', width: '15%', height: '5%' } :
+                        scanField === 'datum'       ? { top: '75%', left: '5%',  width: '25%', height: '5%' } :
+                        { opacity: 0 })
+                  }} />
                 )}
-                {/* KI-Punkte unten im Bild */}
                 {scanField && (
                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5">
                     {[0,1,2].map(i => (
@@ -533,31 +577,19 @@ export default function PdfRuecklauf() {
                 <p className="text-gray-600 text-xs">Lade Seite...</p>
               </div>
             )}
-            {/* Top badges */}
             <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
               <div className="flex items-center gap-1.5 bg-black/55 text-white/85 text-xs px-2.5 py-1 rounded-lg font-mono">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                {scanField ? {
-                  a_nummer: 'A-Nummer lesen...',
-                  mitarbeiter: 'Mitarbeiter erkennen...',
-                  stunden: 'Stunden lesen...',
-                  datum: 'Datum lesen...'
-                }[scanField] : 'Analysiere...'}
+                {scanField ? { a_nummer: 'A-Nummer lesen...', mitarbeiter: 'Mitarbeiter erkennen...', stunden: 'Stunden lesen...', datum: 'Datum lesen...' }[scanField] : 'Analysiere...'}
               </div>
-              <span className="bg-black/55 text-white/60 text-xs px-2.5 py-1 rounded-lg font-mono">
-                {currentPage} / {totalPages}
-              </span>
+              <span className="bg-black/55 text-white/60 text-xs px-2.5 py-1 rounded-lg font-mono">{currentPage} / {totalPages}</span>
             </div>
-            {/* Progress */}
             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/5">
               <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${progress}%` }} />
             </div>
           </div>
 
-          {/* Rechts 2/5 */}
           <div className="col-span-2 flex flex-col gap-3" style={{ height: '500px' }}>
-
-            {/* Aktuell erkannte Felder */}
             <div className="bg-white rounded-2xl border border-gray-100 p-4">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Erkannt</p>
               <div className="space-y-2.5">
@@ -570,14 +602,11 @@ export default function PdfRuecklauf() {
                   <div key={row.field} className="flex items-center justify-between">
                     <span className="text-xs text-gray-400">{row.label}</span>
                     <span className={`text-xs font-mono font-medium transition-all duration-300
-                      ${scanField === row.field ? 'text-blue-500' :
-                        row.value ? 'text-gray-900' : 'text-gray-300'}`}>
+                      ${scanField === row.field ? 'text-blue-500' : row.value ? 'text-gray-900' : 'text-gray-300'}`}>
                       {scanField === row.field ? (
                         <span className="flex gap-0.5">
-                          {[0,1,2].map(i => (
-                            <span key={i} className="inline-block w-1 h-1 rounded-full bg-blue-400"
-                              style={{ animation: `dotPulse 1s ease-in-out ${i*0.15}s infinite` }} />
-                          ))}
+                          {[0,1,2].map(i => <span key={i} className="inline-block w-1 h-1 rounded-full bg-blue-400"
+                            style={{ animation: `dotPulse 1s ease-in-out ${i*0.15}s infinite` }} />)}
                         </span>
                       ) : (row.value ?? '—')}
                     </span>
@@ -586,7 +615,6 @@ export default function PdfRuecklauf() {
               </div>
             </div>
 
-            {/* Fortschritt */}
             <div className="bg-white rounded-2xl border border-gray-100 p-4">
               <div className="flex justify-between items-center mb-2">
                 <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Fortschritt</span>
@@ -611,7 +639,6 @@ export default function PdfRuecklauf() {
               </div>
             </div>
 
-            {/* Log — wächst nach oben, feste Höhe */}
             <div className="flex-1 bg-white rounded-2xl border border-gray-100 overflow-hidden flex flex-col min-h-0">
               <div className="px-4 py-2.5 border-b border-gray-50 flex-shrink-0">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Verlauf</p>
@@ -625,9 +652,7 @@ export default function PdfRuecklauf() {
                 )}
                 {[...liveLog].map((log, i) => (
                   <div key={i} className={`flex items-baseline gap-2 px-2.5 py-1.5 rounded-lg text-xs flex-shrink-0
-                    ${log.type === 'ok'    ? 'text-emerald-600' :
-                      log.type === 'warn'  ? 'text-amber-600'  :
-                      log.type === 'error' ? 'text-red-500'    : 'text-gray-400'}`}>
+                    ${log.type === 'ok' ? 'text-emerald-600' : log.type === 'warn' ? 'text-amber-600' : log.type === 'error' ? 'text-red-500' : 'text-gray-400'}`}>
                     <span className="font-semibold shrink-0">
                       {log.type === 'ok' ? '✓' : log.type === 'warn' ? '!' : log.type === 'error' ? '✕' : '·'}
                     </span>
@@ -640,7 +665,7 @@ export default function PdfRuecklauf() {
         </div>
       )}
 
-      {/* VERIFYING: Split-View alle Seiten */}
+      {/* VERIFYING */}
       {phase === 'verifying' && currentVerify && (
         <div className="space-y-4">
           {/* Progress Header */}
@@ -650,11 +675,10 @@ export default function PdfRuecklauf() {
                 <p className="text-sm font-semibold text-gray-800">
                   Seite {verifyIndex + 1} von {verifyItems.length} prüfen
                 </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {confirmedCount} bestätigt · {problemCount} mit Hinweisen
-                  {verifyItems.filter(v => (v as any).manuelleEingabe).length > 0 && (
-                    <span className="text-red-500 ml-1">· {verifyItems.filter(v => (v as any).manuelleEingabe).length} nicht erkannt</span>
-                  )}
+                <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span>{confirmedCount} bestätigt</span>
+                  {bereitsErledigtCount > 0 && <span className="text-amber-600 font-medium">· {bereitsErledigtCount} bereits erledigt</span>}
+                  {nichtInDbCount > 0 && <span className="text-red-500 font-medium">· {nichtInDbCount} nicht in DB</span>}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -669,7 +693,6 @@ export default function PdfRuecklauf() {
                 </button>
               </div>
             </div>
-            {/* Fortschrittsbalken */}
             <div className="w-full bg-gray-100 rounded-full h-1.5">
               <div className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
                 style={{ width: `${(confirmedCount / verifyItems.length) * 100}%` }} />
@@ -680,7 +703,8 @@ export default function PdfRuecklauf() {
                   className={`w-6 h-6 rounded-md text-xs font-mono transition-colors
                     ${i === verifyIndex ? 'bg-[#1e3a5f] text-white' :
                       v.confirmed ? 'bg-emerald-100 text-emerald-700' :
-                      (v as any).manuelleEingabe ? 'bg-red-100 text-red-700' :
+                      v.already_erledigt ? 'bg-amber-100 text-amber-700' :
+                      (v.manuelleEingabe && !v.ticket_id) ? 'bg-red-100 text-red-700' :
                       v.needsReview ? 'bg-amber-100 text-amber-700' :
                       'bg-gray-100 text-gray-500'}`}>
                   {i + 1}
@@ -696,7 +720,10 @@ export default function PdfRuecklauf() {
               <div className="bg-gray-950 flex flex-col">
                 <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
                   <span className="text-xs text-gray-400 font-mono">ORIGINAL — Seite {currentVerify.page}</span>
-                  {currentVerify.needsReview && (
+                  {currentVerify.already_erledigt && (
+                    <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Bereits erledigt</span>
+                  )}
+                  {currentVerify.needsReview && !currentVerify.already_erledigt && (
                     <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Prüfung empfohlen</span>
                   )}
                 </div>
@@ -714,25 +741,51 @@ export default function PdfRuecklauf() {
               {/* Rechts: Daten */}
               <div className="flex flex-col overflow-y-auto border-l border-gray-100">
                 <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-                  {(currentVerify as any).manuelleEingabe ? (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-2">
-                      <p className="text-sm font-bold text-red-700">⚠️ Seite {currentVerify.page} — nicht erkannt</p>
-                      <p className="text-xs text-red-600 mt-1">
-                        {currentVerify.error || 'OCR konnte keine A-Nummer lesen'}. Bitte alle Felder manuell ausfüllen.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-[#1e3a5f] text-xl">{currentVerify.a_nummer}</span>
-                      {currentVerify.confirmed && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✓ Bestätigt</span>}
-                      {currentVerify.needsReview && !currentVerify.confirmed && (
-                        <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Bitte prüfen</span>
-                      )}
+
+                  {/* ── BEREITS ERLEDIGT Banner ── */}
+                  {currentVerify.already_erledigt && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-amber-800">Bereits eingetragen</p>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            Dieses Ticket wurde bereits als <strong>erledigt</strong> gebucht. Normalerweise muss hier nichts geändert werden.
+                          </p>
+                          <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={currentVerify.override_erledigt ?? false}
+                              onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, override_erledigt: e.target.checked, confirmed: false } : v))}
+                              className="rounded"
+                            />
+                            <span className="text-xs text-amber-800 font-medium">Trotzdem nochmal buchen (Korrektur)</span>
+                          </label>
+                        </div>
+                      </div>
                     </div>
                   )}
-                  {currentVerify.reviewReasons.length > 0 && (
+
+                  {/* ── NICHT IN DB Banner ── */}
+                  {currentVerify.manuelleEingabe && !currentVerify.ticket_id && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
+                      <p className="text-sm font-bold text-red-700">Ticket nicht in Datenbank</p>
+                      <p className="text-xs text-red-600 mt-1">
+                        <strong>{currentVerify.a_nummer || 'Unbekannte A-Nummer'}</strong> wurde nicht gefunden. Bitte Daten prüfen und Ticket neu anlegen.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* A-Nummer Header */}
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-[#1e3a5f] text-xl">
+                      {currentVerify.a_nummer || '—'}
+                    </span>
+                    {currentVerify.confirmed && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✓ Bestätigt</span>}
+                  </div>
+                  {currentVerify.reviewReasons.filter(r => !r.includes('bereits als erledigt')).length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
-                      {currentVerify.reviewReasons.map((r, i) => (
+                      {currentVerify.reviewReasons.filter(r => !r.includes('bereits als erledigt')).map((r, i) => (
                         <span key={i} className="text-xs bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full">{r}</span>
                       ))}
                     </div>
@@ -740,22 +793,64 @@ export default function PdfRuecklauf() {
                 </div>
 
                 <div className="flex-1 p-6 space-y-5">
-                  {/* Stunden */}
+
+                  {/* A-Nummer editierbar bei manueller Eingabe */}
+                  {currentVerify.manuelleEingabe && !currentVerify.ticket_id && (
+                    <div>
+                      <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">A-Nummer</Label>
+                      <Input
+                        value={currentVerify.a_nummer ?? ''}
+                        onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, a_nummer: e.target.value, confirmed: false } : v))}
+                        className="h-11 rounded-xl font-mono text-lg font-semibold"
+                        placeholder="z.B. A5999"
+                      />
+                    </div>
+                  )}
+
+                  {/* Gewerk & Eingangsdatum nur bei neuem Ticket */}
+                  {currentVerify.manuelleEingabe && !currentVerify.ticket_id && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Gewerk</Label>
+                        <Select
+                          value={currentVerify.neues_ticket_gewerk ?? 'Hochbau'}
+                          onValueChange={v => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? { ...r, neues_ticket_gewerk: v, confirmed: false } : r))}>
+                          <SelectTrigger className="h-10 rounded-xl text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent style={{ background:'#fff', border:'1px solid #e2e8f0', zIndex:9999 }}>
+                            <SelectItem value="Hochbau">Hochbau</SelectItem>
+                            <SelectItem value="Elektro">Elektro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Eingangsdatum</Label>
+                        <Input
+                          type="date"
+                          value={currentVerify.neues_ticket_eingang ?? ''}
+                          onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, neues_ticket_eingang: e.target.value, confirmed: false } : v))}
+                          className="h-10 rounded-xl text-sm"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stunden — gesperrt wenn bereits erledigt und kein Override */}
                   <div>
                     <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Stunden</Label>
                     <Input
                       value={currentVerify.stunden_edit}
                       onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, stunden_edit: e.target.value, confirmed: false } : v))}
-                      className="h-11 rounded-xl font-mono text-lg font-semibold"
+                      disabled={currentVerify.already_erledigt && !currentVerify.override_erledigt}
+                      className={`h-11 rounded-xl font-mono text-lg font-semibold ${currentVerify.already_erledigt && !currentVerify.override_erledigt ? 'opacity-40' : ''}`}
                       placeholder="z.B. 1.5"
                     />
-                    {/* Von/Bis Info */}
                     {currentVerify.vonbis_stunden !== null && (
                       <div className={`flex items-center gap-2 mt-2 text-xs px-3 py-2 rounded-lg
                         ${vonBisWarning(currentVerify) ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-gray-50 text-gray-500'}`}>
                         <Info className="h-3.5 w-3.5 shrink-0" />
-                        <span>
-                          Von/Bis ({currentVerify.arbeitszeit_von} – {currentVerify.arbeitszeit_bis}) ergibt <strong>{currentVerify.vonbis_stunden}h</strong>
+                        <span>Von/Bis ({currentVerify.arbeitszeit_von} – {currentVerify.arbeitszeit_bis}) ergibt <strong>{currentVerify.vonbis_stunden}h</strong>
                           {vonBisWarning(currentVerify) && ' — Abweichung!'}
                         </span>
                       </div>
@@ -769,7 +864,8 @@ export default function PdfRuecklauf() {
                       type="date"
                       value={currentVerify.datum_edit}
                       onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, datum_edit: e.target.value, confirmed: false } : v))}
-                      className="h-11 rounded-xl"
+                      disabled={currentVerify.already_erledigt && !currentVerify.override_erledigt}
+                      className={`h-11 rounded-xl ${currentVerify.already_erledigt && !currentVerify.override_erledigt ? 'opacity-40' : ''}`}
                     />
                   </div>
 
@@ -779,12 +875,15 @@ export default function PdfRuecklauf() {
                     <div className="space-y-2">
                       {currentVerify.mitarbeiter_edit.map((m, mIdx) => (
                         <div key={mIdx} className="flex gap-2">
-                          <Select value={m.id} onValueChange={v => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
-                            ...r, confirmed: false,
-                            mitarbeiter_edit: r.mitarbeiter_edit.map((me, mi) => mi === mIdx
-                              ? { ...me, id: v, name: (employees as any[]).find((e: any) => e.id === v)?.name ?? '' } : me)
-                          } : r))}>
-                            <SelectTrigger className="h-10 rounded-xl flex-1 text-sm">
+                          <Select
+                            value={m.id}
+                            disabled={currentVerify.already_erledigt && !currentVerify.override_erledigt}
+                            onValueChange={v => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
+                              ...r, confirmed: false,
+                              mitarbeiter_edit: r.mitarbeiter_edit.map((me, mi) => mi === mIdx
+                                ? { ...me, id: v, name: (employees as any[]).find((e: any) => e.id === v)?.name ?? '' } : me)
+                            } : r))}>
+                            <SelectTrigger className={`h-10 rounded-xl flex-1 text-sm ${currentVerify.already_erledigt && !currentVerify.override_erledigt ? 'opacity-40' : ''}`}>
                               <SelectValue placeholder="Mitarbeiter wählen..." />
                             </SelectTrigger>
                             <SelectContent style={{ background:'#fff', border:'1px solid #e2e8f0', boxShadow:'0 8px 24px rgba(0,0,0,0.12)', zIndex:9999 }}>
@@ -793,27 +892,31 @@ export default function PdfRuecklauf() {
                               ))}
                             </SelectContent>
                           </Select>
-                          <button onClick={() => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
-                            ...r, confirmed: false,
-                            mitarbeiter_edit: r.mitarbeiter_edit.filter((_, mi) => mi !== mIdx)
-                          } : r))} className="p-2 rounded-xl hover:bg-red-50 text-red-400 transition-colors">
+                          <button
+                            disabled={currentVerify.already_erledigt && !currentVerify.override_erledigt}
+                            onClick={() => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
+                              ...r, confirmed: false,
+                              mitarbeiter_edit: r.mitarbeiter_edit.filter((_, mi) => mi !== mIdx)
+                            } : r))}
+                            className="p-2 rounded-xl hover:bg-red-50 text-red-400 transition-colors disabled:opacity-30">
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       ))}
-                      <button onClick={() => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
-                        ...r, confirmed: false,
-                        mitarbeiter_edit: [...r.mitarbeiter_edit, { id: '', name: '' }]
-                      } : r))} className="flex items-center gap-1.5 text-xs text-[#1e3a5f] hover:text-blue-600 font-medium transition-colors">
-                        <Plus className="h-3.5 w-3.5" /> Mitarbeiter hinzufügen
-                      </button>
+                      {(!currentVerify.already_erledigt || currentVerify.override_erledigt) && (
+                        <button onClick={() => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
+                          ...r, confirmed: false,
+                          mitarbeiter_edit: [...r.mitarbeiter_edit, { id: '', name: '' }]
+                        } : r))} className="flex items-center gap-1.5 text-xs text-[#1e3a5f] hover:text-blue-600 font-medium transition-colors">
+                          <Plus className="h-3.5 w-3.5" /> Mitarbeiter hinzufügen
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* Aktionen */}
                 <div className="px-6 pb-6 pt-2 border-t border-gray-100 space-y-2">
-                  {/* Bestätigen Button */}
                   <button
                     onClick={() => {
                       setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, confirmed: true } : v));
@@ -822,11 +925,16 @@ export default function PdfRuecklauf() {
                     className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors
                       ${currentVerify.confirmed
                         ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                        : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
+                        : currentVerify.already_erledigt && !currentVerify.override_erledigt
+                          ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
                     <CheckCircle className="h-4 w-4" />
-                    {currentVerify.confirmed ? '✓ Bestätigt — weiter' : 'Bestätigen & weiter'}
+                    {currentVerify.confirmed
+                      ? '✓ Bestätigt — weiter'
+                      : currentVerify.already_erledigt && !currentVerify.override_erledigt
+                        ? 'Überspringen & weiter'
+                        : 'Bestätigen & weiter'}
                   </button>
-
                   <div className="flex gap-2">
                     <button onClick={() => setVerifyIndex(i => Math.max(0, i - 1))} disabled={verifyIndex === 0}
                       className="flex-1 flex items-center justify-center gap-1 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors">
@@ -842,7 +950,7 @@ export default function PdfRuecklauf() {
             </div>
           </div>
 
-          {/* Import Button — nur wenn alle bestätigt */}
+          {/* Import Button */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
             <div className="flex items-center justify-between mb-3">
               <div>
