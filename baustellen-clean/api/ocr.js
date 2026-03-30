@@ -31,102 +31,57 @@ export default async function handler(req, res) {
 - Paredis Pascal (Kürzel: PP)
 - Marcel Münch (Kürzel: MM)`;
 
-    const prompt = `Du analysierst einen gescannten Arbeitsauftrag (Ticket) der Märkischen Kliniken GmbH.
-Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, kein Text davor oder danach.
+    const prompt = `Analysiere diesen Arbeitsauftrag der Märkischen Kliniken GmbH.
+Antworte AUSSCHLIESSLICH mit einem JSON-Objekt ohne Text davor oder danach.
 
-MITARBEITERLISTE – nur diese Personen sind möglich:
+MITARBEITERLISTE (nur diese Personen existieren):
 ${empList}
 
-━━━ FELD 1: a_nummer ━━━
-Suche nach "Auftragsnr." oben links auf dem Formular.
-Format: A26-XXXXX oder A25-XXXXX
-Wenn nicht lesbar: null
+FELDER ZUM AUSLESEN:
 
-━━━ FELD 2: werkstatt ━━━
-Suche nach "Werkstatt:" — typische Werte: "Hochbau", "Elektrotechnik", "HLS"
-Exakt übernehmen.
+1. a_nummer
+Wo: Oben links, Zeile "Auftragsnr.:"
+Format: A26-XXXXX oder A25-XXXXX (gedruckt, nicht handschriftlich)
+Fehlt: null
 
-━━━ FELD 3: mitarbeiter_namen (ARRAY) ━━━
-Schaue AUSSCHLIESSLICH auf das Feld "Name:" rechts neben "Bearbeiter: WIDI Gebäudeservice GmbH (LÜD)".
-NUR was in diesem Feld steht zählt. Ignoriere Erledigungsvermerk, Beschreibung und alle anderen Felder.
+2. werkstatt  
+Wo: Rechte Seite der Auftragsdaten, Zeile "Werkstatt:"
+Werte: exakt so übernehmen wie gedruckt — "Elektrotechnik", "Hochbau", "HLS"
+WICHTIG: Lies was wirklich dort steht. Elektrotechnik ≠ Hochbau.
 
-Das Name-Feld kann einen oder zwei Namen enthalten — übereinander oder nebeneinander.
-LIES ALLE Namen die direkt in diesem Feld stehen.
+3. mitarbeiter_namen (Array)
+Wo: Unterer Teil des Formulars, Zeile "Bearbeiter: WIDI Gebäudeservice GmbH (LÜD)" — rechts daneben steht handschriftlich "Name: [Handschrift]"
+NUR dieses handschriftliche Name-Feld auslesen.
+Matching: 
+  - 2 Großbuchstaben (MK, SG, CE...) → exakt gegen Kürzel matchen
+  - Nachname erkennbar → aus Liste suchen
+  - Unsicher → lieber weglassen als falsch raten
 
-MATCHING-REGELN (in dieser Reihenfolge prüfen):
-1. Kürzel (2 Großbuchstaben): EXAKT gegen Kürzel-Spalte matchen — nie raten
-   Beispiele: SG→Stefan Giesmann, TB→Timo Bartelt, CE→Caspar Epe, UG→Uwe Gräwe, FW→Frank Werner
-   NIEMALS: SG mit SB, CE mit CR, TB mit TW verwechseln
-2. Voller Name (Vorname + Nachname) → aus Liste übernehmen
-3. Nur Nachname → passenden Mitarbeiter aus Liste suchen
-4. Abkürzung + Nachname ("St. Giesmann") → Nachname suchen
+4. mitarbeiter_name
+Erster Eintrag aus mitarbeiter_namen als String.
 
-KRITISCH — Verwechslungsgefahr: Schreibe den gelesenen Namen auf und vergleiche ihn
-Buchstabe für Buchstabe mit jedem Kürzel bevor du matchst.
+5. leistungsdatum
+Wo: In der ARBEITSTABELLE (mit Spalten Datum/Von/Bis/Std) — handschriftlich in der "Datum" Spalte
+NICHT: "Beauftragt von ... am XX.XX.XXXX" — das ist das Eingangsdatum, IGNORIEREN
+Format: YYYY-MM-DD. 26=2026, 25=2025.
+Kontext: Upload-Monat ist {{UPLOAD_MONTH}}/{{UPLOAD_YEAR}}
+Kein Datum erkennbar: null
 
-WICHTIG: Nur Namen zurückgeben die WIRKLICH im Name-Feld stehen.
-Wenn EIN Name → nur EINEN zurückgeben. Niemals erfinden.
+6. stunden_gesamt
+Wo: Spalte "Std./Stk." in der Arbeitstabelle (4. Spalte, nach Von und Bis)
+Komma ist Dezimalzeichen: 0,5→0.5  1,5→1.5  0,25→0.25
+Mehrere Zeilen: alle addieren
+Plausibilitätsprüfung: Bis minus Von sollte ungefähr gleich sein
+Nicht lesbar: null
 
-━━━ FELD 4: mitarbeiter_name ━━━
-Der erste Mitarbeiter aus mitarbeiter_namen als einzelner String.
+7. arbeitszeit_von / arbeitszeit_bis
+Uhrzeiten aus Spalten "Von" und "Bis" der ersten Zeile. Format HH:MM. Sonst null.
 
-━━━ FELD 5: leistungsdatum ━━━
-Das ist das Datum WANN die Arbeit ausgeführt wurde — NICHT wann das Ticket erstellt wurde.
+8. konfidenz
+0.0-1.0 — Sicherheit bei Name + Stunden zusammen.
 
-Das Formular hat zwei verschiedene Datumsbereiche:
-1. OBEN auf dem Formular: "Auftrag vom" oder "Ausgedruckt am" → das ist das EINGANGSDATUM → IGNORIEREN für leistungsdatum
-2. IN DER ARBEITSTABELLE: handschriftlich in der Spalte "Datum" neben Von/Bis/Std → das ist das LEISTUNGSDATUM → das wollen wir
-
-Schaue NUR in die Arbeitstabelle (die Zeilen mit Von/Bis/Stunden).
-Wenn mehrere Zeilen ausgefüllt sind: nimm das SPÄTESTE (= letzte) Datum.
-Format YYYY-MM-DD. Zweistelliges Jahr: 25=2025, 26=2026.
-Beispiele: "06.01.26" → "2026-01-06", "5.1.26" → "2026-01-06", "14." → ergänze mit Monat/Jahr aus Kontext.
-
-KONTEXT: Das Ticket wurde im Monat {{UPLOAD_MONTH}} / Jahr {{UPLOAD_YEAR}} hochgeladen.
-Falls kein Monat auf dem Ticket erkennbar → nutze {{UPLOAD_MONTH}}.
-Falls kein Jahr erkennbar → nutze {{UPLOAD_YEAR}}.
-Wenn gar kein Datum in der Arbeitstabelle steht → null (niemals ein Datum erfinden).
-
-━━━ FELD 6: stunden_gesamt ━━━
-Die Arbeitstabelle hat genau diese Spalten von links nach rechts:
-  [Datum] | [Von (Uhrzeit)] | [Bis (Uhrzeit)] | [Std./Stk.] | [Ausgeführte Arbeiten]
-
-SCHRITT 1 — Finde die Spalte "Std./Stk.":
-Sie ist die 4. Spalte, steht NACH Von/Bis und VOR der Beschreibung. Oft schmal.
-Nur in dieser Spalte stehen Stundenwerte wie: 0,25 / 0,5 / 0,75 / 1,0 / 1,5 / 2,0 / 2,5 usw.
-
-SCHRITT 2 — Lies JEDE Zeile der Std./Stk. Spalte einzeln:
-• Komma = Dezimaltrennzeichen: "2,0"=2.0 "0,5"=0.5 "1,5"=1.5 "0,25"=0.25 "1,75"=1.75
-• Handschrift ohne Komma: "20" in Std./Stk. ist fast immer "2,0"=2.0, "15"=1.5, "10"=1.0, "05"=0.5
-• Wenn Von/Bis ergibt z.B. 2.0h aber Std./Stk. zeigt 0.75h → nimm Von/Bis (Std./Stk. falsch gelesen)
-• Mehrere ausgefüllte Zeilen → ALLE Werte aus Std./Stk. addieren → das ist stunden_gesamt
-• Es ist normal dass mehrere Zeilen = mehrere Tage bedeuten — alle addieren
-• Leere Zeilen ignorieren
-
-SCHRITT 3 — Was NIEMALS Stunden sind:
-• Uhrzeiten mit Doppelpunkt (14:00, 7:45, 9:10) → das sind Von/Bis Zeiten, KEINE Stunden
-• Datumswerte (05.01, 6.1.26, 29.12) → das ist das Datum, KEINE Stunden
-• Zahlen aus der Beschreibungsspalte → ignorieren
-
-SCHRITT 4 — Plausibilitätsprüfung mit Von/Bis:
-Berechne für JEDE Zeile die Differenz Bis minus Von, dann alle addieren.
-Beispiel: Zeile 1: 14:00–14:45 = 0.75h + Zeile 2: 7:45–9:15 = 1.5h → Summe = 2.25h
-• Weichen Std./Stk. Summe und Von/Bis Summe um mehr als 0.5h ab → nimm Von/Bis Summe
-• Std./Stk. leer oder unleserlich → berechne komplett aus Von/Bis
-• Von/Bis nicht ausgefüllt → nimm nur Std./Stk.
-
-━━━ FELD 7: arbeitszeit_von ━━━
-Uhrzeit aus der Spalte "Von:" der ersten Zeile. Format "HH:MM". Sonst null.
-
-━━━ FELD 8: arbeitszeit_bis ━━━
-Uhrzeit aus der Spalte "Bis:" der ersten Zeile. Format "HH:MM". Sonst null.
-
-━━━ FELD 9: konfidenz ━━━
-0.0–1.0 — wie sicher bist du bei Mitarbeiter UND Stunden zusammen?
-Klare Handschrift: 0.85–0.95. Unleserlich: 0.55–0.70.
-
-Antworte NUR mit diesem JSON:
-{"a_nummer":"A26-01284","werkstatt":"Hochbau","mitarbeiter_namen":["Stefan Giesmann","Frank Werner"],"mitarbeiter_name":"Stefan Giesmann","leistungsdatum":"2026-01-06","stunden_gesamt":1.5,"arbeitszeit_von":"09:00","arbeitszeit_bis":"10:30","konfidenz":0.9}`;
+Antworte NUR mit:
+{"a_nummer":"A26-02015","werkstatt":"Elektrotechnik","mitarbeiter_namen":["Matthias Kubista"],"mitarbeiter_name":"Matthias Kubista","leistungsdatum":"2026-01-14","stunden_gesamt":0.5,"arbeitszeit_von":"12:15","arbeitszeit_bis":"12:45","konfidenz":0.85}`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000);
