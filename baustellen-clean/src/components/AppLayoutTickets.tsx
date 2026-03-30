@@ -1,8 +1,10 @@
 import { ReactNode } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useMonth } from '@/contexts/MonthContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home, Settings } from 'lucide-react';
+import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home, ClipboardList, Timer } from 'lucide-react';
 import { useEffect } from 'react';
 import { logPageVisit } from '@/lib/activityLog';
 import { supabase } from '@/integrations/supabase/client';
@@ -44,7 +46,6 @@ function MonthStepper() {
 
 const NAV_ITEMS = [
   { to: '/tickets/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/tickets/verwaltung',    icon: Settings,        label: 'Verwaltung' },
   { to: '/tickets/liste',         icon: Ticket,          label: 'Tickets' },
   { to: '/tickets/import',        icon: FileSpreadsheet, label: 'Excel-Import' },
   { to: '/tickets/pdf-ruecklauf', icon: FileText,        label: 'PDF-Rücklauf' },
@@ -81,6 +82,15 @@ function NavItem({ to, icon: Icon, children }: { to: string; icon: any; children
 export default function AppLayoutTickets({ children }: { children: ReactNode }) {
   const { signOut } = useAuth();
   const navigate = useNavigate();
+
+  const { data: openCount = 0 } = useQuery({
+    queryKey: ['open-ticket-count'],
+    queryFn: async () => {
+      const { count } = await supabase.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'in_bearbeitung');
+      return count ?? 0;
+    },
+    refetchInterval: 60000,
+  });
   const location = useLocation();
 
   useEffect(() => {
@@ -88,7 +98,6 @@ export default function AppLayoutTickets({ children }: { children: ReactNode }) 
       if (data.user?.email) {
         const pageNames: Record<string, string> = {
           '/tickets/dashboard': 'Tickets Dashboard',
-          '/tickets/verwaltung': 'Ticket-Verwaltung',
           '/tickets/liste': 'Ticket-Liste',
           '/tickets/import': 'Excel-Import',
           '/tickets/pdf-ruecklauf': 'PDF-Rücklauf',
