@@ -53,30 +53,39 @@ NUR was in diesem Feld steht zählt. Ignoriere Erledigungsvermerk, Beschreibung 
 Das Name-Feld kann einen oder zwei Namen enthalten — übereinander oder nebeneinander.
 LIES ALLE Namen die direkt in diesem Feld stehen.
 
-MATCHING-REGELN:
-- Voller Name (z.B. "Stefan Giesmann") → direkt aus der Mitarbeiterliste übernehmen
-- Nachname allein (z.B. "Giesmann") → passenden Mitarbeiter aus Liste suchen
-- Abkürzung + Nachname (z.B. "St. Giesmann") → Nachname matchen → Stefan Giesmann
-- Kürzel (z.B. "SG", "TB", "TW") → EXAKT gegen Kürzel in der Liste matchen
-- NIEMALS: SG mit SB verwechseln, TB mit TW verwechseln
+MATCHING-REGELN (in dieser Reihenfolge prüfen):
+1. Kürzel (2 Großbuchstaben): EXAKT gegen Kürzel-Spalte matchen — nie raten
+   Beispiele: SG→Stefan Giesmann, TB→Timo Bartelt, CE→Caspar Epe, UG→Uwe Gräwe, FW→Frank Werner
+   NIEMALS: SG mit SB, CE mit CR, TB mit TW verwechseln
+2. Voller Name (Vorname + Nachname) → aus Liste übernehmen
+3. Nur Nachname → passenden Mitarbeiter aus Liste suchen
+4. Abkürzung + Nachname ("St. Giesmann") → Nachname suchen
 
-WICHTIG: Wenn nur EIN Name im Feld steht → gib nur EINEN zurück. Nicht erfinden.
-WICHTIG: Gib nur Namen zurück die du wirklich im Name-Feld siehst.
+KRITISCH — Verwechslungsgefahr: Schreibe den gelesenen Namen auf und vergleiche ihn
+Buchstabe für Buchstabe mit jedem Kürzel bevor du matchst.
+
+WICHTIG: Nur Namen zurückgeben die WIRKLICH im Name-Feld stehen.
+Wenn EIN Name → nur EINEN zurückgeben. Niemals erfinden.
 
 ━━━ FELD 4: mitarbeiter_name ━━━
 Der erste Mitarbeiter aus mitarbeiter_namen als einzelner String.
 
 ━━━ FELD 5: leistungsdatum ━━━
-Das handschriftliche Datum aus der Arbeitstabelle unter "Datum:".
+Das ist das Datum WANN die Arbeit ausgeführt wurde — NICHT wann das Ticket erstellt wurde.
+
+Das Formular hat zwei verschiedene Datumsbereiche:
+1. OBEN auf dem Formular: "Auftrag vom" oder "Ausgedruckt am" → das ist das EINGANGSDATUM → IGNORIEREN für leistungsdatum
+2. IN DER ARBEITSTABELLE: handschriftlich in der Spalte "Datum" neben Von/Bis/Std → das ist das LEISTUNGSDATUM → das wollen wir
+
+Schaue NUR in die Arbeitstabelle (die Zeilen mit Von/Bis/Stunden).
 Wenn mehrere Zeilen ausgefüllt sind: nimm das SPÄTESTE (= letzte) Datum.
 Format YYYY-MM-DD. Zweistelliges Jahr: 25=2025, 26=2026.
-Beispiele: "06.01.26" → "2026-01-06", "5.1.26" → "2026-01-06", "14." → ergänze mit Monat und Jahr aus Kontext.
+Beispiele: "06.01.26" → "2026-01-06", "5.1.26" → "2026-01-06", "14." → ergänze mit Monat/Jahr aus Kontext.
 
-KONTEXT-DATUM: Das Ticket wurde im Monat {{UPLOAD_MONTH}} hochgeladen.
-Falls das Datum auf dem Ticket keinen Monat enthält (z.B. nur "14.") → nutze {{UPLOAD_MONTH}}.
-Falls das Jahr fehlt → nutze {{UPLOAD_YEAR}}.
-NIEMALS ein Datum aus einem anderen Monat wählen wenn der Monat auf dem Ticket nicht eindeutig lesbar ist.
-Wenn kein Datum erkennbar: gib null zurück (NICHT das heutige Datum erfinden).
+KONTEXT: Das Ticket wurde im Monat {{UPLOAD_MONTH}} / Jahr {{UPLOAD_YEAR}} hochgeladen.
+Falls kein Monat auf dem Ticket erkennbar → nutze {{UPLOAD_MONTH}}.
+Falls kein Jahr erkennbar → nutze {{UPLOAD_YEAR}}.
+Wenn gar kein Datum in der Arbeitstabelle steht → null (niemals ein Datum erfinden).
 
 ━━━ FELD 6: stunden_gesamt ━━━
 Die Arbeitstabelle hat genau diese Spalten von links nach rechts:
@@ -123,7 +132,7 @@ Antworte NUR mit diesem JSON:
     const timeout = setTimeout(() => controller.abort(), 30000);
 
     // Monat/Jahr in Prompt einsetzen
-    const finalPrompt = systemPrompt
+    const finalPrompt = prompt
       .replace(/{{UPLOAD_MONTH}}/g, aktuellerMonat)
       .replace(/{{UPLOAD_YEAR}}/g, aktuellesJahr);
 
