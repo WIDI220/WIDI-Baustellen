@@ -44,6 +44,7 @@ import TicketEskalationenPage from '@/pages/TicketEskalationenPage';
 import PdfRuecklauf from '@/pages/PdfRuecklauf';
 import ExcelImportPage from '@/pages/ExcelImportPage';
 import TicketVerwaltungPage from '@/pages/TicketVerwaltungPage';
+import InternePage from '@/pages/InternePage';
 
 // ── Auswertung ────────────────────────────────────────────────
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
@@ -109,6 +110,7 @@ function AppRoutes() {
             <Routes>
               <Route path="dashboard" element={<TicketsDashboard />} />
               <Route path="verwaltung" element={<TicketVerwaltungPage />} />
+              <Route path="intern" element={<InternePage />} />
               <Route path="liste" element={<TicketsPage />} />
               <Route path="analyse" element={<AnalysePage />} />
               <Route path="aufgaben" element={<AufgabenPage />} />
