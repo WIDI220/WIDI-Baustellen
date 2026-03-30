@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, Search, TrendingDown, Calendar, Layers, FileDown } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ChevronDown, ChevronRight, Search, TrendingDown, Calendar, Layers } from 'lucide-react';
 
 function fmt(d: string) {
   const [y, m, day] = d.split('-');
@@ -35,142 +35,6 @@ const GW: Record<string, { bg: string; text: string }> = {
   Hochbau: { bg: '#dcfce7', text: '#15803d' },
   Elektro: { bg: '#dbeafe', text: '#1d4ed8' },
 };
-
-// ── PDF Export ────────────────────────────────────────────────────────────────
-function exportPDF(tickets: any[], gewerk: string) {
-  const now = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const color = gewerk === 'Elektro' ? '#1d4ed8' : '#15803d';
-  const bgColor = gewerk === 'Elektro' ? '#dbeafe' : '#dcfce7';
-
-  // Gruppe nach Monat
-  const byMonth: Record<string, any[]> = {};
-  for (const t of tickets) {
-    const ym = (t.eingangsdatum as string).slice(0, 7);
-    if (!byMonth[ym]) byMonth[ym] = [];
-    byMonth[ym].push(t);
-  }
-
-  const rowsHtml = Object.entries(byMonth)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([ym, tix]) => {
-      const monthHead = `
-        <tr>
-          <td colspan="4" style="background:#f1f5f9;padding:8px 12px;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #e2e8f0;">
-            ${monthLabel(ym)} &nbsp;·&nbsp; ${tix.length} Tickets
-          </td>
-        </tr>`;
-      const rows = tix.map((t: any, i: number) => {
-        const days = ageDays(t.eingangsdatum);
-        const dayColor = days > 30 ? '#b91c1c' : days > 14 ? '#ef4444' : days > 7 ? '#f59e0b' : '#64748b';
-        const bg = i % 2 === 0 ? '#fff' : '#f8fafc';
-        return `
-        <tr style="background:${bg};">
-          <td style="padding:7px 12px;font-size:12px;font-weight:700;font-family:monospace;color:#0f172a;border-bottom:1px solid #f1f5f9;">${t.a_nummer}</td>
-          <td style="padding:7px 12px;font-size:12px;color:#374151;border-bottom:1px solid #f1f5f9;">${fmt(t.eingangsdatum)}</td>
-          <td style="padding:7px 12px;font-size:12px;font-weight:700;color:${dayColor};border-bottom:1px solid #f1f5f9;">${days} Tage${days > 14 ? ' ⚠' : ''}</td>
-          <td style="padding:7px 12px;font-size:11px;color:#94a3b8;border-bottom:1px solid #f1f5f9;">KW${getKW(t.eingangsdatum)}</td>
-        </tr>`;
-      }).join('');
-      return monthHead + rows;
-    }).join('');
-
-  const html = `<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8"/>
-<title>Offene ${gewerk}-Tickets · ${now}</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; color: #0f172a; background: #fff; padding: 32px; }
-  @media print {
-    body { padding: 16px; }
-    .no-print { display: none !important; }
-    @page { margin: 1.5cm; }
-  }
-</style>
-</head>
-<body>
-
-<!-- Header -->
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:20px;border-bottom:2px solid ${color};">
-  <div>
-    <div style="display:inline-block;background:${bgColor};color:${color};font-size:11px;font-weight:700;padding:3px 10px;border-radius:99px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">${gewerk}</div>
-    <h1 style="font-size:22px;font-weight:800;color:#0f172a;margin-bottom:4px;">Offene Tickets · ${gewerk}</h1>
-    <p style="font-size:12px;color:#64748b;">Erstellt am ${now} · WIDI Hellersen GmbH</p>
-  </div>
-  <div style="text-align:right;">
-    <p style="font-size:28px;font-weight:800;color:${color};">${tickets.length}</p>
-    <p style="font-size:11px;color:#94a3b8;">offene Tickets</p>
-  </div>
-</div>
-
-<!-- Statistik -->
-<div style="display:flex;gap:16px;margin-bottom:24px;">
-  ${[
-    { label: 'Überfällig >14T', val: tickets.filter((t:any) => ageDays(t.eingangsdatum) > 14).length, color: '#ef4444' },
-    { label: 'Überfällig >30T', val: tickets.filter((t:any) => ageDays(t.eingangsdatum) > 30).length, color: '#b91c1c' },
-    { label: 'Monate offen',    val: Object.keys(byMonth).length,                                      color: '#8b5cf6' },
-  ].map(s => `
-    <div style="flex:1;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px;">
-      <p style="font-size:20px;font-weight:800;color:${s.color};margin-bottom:2px;">${s.val}</p>
-      <p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;">${s.label}</p>
-    </div>`).join('')}
-</div>
-
-<!-- Tabelle -->
-<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
-  <thead>
-    <tr style="background:${color};">
-      <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:.06em;">A-Nummer</th>
-      <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:.06em;">Eingang</th>
-      <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:.06em;">Alter</th>
-      <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#fff;text-transform:uppercase;letter-spacing:.06em;">KW</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${rowsHtml}
-  </tbody>
-</table>
-
-<!-- Unterschrift -->
-<div style="margin-top:48px;display:flex;gap:48px;">
-  <div style="flex:1;">
-    <div style="border-top:1px solid #cbd5e1;padding-top:8px;">
-      <p style="font-size:11px;color:#94a3b8;">Geprüft von</p>
-    </div>
-  </div>
-  <div style="flex:1;">
-    <div style="border-top:1px solid #cbd5e1;padding-top:8px;">
-      <p style="font-size:11px;color:#94a3b8;">Datum</p>
-    </div>
-  </div>
-  <div style="flex:1;">
-    <div style="border-top:1px solid #cbd5e1;padding-top:8px;">
-      <p style="font-size:11px;color:#94a3b8;">Unterschrift</p>
-    </div>
-  </div>
-</div>
-
-<!-- Drucken Button -->
-<div class="no-print" style="margin-top:32px;text-align:center;">
-  <button onclick="window.print()" style="padding:12px 32px;background:${color};color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">
-    🖨 Als PDF drucken / speichern
-  </button>
-</div>
-
-</body>
-</html>`;
-
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, '_blank');
-  if (win) {
-    win.onload = () => {
-      setTimeout(() => win.print(), 300);
-    };
-  }
-}
-// ─────────────────────────────────────────────────────────────────────────────
 
 function MonatBlock({ ym, tickets, onErledige, loading }: {
   ym: string; tickets: any[];
@@ -334,9 +198,6 @@ export default function TicketVerwaltungPage() {
   const overdue = tickets.filter((t: any) => ageDays(t.eingangsdatum) > 14).length;
   const oldest  = tickets[0];
 
-  const hochbauTickets = useMemo(() => tickets.filter((t: any) => t.gewerk === 'Hochbau'), [tickets]);
-  const elektroTickets = useMemo(() => tickets.filter((t: any) => t.gewerk === 'Elektro'), [tickets]);
-
   return (
     <div style={{ fontFamily: "'Inter', system-ui, sans-serif", maxWidth: 1100 }}>
       <div style={{ marginBottom: 20 }}>
@@ -360,30 +221,6 @@ export default function TicketVerwaltungPage() {
             </div>
           </div>
         ))}
-      </div>
-
-      {/* PDF Export Buttons */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <button
-          onClick={() => exportPDF(hochbauTickets, 'Hochbau')}
-          disabled={hochbauTickets.length === 0}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 18px', background: hochbauTickets.length === 0 ? '#f1f5f9' : '#f0fdf4', border: `1px solid ${hochbauTickets.length === 0 ? '#e2e8f0' : '#d1fae5'}`, borderRadius: 10, color: hochbauTickets.length === 0 ? '#94a3b8' : '#15803d', fontSize: 13, fontWeight: 600, cursor: hochbauTickets.length === 0 ? 'not-allowed' : 'pointer' }}
-          onMouseEnter={e => { if (hochbauTickets.length > 0) { (e.currentTarget as HTMLElement).style.background = '#15803d'; (e.currentTarget as HTMLElement).style.color = '#fff'; } }}
-          onMouseLeave={e => { if (hochbauTickets.length > 0) { (e.currentTarget as HTMLElement).style.background = '#f0fdf4'; (e.currentTarget as HTMLElement).style.color = '#15803d'; } }}
-        >
-          <FileDown size={15} />
-          Hochbau PDF ({hochbauTickets.length} Tickets)
-        </button>
-        <button
-          onClick={() => exportPDF(elektroTickets, 'Elektro')}
-          disabled={elektroTickets.length === 0}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 18px', background: elektroTickets.length === 0 ? '#f1f5f9' : '#eff6ff', border: `1px solid ${elektroTickets.length === 0 ? '#e2e8f0' : '#bfdbfe'}`, borderRadius: 10, color: elektroTickets.length === 0 ? '#94a3b8' : '#1d4ed8', fontSize: 13, fontWeight: 600, cursor: elektroTickets.length === 0 ? 'not-allowed' : 'pointer' }}
-          onMouseEnter={e => { if (elektroTickets.length > 0) { (e.currentTarget as HTMLElement).style.background = '#1d4ed8'; (e.currentTarget as HTMLElement).style.color = '#fff'; } }}
-          onMouseLeave={e => { if (elektroTickets.length > 0) { (e.currentTarget as HTMLElement).style.background = '#eff6ff'; (e.currentTarget as HTMLElement).style.color = '#1d4ed8'; } }}
-        >
-          <FileDown size={15} />
-          Elektro PDF ({elektroTickets.length} Tickets)
-        </button>
       </div>
 
       {/* Globale Suche */}
