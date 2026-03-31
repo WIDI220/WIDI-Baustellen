@@ -121,7 +121,7 @@ export default function TicketsPage() {
       if (error) throw error;
       toast.success(`✅ ${a} angelegt`);
       setShowNeu(false);
-      setNeuForm({ a_nummer: '', gewerk: 'Hochbau', eingangsdatum: new Date().toISOString().split('T')[0] });
+      setNeuForm(f => ({ a_nummer: '', gewerk: f.gewerk, eingangsdatum: new Date().toISOString().split('T')[0] }));
       queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
     } catch (e: any) {
       toast.error(e.message);
@@ -131,6 +131,7 @@ export default function TicketsPage() {
   }
   const [statusFilter, setStatusFilter] = useState('all');
   const [gewerkFilter, setGewerkFilter] = useState('all');
+  const [stundenFilter, setStundenFilter] = useState('all');
   const [page, setPage] = useState(0);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -165,9 +166,17 @@ export default function TicketsPage() {
     },
   });
 
-  const tickets = data?.tickets ?? [];
-  const totalCount = data?.total ?? 0;
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+  const tickets = (data?.tickets ?? []).filter((t: any) => {
+    const wl = t.ticket_worklogs ?? [];
+    const totalH = wl.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+    const hasMa = wl.some((w: any) => w.employees?.kuerzel);
+    if (stundenFilter === 'mit_stunden') return totalH > 0 || hasMa;
+    if (stundenFilter === 'ohne_stunden') return totalH === 0 && !hasMa;
+    if (stundenFilter === 'erledigt_ohne') return (t.status === 'erledigt' || t.status === 'abrechenbar' || t.status === 'abgerechnet') && totalH === 0;
+    return true;
+  });
+  const totalCount = stundenFilter === 'all' ? (data?.total ?? 0) : tickets.length;
+  const totalPages = Math.ceil((stundenFilter === 'all' ? (data?.total ?? 0) : tickets.length) / PAGE_SIZE);
 
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -334,6 +343,15 @@ export default function TicketsPage() {
         <Select value={gewerkFilter} onValueChange={v => { setGewerkFilter(v); setPage(0); }}>
           <SelectTrigger className="w-[120px] h-9 rounded-xl border-gray-200"><SelectValue placeholder="Gewerk" /></SelectTrigger>
           <SelectContent><SelectItem value="all">Alle</SelectItem><SelectItem value="Hochbau">Hochbau</SelectItem><SelectItem value="Elektro">Elektro</SelectItem></SelectContent>
+        </Select>
+        <Select value={stundenFilter} onValueChange={v => { setStundenFilter(v); setPage(0); }}>
+          <SelectTrigger className="w-[190px] h-9 rounded-xl border-gray-200"><SelectValue placeholder="Stunden" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Alle Tickets</SelectItem>
+            <SelectItem value="mit_stunden">✅ Mit Stunden / Mitarbeiter</SelectItem>
+            <SelectItem value="ohne_stunden">⬜ Ohne Stunden / Mitarbeiter</SelectItem>
+            <SelectItem value="erledigt_ohne">⚠️ Erledigt ohne Stunden</SelectItem>
+          </SelectContent>
         </Select>
         {selected.size > 0 && (<>
           <Button variant="outline" size="sm" className="h-9 rounded-xl border-blue-200 text-blue-600 hover:bg-blue-50"
