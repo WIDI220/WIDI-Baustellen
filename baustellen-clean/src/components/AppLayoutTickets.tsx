@@ -45,18 +45,20 @@ function MonthStepper() {
 
 const NAV_ITEMS = [
   { to: '/tickets/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/tickets/verwaltung',    icon: ClipboardList,   label: 'Verwaltung' },
   { to: '/tickets/liste',         icon: Ticket,          label: 'Tickets' },
   { to: '/tickets/import',        icon: FileSpreadsheet, label: 'Excel-Import' },
   { to: '/tickets/pdf-ruecklauf', icon: FileText,        label: 'PDF-Rücklauf' },
   { to: '/tickets/mitarbeiter',   icon: Users,           label: 'Mitarbeiter' },
   { to: '/tickets/analyse',       icon: TrendingUp,      label: 'Analyse' },
   { to: '/tickets/aufgaben',      icon: ClipboardCheck,  label: 'Begehungen' },
+  { to: '/tickets/intern',        icon: Timer,           label: 'Interne Std.' },
 ];
 
 const ACCENT = '#10b981';
 const ACCENT_LIGHT = 'rgba(16,185,129,0.15)';
 
-function NavItem({ to, icon: Icon, children }: { to: string; icon: any; children: string }) {
+function NavItem({ to, icon: Icon, children, badge }: { to: string; icon: any; children: string; badge?: number }) {
   const location = useLocation();
   const active = location.pathname === to || (to !== '/tickets/dashboard' && location.pathname.startsWith(to));
 
@@ -73,7 +75,12 @@ function NavItem({ to, icon: Icon, children }: { to: string; icon: any; children
       onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.45)'; } }}
     >
       <Icon size={15} style={{ flexShrink: 0 }} />
-      {children}
+      <span style={{ flex: 1 }}>{children}</span>
+      {badge != null && badge > 0 && (
+        <span style={{ fontSize: 10, fontWeight: 700, background: '#ef4444', color: '#fff', borderRadius: 99, padding: '1px 6px', minWidth: 18, textAlign: 'center' }}>
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </Link>
   );
 }
@@ -161,7 +168,7 @@ export default function AppLayoutTickets({ children }: { children: ReactNode }) 
         <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,0.2)', fontWeight: 600, padding: '6px 16px 4px', margin: 0 }}>Navigation</p>
         <nav style={{ flex: 1, padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
           {NAV_ITEMS.map(({ to, icon, label }) => (
-            <NavItem key={to} to={to} icon={icon}>{label}</NavItem>
+            <NavItem key={to} to={to} icon={icon} badge={label === 'Verwaltung' ? openCount : undefined}>{label}</NavItem>
           ))}
         </nav>
 
