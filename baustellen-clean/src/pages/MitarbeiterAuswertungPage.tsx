@@ -400,8 +400,11 @@ export default function MitarbeiterAuswertungPage() {
           </div>
 
           {selectedEmp && (() => {
-            const urlaubTage = (abwesenheiten as any[]).filter((a:any) => a.typ === 'urlaub').length;
-            const krankTage  = (abwesenheiten as any[]).filter((a:any) => a.typ === 'krank').length;
+            const monatVon = `${year}-${String(month).padStart(2,'0')}-01`;
+            const monatBis = `${year}-${String(month).padStart(2,'0')}-${String(new Date(year, month, 0).getDate()).padStart(2,'0')}`;
+            const abwMonat = (abwesenheiten as any[]).filter((a:any) => a.datum >= monatVon && a.datum <= monatBis);
+            const urlaubTage = abwMonat.filter((a:any) => a.typ === 'urlaub').length;
+            const krankTage  = abwMonat.filter((a:any) => a.typ === 'krank').length;
             const urlaubH    = Math.round(urlaubTage * 8 * 4) / 4;
             const krankH     = Math.round(krankTage  * 8 * 4) / 4;
             const gesamtMitAbw = selectedEmp.gesamt + urlaubH + krankH;
