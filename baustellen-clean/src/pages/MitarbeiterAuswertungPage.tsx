@@ -385,202 +385,225 @@ export default function MitarbeiterAuswertungPage() {
       {/* ═══════════════════ TAB: EINZELPERSON ═══════════════════ */}
       {activeTab === 'Einzelperson' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {/* MA Auswahl */}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+
+          {/* ── MA Auswahl ── */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {maStats.map(e => (
               <button key={e.id} onClick={() => setSelectedMA(e.id)} style={{
-                padding: '8px 16px', borderRadius: 12, border: '2px solid',
+                padding: '7px 14px', borderRadius: 10, border: '2px solid',
                 borderColor: selectedMA === e.id || (!selectedMA && e === maStats[0]) ? e.farbe : '#e2e8f0',
                 background: selectedMA === e.id || (!selectedMA && e === maStats[0]) ? e.farbe + '15' : '#fff',
                 color: selectedMA === e.id || (!selectedMA && e === maStats[0]) ? e.farbe : '#64748b',
-                fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all .15s',
-              }}>{e.name}</button>
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all .15s',
+              }}>{e.kuerzel}</button>
             ))}
           </div>
 
           {selectedEmp && (() => {
-            // Monats-Verlauf für diese Person
+            const urlaubTage = (abwesenheiten as any[]).filter((a:any) => a.typ === 'urlaub').length;
+            const krankTage  = (abwesenheiten as any[]).filter((a:any) => a.typ === 'krank').length;
+            const urlaubH    = Math.round(urlaubTage * 8 * 4) / 4;
+            const krankH     = Math.round(krankTage  * 8 * 4) / 4;
+            const gesamtMitAbw = selectedEmp.gesamt + urlaubH + krankH;
+
+            // Balken-Prozente
+            const pT   = gesamtMitAbw > 0 ? (selectedEmp.tH   / gesamtMitAbw * 100) : 0;
+            const pB   = gesamtMitAbw > 0 ? (selectedEmp.bH   / gesamtMitAbw * 100) : 0;
+            const pBeg = gesamtMitAbw > 0 ? ((selectedEmp.begH||0) / gesamtMitAbw * 100) : 0;
+            const pInt = gesamtMitAbw > 0 ? ((selectedEmp.intH||0) / gesamtMitAbw * 100) : 0;
+            const pU   = gesamtMitAbw > 0 ? (urlaubH / gesamtMitAbw * 100) : 0;
+            const pK   = gesamtMitAbw > 0 ? (krankH  / gesamtMitAbw * 100) : 0;
+
+            // Monatsverlauf (6 Monate) inkl. Urlaub/Krank
             const personVerlauf = Array.from({ length: 6 }, (_, i) => {
               const d = new Date(year, month - 1 - (5 - i), 1);
               const y2 = d.getFullYear(); const m2 = d.getMonth() + 1;
-              const v = `${monatStr(y2, m2)}-01`; const b = `${monatStr(y2, m2)}-31`;
-              const tH2 = (ticketAll as any[]).filter(w => w.employee_id === selectedEmp.id && w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-              const bH2 = (bauAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && w.datum >= v && w.datum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-              return { monat: MONATE[m2 - 1], Tickets: Math.round(tH2 * 10) / 10, Baustellen: Math.round(bH2 * 10) / 10 };
+              const v = `${monatStr(y2,m2)}-01`;
+              const lastD = new Date(y2, m2, 0).getDate();
+              const b = `${monatStr(y2,m2)}-${String(lastD).padStart(2,'0')}`;
+              const tH2   = (ticketAll as any[]).filter(w => w.employee_id === selectedEmp.id && w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const bH2   = (bauAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && w.datum >= v && w.datum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              return {
+                monat: MONATE[m2-1],
+                Tickets: Math.round(tH2*4)/4,
+                Baustellen: Math.round(bH2*4)/4,
+              };
             });
 
-            const avgH = personVerlauf.reduce((s, m) => s + m.Tickets + m.Baustellen, 0) / 6;
-            const maxH = Math.max(...personVerlauf.map(m => m.Tickets + m.Baustellen));
+            const STUNDEN_FELDER = [
+              { label: 'Tickets',     h: selectedEmp.tH,          color: '#3b82f6', bg: '#eff6ff' },
+              { label: 'Baustellen',  h: selectedEmp.bH,          color: '#10b981', bg: '#f0fdf4' },
+              { label: 'Begehungen',  h: selectedEmp.begH||0,     color: '#f59e0b', bg: '#fffbeb' },
+              { label: 'Intern',      h: selectedEmp.intH||0,     color: '#8b5cf6', bg: '#f5f3ff' },
+              { label: 'Urlaub',      h: urlaubH,                  color: '#10b981', bg: '#dcfce7' },
+              { label: 'Krank',       h: krankH,                   color: '#ef4444', bg: '#fee2e2' },
+            ].filter(f => f.h > 0);
 
             return (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {/* Person KPIs */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
-                  {[
-                    { label: 'Tickets diesen Monat', value: `${fmt(selectedEmp.tH)}h`, color: '#3b82f6' },
-                    { label: 'Baustellen diesen Monat', value: `${fmt(selectedEmp.bH)}h`, color: '#10b981' },
-                    { label: 'Gesamt diesen Monat', value: `${fmt(selectedEmp.gesamt)}h`, color: '#8b5cf6' },
-                    { label: 'Personalkosten', value: fmtEur(selectedEmp.kosten), color: '#f59e0b' },
-                  ].map(k => (
-                    <div key={k.label} style={cardStyle(k.color)}>
-                      <p style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', margin: '0 0 8px' }}>{k.label}</p>
-                      <p style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: 0 }}>{k.value}</p>
-                    </div>
-                  ))}
-                </div>
 
-                {/* Insights */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-                  <div style={{ background: '#fff', borderRadius: 16, padding: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 8px rgba(0,0,0,.04)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                      <TrendingUp size={16} style={{ color: '#8b5cf6' }} />
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>6-Monats-Schnitt</span>
+                {/* ── Name + Gesamtstunden Header ── */}
+                <div style={{ background: `linear-gradient(135deg, ${selectedEmp.farbe}18, ${selectedEmp.farbe}08)`, border: `1px solid ${selectedEmp.farbe}30`, borderRadius: 18, padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 12, background: selectedEmp.farbe, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 800, color: '#fff' }}>{selectedEmp.kuerzel}</div>
+                      <div>
+                        <p style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-.03em' }}>{selectedEmp.name}</p>
+                        <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>{monatLabel}</p>
+                      </div>
                     </div>
-                    <p style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', margin: '0 0 4px' }}>{fmt(avgH)}h</p>
-                    <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Ø pro Monat</p>
                   </div>
-                  <div style={{ background: '#fff', borderRadius: 16, padding: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 8px rgba(0,0,0,.04)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                      <Zap size={16} style={{ color: '#f59e0b' }} />
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Spitzenwert</span>
-                    </div>
-                    <p style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', margin: '0 0 4px' }}>{fmt(maxH)}h</p>
-                    <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Bestes Monat (6 Mon.)</p>
-                  </div>
-                  <div style={{ background: '#fff', borderRadius: 16, padding: 20, border: '1px solid #f1f5f9', boxShadow: '0 2px 8px rgba(0,0,0,.04)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                      <Target size={16} style={{ color: '#10b981' }} />
-                      <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Anteil Tickets</span>
-                    </div>
-                    <p style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', margin: '0 0 4px' }}>
-                      {selectedEmp.gesamt > 0 ? Math.round(selectedEmp.tH / selectedEmp.gesamt * 100) : 0}%
-                    </p>
-                    <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>vs. Baustellen</p>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ fontSize: 36, fontWeight: 900, color: selectedEmp.farbe, margin: 0, letterSpacing: '-.05em' }}>{fmt(gesamtMitAbw)}h</p>
+                    <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>Gesamtstunden inkl. Abwesenheit</p>
                   </div>
                 </div>
 
-                {/* Verlauf Chart */}
-                <div style={{ background: '#fff', borderRadius: 18, padding: 24, border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,.04)' }}>
-                  <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>6-Monats-Verlauf – {selectedEmp.name}</h3>
-                  <p style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 20px' }}>Stunden pro Monat aufgeschlüsselt</p>
-                  <ResponsiveContainer width="100%" height={220}>
-                    <BarChart data={personVerlauf} barGap={4} barCategoryGap="35%">
+                {/* ── Stunden Aufschlüsselung ── */}
+                <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', padding: '20px 24px' }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 16px', letterSpacing: '-.01em' }}>Stunden-Aufschlüsselung</p>
+
+                  {/* Gestapelter Fortschrittsbalken */}
+                  <div style={{ height: 14, borderRadius: 99, overflow: 'hidden', display: 'flex', marginBottom: 20, background: '#f1f5f9' }}>
+                    {[
+                      { pct: pT,   color: '#3b82f6' },
+                      { pct: pB,   color: '#10b981' },
+                      { pct: pBeg, color: '#f59e0b' },
+                      { pct: pInt, color: '#8b5cf6' },
+                      { pct: pU,   color: '#86efac' },
+                      { pct: pK,   color: '#fca5a5' },
+                    ].filter(s => s.pct > 0).map((s, i) => (
+                      <div key={i} style={{ width: `${s.pct}%`, background: s.color, transition: 'width .6s cubic-bezier(.16,1,.3,1)' }} />
+                    ))}
+                  </div>
+
+                  {/* Einzelne Felder */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {STUNDEN_FELDER.map(f => (
+                      <div key={f.label}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: 3, background: f.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{f.label}</span>
+                            {f.label === 'Urlaub' && <span style={{ fontSize: 11, color: '#94a3b8' }}>({urlaubTage} Tage × 8h)</span>}
+                            {f.label === 'Krank'  && <span style={{ fontSize: 11, color: '#94a3b8' }}>({krankTage} Tage × 8h)</span>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span style={{ fontSize: 12, color: '#94a3b8' }}>{gesamtMitAbw > 0 ? Math.round(f.h / gesamtMitAbw * 100) : 0}%</span>
+                            <span style={{ fontSize: 15, fontWeight: 800, color: f.color, minWidth: 48, textAlign: 'right' }}>{fmt(f.h)}h</span>
+                          </div>
+                        </div>
+                        <div style={{ height: 6, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${gesamtMitAbw > 0 ? f.h / gesamtMitAbw * 100 : 0}%`, background: f.color, borderRadius: 99, transition: 'width .6s cubic-bezier(.16,1,.3,1)' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Urlaub & Krank Karten ── */}
+                {(urlaubTage > 0 || krankTage > 0) && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 14, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 12, background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Sun size={20} style={{ color: '#16a34a' }} />
+                      </div>
+                      <div>
+                        <p style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, margin: '0 0 2px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Urlaub</p>
+                        <p style={{ fontSize: 26, fontWeight: 900, color: '#15803d', margin: 0, letterSpacing: '-.04em' }}>{urlaubTage} <span style={{ fontSize: 13, fontWeight: 600 }}>Tage</span></p>
+                        <p style={{ fontSize: 12, color: '#4ade80', margin: 0 }}>{fmt(urlaubH)}h angerechnet</p>
+                      </div>
+                    </div>
+                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 14, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 12, background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Stethoscope size={20} style={{ color: '#dc2626' }} />
+                      </div>
+                      <div>
+                        <p style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, margin: '0 0 2px', textTransform: 'uppercase', letterSpacing: '.05em' }}>Krank</p>
+                        <p style={{ fontSize: 26, fontWeight: 900, color: '#b91c1c', margin: 0, letterSpacing: '-.04em' }}>{krankTage} <span style={{ fontSize: 13, fontWeight: 600 }}>Tage</span></p>
+                        <p style={{ fontSize: 12, color: '#f87171', margin: 0 }}>{fmt(krankH)}h angerechnet</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Monatsverlauf ── */}
+                <div style={{ background: '#fff', borderRadius: 18, padding: '20px 24px', border: '1px solid #f1f5f9' }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Monatsverlauf — {selectedEmp.name}</p>
+                  <p style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 16px' }}>Letzte 6 Monate · Tickets & Baustellen</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={personVerlauf} barGap={3} barCategoryGap="35%">
                       <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                       <XAxis dataKey="monat" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="Tickets" fill="#3b82f6" radius={[5, 5, 0, 0]} />
-                      <Bar dataKey="Baustellen" fill="#10b981" radius={[5, 5, 0, 0]} />
+                      <Bar dataKey="Tickets"    fill="#3b82f6" radius={[5,5,0,0]} />
+                      <Bar dataKey="Baustellen" fill="#10b981" radius={[5,5,0,0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
 
-                {/* ── KALENDER ── */}
-                <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,.04)' }}>
-                  <div style={{ padding: '18px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                {/* ── Jahreskalender ── */}
+                <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
+                  <div style={{ padding: '16px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Calendar size={18} style={{ color: '#8b5cf6' }} />
-                      <div>
-                        <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>Urlaub & Krankheitstage {kalYear}</p>
-                        <p style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0' }}>
-                          Klick auf Tag zum Erfassen · Nochmal klicken zum Ändern · Doppelklick zum Löschen
-                        </p>
-                      </div>
+                      <Calendar size={16} style={{ color: '#8b5cf6' }} />
+                      <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>Urlaub & Krank {kalYear}</p>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ display: 'flex', gap: 8, fontSize: 12 }}>
-                        {[['#10b981','Urlaub'],['#ef4444','Krank']].map(([c,l]) => (
-                          <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <div style={{ width: 10, height: 10, borderRadius: 3, background: c }} />
-                            <span style={{ color: '#64748b' }}>{l}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <button onClick={() => setKalYear(y => y - 1)} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-                          <ChevronLeft size={14} />
-                        </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {[['#10b981','Urlaub'],['#ef4444','Krank']].map(([c,l]) => (
+                        <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
+                          <span style={{ fontSize: 11, color: '#64748b' }}>{l}</span>
+                        </div>
+                      ))}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+                        <button onClick={() => setKalYear(y => y-1)} style={{ width:28, height:28, borderRadius:7, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronLeft size={12}/></button>
                         <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', minWidth: 36, textAlign: 'center' }}>{kalYear}</span>
-                        <button onClick={() => setKalYear(y => y + 1)} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-                          <ChevronRight size={14} />
-                        </button>
+                        <button onClick={() => setKalYear(y => y+1)} style={{ width:28, height:28, borderRadius:7, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronRight size={12}/></button>
                       </div>
                     </div>
                   </div>
-
-                  {/* Stats */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', borderBottom: '1px solid #f1f5f9' }}>
-                    {[
-                      { label: 'Urlaubstage', value: (abwesenheiten as any[]).filter((a:any) => a.typ==='urlaub').length, color: '#10b981', icon: Sun },
-                      { label: 'Krankheitstage', value: (abwesenheiten as any[]).filter((a:any) => a.typ==='krank').length, color: '#ef4444', icon: Stethoscope },
-                      { label: 'Abwesenheitstage', value: (abwesenheiten as any[]).length, color: '#8b5cf6', icon: Calendar },
-                    ].map((s,i) => (
-                      <div key={i} style={{ padding: '14px 20px', borderRight: i<2?'1px solid #f1f5f9':'none', display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 10, background: `${s.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <s.icon size={16} style={{ color: s.color }} />
-                        </div>
-                        <div>
-                          <p style={{ fontSize: 20, fontWeight: 900, color: s.color, margin: 0, letterSpacing: '-.03em' }}>{s.value}</p>
-                          <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{s.label}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Monatskalender Grid */}
-                  <div style={{ padding: '20px 24px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16 }}>
+                  <div style={{ padding: '16px 24px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
                     {Array.from({ length: 12 }, (_, moIdx) => {
                       const moNr = moIdx + 1;
-                      const ersterTag = new Date(kalYear, moIdx, 1);
-                      const letzterTag = new Date(kalYear, moIdx + 1, 0).getDate();
-                      let startWt = ersterTag.getDay();
-                      if (startWt === 0) startWt = 7;
-                      const abwMap: Record<string, string> = {};
-                      (abwesenheiten as any[]).forEach((a: any) => { abwMap[a.datum] = a.typ; });
-                      const WOCHENTAGE = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+                      const letzterTag = new Date(kalYear, moIdx+1, 0).getDate();
+                      let startWt = new Date(kalYear, moIdx, 1).getDay(); if (startWt===0) startWt=7;
+                      const abwMap: Record<string,string> = {};
+                      (abwesenheiten as any[]).forEach((a:any) => { abwMap[a.datum] = a.typ; });
                       return (
                         <div key={moIdx}>
-                          <p style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', margin: '0 0 6px', letterSpacing: '-.01em' }}>
+                          <p style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', margin: '0 0 5px' }}>
                             {new Date(kalYear, moIdx, 1).toLocaleString('de-DE', { month: 'long' })}
                           </p>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 3 }}>
-                            {WOCHENTAGE.map(wt => (
-                              <div key={wt} style={{ fontSize: 7, color: '#cbd5e1', textAlign: 'center', fontWeight: 600, padding: '1px 0' }}>{wt}</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 1.5, marginBottom: 2 }}>
+                            {['Mo','Di','Mi','Do','Fr','Sa','So'].map(wt => (
+                              <div key={wt} style={{ fontSize: 7, color: '#cbd5e1', textAlign: 'center', fontWeight: 600 }}>{wt}</div>
                             ))}
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2 }}>
-                            {Array.from({ length: startWt - 1 }, (_, k) => <div key={`e${k}`} />)}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 1.5 }}>
+                            {Array.from({ length: startWt-1 }, (_,k) => <div key={`e${k}`} />)}
                             {Array.from({ length: letzterTag }, (_, d) => {
-                              const tag = d + 1;
+                              const tag = d+1;
                               const datumStr = `${kalYear}-${String(moNr).padStart(2,'0')}-${String(tag).padStart(2,'0')}`;
                               const typ = abwMap[datumStr];
-                              const isWe = new Date(kalYear, moIdx, tag).getDay() === 0 || new Date(kalYear, moIdx, tag).getDay() === 6;
+                              const isWe = [0,6].includes(new Date(kalYear, moIdx, tag).getDay());
                               const isToday = datumStr === new Date().toISOString().slice(0,10);
-                              const isPending = pendingToggle === datumStr;
                               return (
                                 <div key={tag}
-                                  title={!typ ? 'Klick = Urlaub' : typ === 'urlaub' ? 'Urlaub · nochmal = Krank' : 'Krank · nochmal = Löschen'}
                                   onClick={() => {
-                                    if (isWe || isPending) return;
-                                    if (!typ) {
-                                      toggleAbwesenheit(selectedEmp.id, datumStr, 'urlaub');
-                                    } else if (typ === 'urlaub') {
-                                      toggleAbwesenheit(selectedEmp.id, datumStr, 'krank');
-                                    } else {
-                                      const existing = (abwesenheiten as any[]).find((a: any) => a.datum === datumStr);
-                                      if (existing) supabase.from('mitarbeiter_abwesenheiten').delete().eq('id', existing.id).then(() => refetchAbw());
-                                    }
+                                    if (isWe) return;
+                                    if (!typ) toggleAbwesenheit(selectedEmp.id, datumStr, 'urlaub');
+                                    else if (typ==='urlaub') toggleAbwesenheit(selectedEmp.id, datumStr, 'krank');
+                                    else { const ex = (abwesenheiten as any[]).find((a:any)=>a.datum===datumStr); if(ex) supabase.from('mitarbeiter_abwesenheiten').delete().eq('id',ex.id).then(()=>refetchAbw()); }
                                   }}
                                   style={{
-                                    aspectRatio: '1', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 8, fontWeight: typ || isToday ? 700 : 400,
+                                    aspectRatio:'1', borderRadius:3, display:'flex', alignItems:'center', justifyContent:'center',
+                                    fontSize: 8, fontWeight: typ ? 700 : 400,
                                     cursor: isWe ? 'default' : 'pointer',
-                                    background: isPending ? '#f1f5f9' : typ === 'urlaub' ? '#dcfce7' : typ === 'krank' ? '#fee2e2' : isToday ? '#eff6ff' : isWe ? 'transparent' : '#f8fafc',
-                                    color: isPending ? '#cbd5e1' : typ === 'urlaub' ? '#15803d' : typ === 'krank' ? '#dc2626' : isToday ? '#2563eb' : isWe ? '#e2e8f0' : '#64748b',
-                                    border: isToday && !typ ? '1px solid #bfdbfe' : 'none',
-                                    transition: 'all .1s ease',
-                                    userSelect: 'none',
+                                    background: typ==='urlaub'?'#dcfce7':typ==='krank'?'#fee2e2':isToday?'#eff6ff':isWe?'transparent':'#f8fafc',
+                                    color: typ==='urlaub'?'#15803d':typ==='krank'?'#dc2626':isToday?'#2563eb':isWe?'#e2e8f0':'#64748b',
                                   }}>
                                   {tag}
                                 </div>
@@ -592,6 +615,7 @@ export default function MitarbeiterAuswertungPage() {
                     })}
                   </div>
                 </div>
+
               </div>
             );
           })()}
