@@ -3,19 +3,19 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { logPageVisit } from '@/lib/activityLog';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, FileUp, Users, Home, Archive } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, FileUp, Users, Home, Archive, Zap, Building2 } from 'lucide-react';
 
 const NAV = [
-  { to: '/baustellen/dashboard',    icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/baustellen/liste',        icon: HardHat,         label: 'Baustellen' },
-  { to: '/baustellen/zeiterfassung',icon: Clock,           label: 'Zeiterfassung' },
-  { to: '/baustellen/material',     icon: Package,         label: 'Material' },
-  { to: '/baustellen/nachtraege',   icon: FileText,        label: 'Nachträge' },
-  { to: '/baustellen/fotos',        icon: Camera,          label: 'Fotos' },
-  { to: '/baustellen/eskalationen', icon: AlertTriangle,   label: 'Eskalationen' },
-  { to: '/baustellen/mitarbeiter',  icon: Users,           label: 'Mitarbeiter' },
-  { to: '/baustellen/import',       icon: FileUp,          label: 'Auftrag importieren' },
-  { to: '/baustellen/archiv',       icon: Archive,         label: 'Archiv' },
+  { to: '/baustellen/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/baustellen/zeiterfassung', icon: Clock,           label: 'Zeiterfassung' },
+  { to: '/baustellen/material',      icon: Package,         label: 'Material' },
+  { to: '/baustellen/nachtraege',    icon: FileText,        label: 'Nachträge' },
+  { to: '/baustellen/fotos',         icon: Camera,          label: 'Fotos' },
+  { to: '/baustellen/eskalationen',  icon: AlertTriangle,   label: 'Eskalationen' },
+  { to: '/baustellen/mitarbeiter',   icon: Users,           label: 'Mitarbeiter' },
+  { to: '/baustellen/import',        icon: FileUp,          label: 'Auftrag importieren' },
+  { to: '/baustellen/archiv',        icon: Archive,         label: 'Archiv' },
 ];
 
 const ACCENT = '#2563eb';
@@ -26,6 +26,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+
+  // Baustellen nach Gewerk laden für Sidebar
+  const { data: baustellen = [] } = useQuery({
+    queryKey: ['sidebar-baustellen'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('baustellen')
+        .select('id, name, gewerk, status')
+        .not('status', 'in', '("abgerechnet","abgeschlossen")')
+        .order('name');
+      return data ?? [];
+    },
+    staleTime: 30000,
+  });
+
+  const bs = baustellen as any[];
+  const hochbau = bs.filter(b => b.gewerk === 'Hochbau' || b.gewerk === 'Beides');
+  const elektro  = bs.filter(b => b.gewerk === 'Elektro'  || b.gewerk === 'Beides');
+
+  const isBaustellenActive = location.pathname.startsWith('/baustellen/liste');
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -52,14 +72,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f8fafc', fontFamily: "'Inter', system-ui, sans-serif" }}>
       <style>{`
         .nav-item { transition: all 0.15s ease; }
-        .nav-item:hover { background: rgba(255,255,255,0.08) !important; color: #fff !important; }
+        .nav-item:hover { background: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.9) !important; }
         .nav-item.active { background: ${ACCENT_LIGHT} !important; color: #fff !important; }
         .collapse-btn:hover { background: rgba(255,255,255,0.1) !important; }
+        .bs-sub-item:hover { background: rgba(255,255,255,0.06) !important; }
+        .gewerk-badge { transition: all 0.15s; }
       `}</style>
 
       {/* Sidebar */}
       <aside style={{
-        width: collapsed ? 64 : 220,
+        width: collapsed ? 64 : 230,
         background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
         display: 'flex',
         flexDirection: 'column',
@@ -96,7 +118,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
-        {/* Startseite Button — oben */}
+        {/* Startseite Button */}
         <div style={{ padding:'8px 8px 2px' }}>
           <button onClick={() => navigate('/')}
             style={{ display:'flex', alignItems:'center', gap:collapsed?0:8, justifyContent:collapsed?'center':'flex-start', width:'100%', padding:collapsed?'9px 0':'7px 12px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, color:'rgba(255,255,255,0.5)', fontSize:11, fontWeight:500, cursor:'pointer', transition:'all .15s' }}
@@ -112,7 +134,144 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {!collapsed && (
             <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,0.2)', fontWeight: 600, padding: '6px 8px 4px', margin: 0 }}>Navigation</p>
           )}
-          {NAV.map(({ to, icon: Icon, label }) => {
+
+          {/* Dashboard als erster Eintrag */}
+          {(() => {
+            const { to, icon: Icon, label } = NAV[0];
+            const active = location.pathname === to;
+            return (
+              <NavLink key={to} to={to}
+                className={`nav-item ${active ? 'active' : ''}`}
+                style={{
+                  display: 'flex', alignItems: 'center',
+                  gap: collapsed ? 0 : 10,
+                  padding: collapsed ? '10px 0' : '8px 12px',
+                  justifyContent: collapsed ? 'center' : 'flex-start',
+                  borderRadius: 10, textDecoration: 'none', fontSize: 13, fontWeight: 500,
+                  color: active ? '#fff' : 'rgba(255,255,255,0.45)',
+                  borderLeft: active ? `3px solid ${ACCENT}` : '3px solid transparent',
+                }}>
+                <Icon size={15} style={{ flexShrink: 0 }} />
+                {!collapsed && <span>{label}</span>}
+              </NavLink>
+            );
+          })()}
+
+          {/* ── BAUSTELLEN mit Gewerk-Unterteilung ── */}
+          <div>
+            {/* Haupteintrag Baustellen */}
+            <div
+              onClick={() => navigate('/baustellen/liste')}
+              className={`nav-item ${isBaustellenActive ? 'active' : ''}`}
+              style={{
+                display: 'flex', alignItems: 'center',
+                gap: collapsed ? 0 : 10,
+                padding: collapsed ? '10px 0' : '8px 12px',
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                color: isBaustellenActive ? '#fff' : 'rgba(255,255,255,0.45)',
+                borderLeft: isBaustellenActive ? `3px solid ${ACCENT}` : '3px solid transparent',
+              }}>
+              <HardHat size={15} style={{ flexShrink: 0 }} />
+              {!collapsed && (
+                <>
+                  <span style={{ flex: 1 }}>Baustellen</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 99, background: 'rgba(37,99,235,0.3)', color: '#93c5fd' }}>
+                    {bs.length}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Gewerk-Untergruppen — nur wenn nicht collapsed */}
+            {!collapsed && bs.length > 0 && (
+              <div style={{ marginLeft: 8, marginBottom: 4 }}>
+
+                {/* Hochbau */}
+                {hochbau.length > 0 && (
+                  <div style={{ marginBottom: 2 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px 3px', opacity: 0.6 }}>
+                      <Building2 size={10} style={{ color: '#60a5fa' }} />
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#60a5fa' }}>
+                        Hochbau
+                      </span>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '0px 5px', borderRadius: 99, background: 'rgba(96,165,250,0.2)', color: '#60a5fa', marginLeft: 'auto' }}>
+                        {hochbau.length}
+                      </span>
+                    </div>
+                    {hochbau.slice(0, 4).map((b: any) => {
+                      const isActive = location.pathname === `/baustellen/liste/${b.id}`;
+                      return (
+                        <div key={b.id}
+                          className="bs-sub-item"
+                          onClick={() => navigate(`/baustellen/liste/${b.id}`)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '5px 12px',
+                            borderRadius: 8, cursor: 'pointer',
+                            background: isActive ? 'rgba(96,165,250,0.15)' : 'transparent',
+                            borderLeft: isActive ? '2px solid #60a5fa' : '2px solid transparent',
+                          }}>
+                          <div style={{ width: 5, height: 5, borderRadius: '50%', background: isActive ? '#60a5fa' : 'rgba(255,255,255,0.2)', flexShrink: 0 }} />
+                          <span style={{ fontSize: 11, color: isActive ? '#93c5fd' : 'rgba(255,255,255,0.4)', fontWeight: isActive ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {b.name?.length > 22 ? b.name.slice(0, 20) + '…' : b.name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {hochbau.length > 4 && (
+                      <div onClick={() => navigate('/baustellen/liste')} style={{ padding: '3px 12px', fontSize: 10, color: 'rgba(255,255,255,0.2)', cursor: 'pointer' }}>
+                        +{hochbau.length - 4} weitere
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Elektro */}
+                {elektro.length > 0 && (
+                  <div style={{ marginBottom: 2 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px 3px', opacity: 0.6 }}>
+                      <Zap size={10} style={{ color: '#34d399' }} />
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#34d399' }}>
+                        Elektro
+                      </span>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '0px 5px', borderRadius: 99, background: 'rgba(52,211,153,0.2)', color: '#34d399', marginLeft: 'auto' }}>
+                        {elektro.length}
+                      </span>
+                    </div>
+                    {elektro.slice(0, 4).map((b: any) => {
+                      const isActive = location.pathname === `/baustellen/liste/${b.id}`;
+                      return (
+                        <div key={b.id}
+                          className="bs-sub-item"
+                          onClick={() => navigate(`/baustellen/liste/${b.id}`)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '5px 12px',
+                            borderRadius: 8, cursor: 'pointer',
+                            background: isActive ? 'rgba(52,211,153,0.15)' : 'transparent',
+                            borderLeft: isActive ? '2px solid #34d399' : '2px solid transparent',
+                          }}>
+                          <div style={{ width: 5, height: 5, borderRadius: '50%', background: isActive ? '#34d399' : 'rgba(255,255,255,0.2)', flexShrink: 0 }} />
+                          <span style={{ fontSize: 11, color: isActive ? '#6ee7b7' : 'rgba(255,255,255,0.4)', fontWeight: isActive ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {b.name?.length > 22 ? b.name.slice(0, 20) + '…' : b.name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {elektro.length > 4 && (
+                      <div onClick={() => navigate('/baustellen/liste')} style={{ padding: '3px 12px', fontSize: 10, color: 'rgba(255,255,255,0.2)', cursor: 'pointer' }}>
+                        +{elektro.length - 4} weitere
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Rest der Nav-Items */}
+          {NAV.slice(1).map(({ to, icon: Icon, label }) => {
             const active = location.pathname === to || location.pathname.startsWith(to + '/');
             return (
               <NavLink key={to} to={to}
@@ -139,7 +298,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Bottom */}
         <div style={{ padding: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-
           <button onClick={() => setCollapsed(!collapsed)}
             className="collapse-btn"
             style={{
