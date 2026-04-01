@@ -16,11 +16,12 @@ import { exportBaustellePDF } from '@/lib/exportPDF';
 
 const STUNDEN_SATZ = 38.08;
 const STATUS_OPTIONS = [
-  { value:'offen',          label:'Offen',          dot:'#94a3b8', bg:'#f8fafc', text:'#64748b' },
-  { value:'in_bearbeitung', label:'In Bearbeitung',  dot:'#3b82f6', bg:'#eff6ff', text:'#1d4ed8' },
-  { value:'pausiert',       label:'Pausiert',        dot:'#f59e0b', bg:'#fffbeb', text:'#b45309' },
-  { value:'abgeschlossen',  label:'Abgeschlossen',   dot:'#10b981', bg:'#f0fdf4', text:'#065f46' },
-  { value:'abgerechnet',    label:'Abgerechnet',     dot:'#8b5cf6', bg:'#faf5ff', text:'#5b21b6' },
+  { value:'nicht_gestartet', label:'Nicht gestartet', dot:'#94a3b8', bg:'#f1f5f9', text:'#64748b' },
+  { value:'offen',           label:'Offen',           dot:'#64748b', bg:'#f8fafc', text:'#475569' },
+  { value:'in_bearbeitung',  label:'In Bearbeitung',  dot:'#3b82f6', bg:'#eff6ff', text:'#1d4ed8' },
+  { value:'pausiert',        label:'Pausiert',        dot:'#f59e0b', bg:'#fffbeb', text:'#b45309' },
+  { value:'abgeschlossen',   label:'Abgeschlossen',   dot:'#10b981', bg:'#f0fdf4', text:'#065f46' },
+  { value:'abgerechnet',     label:'Abgerechnet',     dot:'#8b5cf6', bg:'#faf5ff', text:'#5b21b6' },
 ];
 const FOTO_KAT = ['vorher','nachher','maengel','abnahme','fortschritt','sonstiges'];
 const FOTO_KAT_LABELS: Record<string,string> = {vorher:'Vorher',nachher:'Nachher',maengel:'Mängel',abnahme:'Abnahme',fortschritt:'Fortschritt',sonstiges:'Sonstiges'};
