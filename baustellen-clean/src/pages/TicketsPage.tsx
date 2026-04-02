@@ -69,66 +69,108 @@ export default function TicketsPage() {
       const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('de-DE') : '–';
 
       // Header-Zeile
-      const header = ['A-Nummer','Gewerk','Eingangsdatum','Status','Mitarbeiter (Kürzel)','Mitarbeiter (Name)','Stunden MA','Gesamt Stunden','Leistungsdatum'];
-      const rows: any[][] = [header];
+      const header = ['A-Nummer','Gewerk','Eingangsdatum','Status','Mitarbeiter (Kürzel)','Mitarbeiter (Name)','Stunden MA','Gesamt Stunden','Leistungsdatum','Anzahl MA'];
+      
+      // Zeilen + Metadaten für Formatierung sammeln
+      type RowMeta = { data: any[]; isHeader: boolean; isFirst: boolean; hasMultiMA: boolean; colorGroup: number; };
+      const rowsMeta: RowMeta[] = [{ data: header, isHeader: true, isFirst: false, hasMultiMA: false, colorGroup: 0 }];
+
+      let colorGroup = 0;
 
       for (const t of allTickets) {
         const worklogs = (t.ticket_worklogs as any[]) || [];
         const gesamtH  = Math.round(worklogs.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0) * 4) / 4;
         const eingang  = fmtDate(t.eingangsdatum);
         const status   = STATUS_LABELS[t.status] ?? t.status ?? '–';
+        const hasMulti = worklogs.length > 1;
 
         if (worklogs.length === 0) {
-          // Ticket ohne Worklogs — eine Zeile, MA-Felder leer
-          rows.push([t.a_nummer, t.gewerk, eingang, status, '–', '–', '–', '–', '–']);
-        } else if (worklogs.length === 1) {
-          // Genau ein Worklog — eine Zeile
-          const w = worklogs[0];
-          const kuerzel = w.employees?.kuerzel ?? '–';
-          const name    = w.employees?.name    ?? '–';
-          const stunden = Math.round(Number(w.stunden ?? 0) * 4) / 4;
-          rows.push([t.a_nummer, t.gewerk, eingang, status, kuerzel, name, stunden, gesamtH, fmtDate(w.leistungsdatum)]);
+          rowsMeta.push({ data: [t.a_nummer, t.gewerk, eingang, status, '–', '–', '–', gesamtH || '–', '–', 0], isHeader: false, isFirst: true, hasMultiMA: false, colorGroup });
         } else {
-          // Mehrere Worklogs — erste Zeile mit A-Nummer und Gesamt, Folgezeilen nur MA
           worklogs.forEach((w: any, idx: number) => {
             const kuerzel = w.employees?.kuerzel ?? '–';
             const name    = w.employees?.name    ?? '–';
             const stunden = Math.round(Number(w.stunden ?? 0) * 4) / 4;
             if (idx === 0) {
-              rows.push([t.a_nummer, t.gewerk, eingang, status, kuerzel, name, stunden, gesamtH, fmtDate(w.leistungsdatum)]);
+              rowsMeta.push({
+                data: [t.a_nummer, t.gewerk, eingang, status, kuerzel, name, stunden, gesamtH, fmtDate(w.leistungsdatum), worklogs.length > 1 ? worklogs.length : ''],
+                isHeader: false, isFirst: true, hasMultiMA: hasMulti, colorGroup,
+              });
             } else {
-              // Folgezeilen: A-Nummer leer lassen (gehört zur vorherigen)
-              rows.push(['', '', '', '', kuerzel, name, stunden, '', fmtDate(w.leistungsdatum)]);
+              rowsMeta.push({
+                data: ['', '', '', '', `  ↳ ${kuerzel}`, `  ${name}`, stunden, '', fmtDate(w.leistungsdatum), ''],
+                isHeader: false, isFirst: false, hasMultiMA: hasMulti, colorGroup,
+              });
             }
           });
         }
+        colorGroup++;
       }
 
       // Workbook erstellen
       const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet(rows);
+      const ws = XLSX.utils.aoa_to_sheet(rowsMeta.map(r => r.data));
 
       // Spaltenbreiten
       ws['!cols'] = [
-        { wch: 16 }, // A-Nummer
-        { wch: 10 }, // Gewerk
-        { wch: 14 }, // Eingang
-        { wch: 18 }, // Status
-        { wch: 14 }, // Kürzel
-        { wch: 22 }, // Name
-        { wch: 12 }, // Stunden MA
-        { wch: 14 }, // Gesamt
-        { wch: 14 }, // Leistungsdatum
+        { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 18 },
+        { wch: 16 }, { wch: 24 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 10 },
       ];
 
-      // Header-Zeile formatieren (fett + Hintergrund)
-      const headerRange = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-      for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
-        const cellAddr = XLSX.utils.encode_cell({ r: 0, c: col });
-        if (ws[cellAddr]) {
-          ws[cellAddr].s = { font: { bold: true }, fill: { fgColor: { rgb: '1E3A5F' } } };
+      // Zellen formatieren
+      const COLORS = {
+        header:    { bg: '1E3A5F', fg: 'FFFFFF' },
+        multiEven: { bg: 'DBEAFE' }, // hellblau — gerade Gruppe mit mehreren MA
+        multiOdd:  { bg: 'EFF6FF' }, // noch heller blau
+        singleEven:{ bg: 'FFFFFF' },
+        singleOdd: { bg: 'F8FAFC' },
+        subRow:    { fg: '64748B' }, // grau für Folgezeilen
+      };
+
+      rowsMeta.forEach((row, rowIdx) => {
+        const numCols = row.data.length;
+        for (let col = 0; col < numCols; col++) {
+          const cellAddr = XLSX.utils.encode_cell({ r: rowIdx, c: col });
+          if (!ws[cellAddr]) ws[cellAddr] = { t: 's', v: '' };
+
+          const isEven = row.colorGroup % 2 === 0;
+
+          if (row.isHeader) {
+            ws[cellAddr].s = {
+              font: { bold: true, color: { rgb: COLORS.header.fg }, sz: 11 },
+              fill: { patternType: 'solid', fgColor: { rgb: COLORS.header.bg } },
+              alignment: { horizontal: 'center', vertical: 'center' },
+            };
+          } else if (row.hasMultiMA) {
+            // Tickets mit mehreren MA — farbig hervorheben
+            const bgColor = isEven ? COLORS.multiEven.bg : COLORS.multiOdd.bg;
+            ws[cellAddr].s = {
+              font: {
+                bold: row.isFirst && col < 4,
+                color: { rgb: row.isFirst ? '1E3A5F' : COLORS.subRow.fg },
+                sz: 10,
+              },
+              fill: { patternType: 'solid', fgColor: { rgb: bgColor } },
+              border: {
+                top:    row.isFirst ? { style: 'thin', color: { rgb: 'BFDBFE' } } : undefined,
+                bottom: { style: 'hair', color: { rgb: 'DBEAFE' } },
+                left:   col === 0 ? { style: 'medium', color: { rgb: '3B82F6' } } : undefined,
+              },
+            };
+          } else {
+            // Normale Zeilen — abwechselnd weiß / sehr hell
+            const bgColor = isEven ? COLORS.singleEven.bg : COLORS.singleOdd.bg;
+            ws[cellAddr].s = {
+              font: { bold: col < 2 && row.isFirst, sz: 10 },
+              fill: { patternType: 'solid', fgColor: { rgb: bgColor } },
+              border: { bottom: { style: 'hair', color: { rgb: 'E2E8F0' } } },
+            };
+          }
         }
-      }
+      });
+
+      // Erste Zeile höher
+      ws['!rows'] = [{ hpt: 20 }];
 
       XLSX.utils.book_append_sheet(wb, ws, `Tickets ${activeMonth}`);
       XLSX.writeFile(wb, `Tickets_${activeMonth}.xlsx`);
