@@ -47,26 +47,55 @@ export default function TicketsPage() {
       const expFrom = `${activeMonth}-01`;
       const expTo   = `${activeMonth}-${String(lastDay).padStart(2,'0')}`;
 
-      // Alle Tickets des Monats inkl. Worklogs mit MA-Details
-      const { data: allTickets, error } = await supabase
-        .from('tickets')
-        .select('*, ticket_worklogs(stunden, leistungsdatum, employees(name, kuerzel))')
-        .gte('eingangsdatum', expFrom)
-        .lte('eingangsdatum', expTo)
-        .order('a_nummer');
-
-      if (error) throw error;
-      if (!allTickets || allTickets.length === 0) {
-        toast.error('Keine Tickets für ' + activeMonth);
-        return;
-      }
-
       const STATUS_LABELS: Record<string,string> = {
         in_bearbeitung: 'In Bearbeitung', erledigt: 'Erledigt',
         zur_unterschrift: 'Zur Unterschrift', abrechenbar: 'Abrechenbar', abgerechnet: 'Abgerechnet',
       };
+      const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('de-DE') : '-';
 
-      const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('de-DE') : '–';
+      // Schritt 1: Alle Worklogs des Monats nach leistungsdatum
+      // Erfasst auch Vormonat-Tickets die im Monat erledigt wurden
+      const { data: wlData, error: wlErr } = await supabase
+        .from('ticket_worklogs')
+        .select('id, stunden, leistungsdatum, ticket_id, employees(name, kuerzel)')
+        .gte('leistungsdatum', expFrom)
+        .lte('leistungsdatum', expTo);
+      if (wlErr) throw wlErr;
+
+      // Schritt 2: Alle betroffenen Tickets laden
+      const wlTicketIds = [...new Set((wlData ?? []).map((w: any) => w.ticket_id as string))];
+
+      const { data: ticketsFromMonth, error: tErr1 } = await supabase
+        .from('tickets').select('id, a_nummer, gewerk, status, eingangsdatum')
+        .gte('eingangsdatum', expFrom).lte('eingangsdatum', expTo);
+      if (tErr1) throw tErr1;
+
+      const { data: ticketsFromWL, error: tErr2 } = wlTicketIds.length > 0
+        ? await supabase.from('tickets').select('id, a_nummer, gewerk, status, eingangsdatum').in('id', wlTicketIds)
+        : { data: [], error: null };
+      if (tErr2) throw tErr2;
+
+      // Zusammenführen + deduplizieren
+      const ticketMap: Record<string, any> = {};
+      for (const t of [...(ticketsFromMonth ?? []), ...(ticketsFromWL ?? [])]) {
+        ticketMap[t.id] = t;
+      }
+
+      // Worklogs zu Tickets zuordnen
+      const wlByTicket: Record<string, any[]> = {};
+      for (const wl of (wlData ?? [])) {
+        if (!wlByTicket[wl.ticket_id]) wlByTicket[wl.ticket_id] = [];
+        wlByTicket[wl.ticket_id].push(wl);
+      }
+
+      const allTickets = Object.values(ticketMap)
+        .map((t: any) => ({ ...t, ticket_worklogs: wlByTicket[t.id] ?? [] }))
+        .sort((a: any, b: any) => (a.a_nummer || '').localeCompare(b.a_nummer || ''));
+
+      if (allTickets.length === 0) {
+        toast.error('Keine Tickets fuer ' + activeMonth);
+        return;
+      }
 
       // Header-Zeile
       const header = ['A-Nummer','Gewerk','Eingangsdatum','Status','Mitarbeiter (Kürzel)','Mitarbeiter (Name)','Stunden MA','Gesamt Stunden','Leistungsdatum','Anzahl MA'];
