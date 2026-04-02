@@ -45,11 +45,12 @@ export default function TicketsPage() {
       const [expYear, expMonth] = activeMonth.split('-').map(Number);
       const lastDay = new Date(expYear, expMonth, 0).getDate();
       const expFrom = `${activeMonth}-01`;
-      const expTo = `${activeMonth}-${String(lastDay).padStart(2,'0')}`;
+      const expTo   = `${activeMonth}-${String(lastDay).padStart(2,'0')}`;
 
+      // Alle Tickets des Monats inkl. Worklogs mit MA-Details
       const { data: allTickets, error } = await supabase
         .from('tickets')
-        .select('*, ticket_worklogs(stunden, employees(name, kuerzel))')
+        .select('*, ticket_worklogs(stunden, leistungsdatum, employees(name, kuerzel))')
         .gte('eingangsdatum', expFrom)
         .lte('eingangsdatum', expTo)
         .order('a_nummer');
@@ -60,43 +61,78 @@ export default function TicketsPage() {
         return;
       }
 
-      // Kürzel Fremdpersonal → Spalte 10, eigene MA → Spalte 11
-      const FREMD = new Set(['UG','SG','SB','CR','FW','AJ','ZW','BK','SR','PW']);
+      const STATUS_LABELS: Record<string,string> = {
+        in_bearbeitung: 'In Bearbeitung', erledigt: 'Erledigt',
+        zur_unterschrift: 'Zur Unterschrift', abrechenbar: 'Abrechenbar', abgerechnet: 'Abgerechnet',
+      };
 
-      const rows: any[] = [];
+      const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('de-DE') : '–';
+
+      // Header-Zeile
+      const header = ['A-Nummer','Gewerk','Eingangsdatum','Status','Mitarbeiter (Kürzel)','Mitarbeiter (Name)','Stunden MA','Gesamt Stunden','Leistungsdatum'];
+      const rows: any[][] = [header];
 
       for (const t of allTickets) {
         const worklogs = (t.ticket_worklogs as any[]) || [];
-        const nr = parseInt((t.a_nummer || '').replace('A26-','').replace('A25-',''), 10) || t.a_nummer || '';
+        const gesamtH  = Math.round(worklogs.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0) * 4) / 4;
+        const eingang  = fmtDate(t.eingangsdatum);
+        const status   = STATUS_LABELS[t.status] ?? t.status ?? '–';
 
-        let fremdH = 0, eigenH = 0;
-        const fremdK: string[] = [], eigenK: string[] = [];
-
-        for (const w of worklogs) {
-          const k = (w.employees?.kuerzel || '').toUpperCase().trim();
-          const h = Number(w.stunden || 0);
-          if (FREMD.has(k)) {
-            fremdH += h;
-            if (!fremdK.includes(k)) fremdK.push(k);
-          } else if (k) {
-            eigenH += h;
-            if (!eigenK.includes(k)) eigenK.push(k);
-          }
+        if (worklogs.length === 0) {
+          // Ticket ohne Worklogs — eine Zeile, MA-Felder leer
+          rows.push([t.a_nummer, t.gewerk, eingang, status, '–', '–', '–', '–', '–']);
+        } else if (worklogs.length === 1) {
+          // Genau ein Worklog — eine Zeile
+          const w = worklogs[0];
+          const kuerzel = w.employees?.kuerzel ?? '–';
+          const name    = w.employees?.name    ?? '–';
+          const stunden = Math.round(Number(w.stunden ?? 0) * 4) / 4;
+          rows.push([t.a_nummer, t.gewerk, eingang, status, kuerzel, name, stunden, gesamtH, fmtDate(w.leistungsdatum)]);
+        } else {
+          // Mehrere Worklogs — erste Zeile mit A-Nummer und Gesamt, Folgezeilen nur MA
+          worklogs.forEach((w: any, idx: number) => {
+            const kuerzel = w.employees?.kuerzel ?? '–';
+            const name    = w.employees?.name    ?? '–';
+            const stunden = Math.round(Number(w.stunden ?? 0) * 4) / 4;
+            if (idx === 0) {
+              rows.push([t.a_nummer, t.gewerk, eingang, status, kuerzel, name, stunden, gesamtH, fmtDate(w.leistungsdatum)]);
+            } else {
+              // Folgezeilen: A-Nummer leer lassen (gehört zur vorherigen)
+              rows.push(['', '', '', '', kuerzel, name, stunden, '', fmtDate(w.leistungsdatum)]);
+            }
+          });
         }
-
-        const alleK = [...fremdK, ...eigenK].join('/');
-        const sp10 = fremdH > 0 ? Math.round(fremdH * 4) / 4 : null;
-        const sp11 = eigenH > 0 ? Math.round(eigenH * 4) / 4 : null;
-
-        rows.push([nr, nr, nr, nr, '3', nr, alleK, nr, nr, null, sp10, sp11]);
       }
 
+      // Workbook erstellen
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws['!cols'] = [7,7,7,7,4,7,10,7,7,7,8,8].map(w => ({ wch: w }));
-      XLSX.utils.book_append_sheet(wb, ws, 'Tabelle1');
+
+      // Spaltenbreiten
+      ws['!cols'] = [
+        { wch: 16 }, // A-Nummer
+        { wch: 10 }, // Gewerk
+        { wch: 14 }, // Eingang
+        { wch: 18 }, // Status
+        { wch: 14 }, // Kürzel
+        { wch: 22 }, // Name
+        { wch: 12 }, // Stunden MA
+        { wch: 14 }, // Gesamt
+        { wch: 14 }, // Leistungsdatum
+      ];
+
+      // Header-Zeile formatieren (fett + Hintergrund)
+      const headerRange = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+      for (let col = headerRange.s.c; col <= headerRange.e.c; col++) {
+        const cellAddr = XLSX.utils.encode_cell({ r: 0, c: col });
+        if (ws[cellAddr]) {
+          ws[cellAddr].s = { font: { bold: true }, fill: { fgColor: { rgb: '1E3A5F' } } };
+        }
+      }
+
+      XLSX.utils.book_append_sheet(wb, ws, `Tickets ${activeMonth}`);
       XLSX.writeFile(wb, `Tickets_${activeMonth}.xlsx`);
-      toast.success(`${rows.length} Tickets exportiert`);
+      toast.success(`${allTickets.length} Tickets exportiert`);
     } catch(e: any) {
       toast.error('Export fehlgeschlagen: ' + e.message);
     }
