@@ -1,221 +1,681 @@
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from '@/integrations/supabase/client'
 
-const PRUEFER_FARBEN: Record<string, string> = {
-  'M. Münch': '#3b82f6',
-  'T. van der Werf': '#10b981',
-  'R. Kaminski': '#f59e0b',
-  'N. Willing': '#8b5cf6',
-  'Kaminski': '#f59e0b',
-  'Rene Kaminski': '#f59e0b',
-  'S. Giesmann': '#ef4444',
-  'E. Koska': '#06b6d4',
-  'J.-N. Willing': '#ec4899',
-  'M. Kubista': '#84cc16',
-};
-
-const MONAT_NAMEN = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
-
-function normPruefer(name: string): string {
-  if (!name) return 'Unbekannt';
-  const n = name.trim();
-  if (n === 'Kaminski' || n === 'Rene Kaminski') return 'R. Kaminski';
-  return n;
+// ── Types ──────────────────────────────────────────────────────────────────
+interface Pruefer {
+  id: string
+  name: string
+  kuerzel: string | null
+  soll_stueckzahl_global: number
+  aktiv: boolean
 }
 
+interface PrueferSoll {
+  id: string
+  pruefer_id: string
+  monat: string
+  soll_stueckzahl: number
+}
+
+interface Messung {
+  id: string
+  pruefer_name: string
+  monat: string
+  anzahl_gesamt: number
+  anzahl_bestanden: number
+  anzahl_nicht_bestanden: number
+  import_dateiname: string | null
+}
+
+interface ImportLog {
+  id: string
+  dateiname: string | null
+  monat: string | null
+  anzahl_gesamt: number | null
+  anzahl_neu: number | null
+  created_at: string
+}
+
+// ── Hilfsfunktionen ────────────────────────────────────────────────────────
+const COLORS = ['#7F77DD', '#1D9E75', '#D85A30', '#378ADD', '#BA7517', '#D4537E']
+const MONAT_LABELS = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez']
+
+function getCurrentMonthStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function formatMonat(monat: string) {
+  const [y, m] = monat.split('-')
+  return `${MONAT_LABELS[parseInt(m) - 1]} ${y}`
+}
+
+function getZielerreichung(ist: number, soll: number) {
+  if (soll === 0) return null
+  return Math.round((ist / soll) * 100)
+}
+
+function getBadgeClass(pct: number | null) {
+  if (pct === null) return 'badge-gray'
+  if (pct >= 100) return 'badge-green'
+  if (pct >= 80) return 'badge-amber'
+  return 'badge-red'
+}
+
+function parseCSV(text: string): { pruefer: string; datum: string; ergebnis: string }[] {
+  const lines = text.split('\n').filter(l => l.trim())
+  if (lines.length < 2) return []
+  const header = lines[0].split(';').map(h => h.trim().replace(/"/g, ''))
+  const idx = {
+    pruefer: header.findIndex(h => h.toUpperCase().includes('LETZTER') && h.toUpperCase().includes('PR')),
+    datum: header.findIndex(h => h.toUpperCase().includes('LETZTE') && h.toUpperCase().includes('PR') && !h.toUpperCase().includes('LETZTER')),
+    ergebnis: header.findIndex(h => h.toUpperCase().includes('ERGEBNIS')),
+  }
+  if (idx.pruefer === -1 || idx.datum === -1) return []
+  return lines.slice(1).map(line => {
+    const cols = line.split(';').map(c => c.trim().replace(/"/g, ''))
+    return {
+      pruefer: cols[idx.pruefer] || '',
+      datum: cols[idx.datum] || '',
+      ergebnis: idx.ergebnis >= 0 ? cols[idx.ergebnis] || '' : '',
+    }
+  }).filter(r => r.pruefer && r.datum)
+}
+
+function datumToMonat(datum: string): string {
+  // Format: DD.MM.YYYY
+  const parts = datum.split('.')
+  if (parts.length !== 3) return ''
+  return `${parts[2]}-${parts[1].padStart(2, '0')}`
+}
+
+// ── Haupt-Komponente ───────────────────────────────────────────────────────
 export default function DGUVAuswertung() {
-  const { data: raw = [], isLoading } = useQuery({
-    queryKey: ['dguv-auswertung'],
-    queryFn: async () => {
-      const all: any[] = [];
-      let from = 0;
-      while (true) {
-        const { data } = await supabase
-          .from('dguv_geraete')
-          .select('letzte_pruefung, letzter_pruefer')
-          .not('letzte_pruefung', 'is', null)
-          .not('letzter_pruefer', 'is', null)
-          .range(from, from + 999);
-        if (!data || data.length === 0) break;
-        all.push(...data);
-        if (data.length < 1000) break;
-        from += 1000;
+  const [tab, setTab] = useState<'auswertung' | 'mitarbeiter' | 'import'>('auswertung')
+  const [pruefer, setPruefer] = useState<Pruefer[]>([])
+  const [prueferSoll, setPrueferSoll] = useState<PrueferSoll[]>([])
+  const [messungen, setMessungen] = useState<Messung[]>([])
+  const [importLogs, setImportLogs] = useState<ImportLog[]>([])
+  const [selectedJahr, setSelectedJahr] = useState(new Date().getFullYear())
+  const [loading, setLoading] = useState(true)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+
+  // Prüfer-Modal
+  const [showPrueferModal, setShowPrueferModal] = useState(false)
+  const [editPruefer, setEditPruefer] = useState<Pruefer | null>(null)
+  const [prueferForm, setPrueferForm] = useState({ name: '', kuerzel: '', soll_stueckzahl_global: 0 })
+
+  // Soll-Modal
+  const [showSollModal, setShowSollModal] = useState(false)
+  const [sollPruefer, setSollPruefer] = useState<Pruefer | null>(null)
+  const [sollForm, setSollForm] = useState({ monat: getCurrentMonthStr(), soll_stueckzahl: 0 })
+
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  // ── Daten laden ────────────────────────────────────────────────────────
+  async function loadAll() {
+    setLoading(true)
+    const [p, ps, m, il] = await Promise.all([
+      supabase.from('dguv_pruefer').select('*').order('name'),
+      supabase.from('dguv_pruefer_soll').select('*'),
+      supabase.from('dguv_messungen').select('*').order('monat', { ascending: false }),
+      supabase.from('dguv_uploads').select('*').order('created_at', { ascending: false }).limit(20),
+    ])
+    if (p.data) setPruefer(p.data)
+    if (ps.data) setPrueferSoll(ps.data)
+    if (m.data) setMessungen(m.data)
+    if (il.data) setImportLogs(il.data)
+    setLoading(false)
+  }
+
+  useEffect(() => { loadAll() }, [])
+
+  // ── Soll für Prüfer+Monat ermitteln ───────────────────────────────────
+  function getSoll(prueferName: string, monat: string): number {
+    const p = pruefer.find(pr => pr.name === prueferName)
+    if (!p) return 0
+    const spez = prueferSoll.find(s => s.pruefer_id === p.id && s.monat === monat)
+    return spez ? spez.soll_stueckzahl : p.soll_stueckzahl_global
+  }
+
+  // ── Jahres-Monate aufbauen ────────────────────────────────────────────
+  const jahrMonate = Array.from({ length: 12 }, (_, i) =>
+    `${selectedJahr}-${String(i + 1).padStart(2, '0')}`
+  )
+
+  const aktivePruefer = pruefer.filter(p => p.aktiv)
+
+  // Messungen für aktuellen Monat
+  const aktuellerMonat = getCurrentMonthStr()
+  const messFeb = messungen.filter(m => m.monat === aktuellerMonat)
+
+  // Gesamt-Kennzahlen für aktuellen Monat
+  const gesamtIst = messFeb.reduce((s, m) => s + m.anzahl_gesamt, 0)
+  const gesamtNichtBest = messFeb.reduce((s, m) => s + m.anzahl_nicht_bestanden, 0)
+  const avgZiel = (() => {
+    const vals = messFeb.map(m => getZielerreichung(m.anzahl_gesamt, getSoll(m.pruefer_name, m.monat))).filter(v => v !== null) as number[]
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null
+  })()
+
+  // ── CSV Import ────────────────────────────────────────────────────────
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportLoading(true)
+    setImportMsg(null)
+
+    try {
+      const text = await file.text()
+      const rows = parseCSV(text)
+      if (rows.length === 0) {
+        setImportMsg({ type: 'err', text: 'Keine gültigen Zeilen gefunden. Spalten LETZTER PRÜFER und LETZTE PRÜFUNG werden benötigt.' })
+        setImportLoading(false)
+        return
       }
-      return all;
-    },
-    staleTime: 5 * 60 * 1000,
-  });
 
-  // Monatliche Auswertung pro Prüfer
-  const monatsDaten = (() => {
-    const m: Record<string, Record<string, number>> = {};
-    raw.forEach((r: any) => {
-      const key = r.letzte_pruefung?.slice(0, 7);
-      if (!key) return;
-      const pruefer = normPruefer(r.letzter_pruefer);
-      if (!m[key]) m[key] = {};
-      m[key][pruefer] = (m[key][pruefer] || 0) + 1;
-    });
-    return Object.entries(m)
-      .filter(([key]) => key >= '2024-01')
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, pruefer]) => ({
-        key,
-        label: `${MONAT_NAMEN[parseInt(key.split('-')[1]) - 1]} ${key.split('-')[0].slice(2)}`,
-        gesamt: Object.values(pruefer).reduce((s, v) => s + v, 0),
-        ...pruefer,
-      }));
-  })();
+      // Gruppieren nach Prüfer + Monat
+      const grouped: Record<string, { gesamt: number; bestanden: number; nichtBestanden: number }> = {}
+      for (const row of rows) {
+        const monat = datumToMonat(row.datum)
+        if (!monat || !row.pruefer) continue
+        const key = `${row.pruefer}||${monat}`
+        if (!grouped[key]) grouped[key] = { gesamt: 0, bestanden: 0, nichtBestanden: 0 }
+        grouped[key].gesamt++
+        if (row.ergebnis.toLowerCase().includes('nicht')) grouped[key].nichtBestanden++
+        else grouped[key].bestanden++
+      }
 
-  // Prüfer ermitteln
-  const allePruefer = [...new Set(raw.map((r: any) => normPruefer(r.letzter_pruefer)))].filter(Boolean).sort();
+      // Upsert in dguv_messungen
+      const upserts = Object.entries(grouped).map(([key, val]) => {
+        const [pruefer_name, monat] = key.split('||')
+        return {
+          pruefer_name,
+          monat,
+          anzahl_gesamt: val.gesamt,
+          anzahl_bestanden: val.bestanden,
+          anzahl_nicht_bestanden: val.nichtBestanden,
+          import_dateiname: file.name,
+        }
+      })
 
-  // Prüfer-Gesamtleistung
-  const prueferGesamt = allePruefer.map(p => ({
-    name: p,
-    gesamt: raw.filter((r: any) => normPruefer(r.letzter_pruefer) === p).length,
-  })).sort((a, b) => b.gesamt - a.gesamt);
+      const { error } = await supabase
+        .from('dguv_messungen')
+        .upsert(upserts, { onConflict: 'pruefer_name,monat' })
 
-  const gesamtMessungen = raw.length;
+      if (error) throw error
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload?.length) return null;
-    const total = payload.reduce((s: number, p: any) => s + (p.value || 0), 0);
-    return (
-      <div style={{ background: '#fff', border: '1px solid #f1f5f9', borderRadius: 12, padding: '12px 16px', boxShadow: '0 8px 24px rgba(0,0,0,.08)', minWidth: 180 }}>
-        <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 8px' }}>{label} — {total.toLocaleString('de-DE')} Geräte</p>
-        {payload.map((p: any) => (
-          <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12, marginBottom: 3 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: p.fill }} />
-              <span style={{ color: '#64748b' }}>{p.name}</span>
-            </div>
-            <span style={{ fontWeight: 700, color: p.fill }}>{p.value?.toLocaleString('de-DE')}</span>
-          </div>
-        ))}
-      </div>
-    );
-  };
+      // Import-Log
+      const monate = [...new Set(upserts.map(u => u.monat))].join(', ')
+      await supabase.from('dguv_uploads').insert({
+        dateiname: file.name,
+        monat: monate,
+        anzahl_gesamt: rows.length,
+        anzahl_neu: upserts.length,
+        anzahl_korrekturen: 0,
+        user_email: (await supabase.auth.getUser()).data.user?.email || '',
+      })
 
-  if (isLoading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
-      <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid #f59e0b', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite' }} />
+      setImportMsg({ type: 'ok', text: `✓ ${rows.length} Messungen importiert · ${upserts.length} Prüfer/Monat-Kombinationen aktualisiert` })
+      await loadAll()
+    } catch (err: any) {
+      setImportMsg({ type: 'err', text: `Fehler: ${err.message}` })
+    } finally {
+      setImportLoading(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  // ── Prüfer CRUD ────────────────────────────────────────────────────────
+  async function savePruefer() {
+    if (!prueferForm.name.trim()) return
+    if (editPruefer) {
+      await supabase.from('dguv_pruefer').update({
+        name: prueferForm.name,
+        kuerzel: prueferForm.kuerzel || null,
+        soll_stueckzahl_global: prueferForm.soll_stueckzahl_global,
+      }).eq('id', editPruefer.id)
+    } else {
+      await supabase.from('dguv_pruefer').insert({
+        name: prueferForm.name,
+        kuerzel: prueferForm.kuerzel || null,
+        soll_stueckzahl_global: prueferForm.soll_stueckzahl_global,
+      })
+    }
+    setShowPrueferModal(false)
+    setEditPruefer(null)
+    setPrueferForm({ name: '', kuerzel: '', soll_stueckzahl_global: 0 })
+    await loadAll()
+  }
+
+  async function togglePrueferAktiv(p: Pruefer) {
+    await supabase.from('dguv_pruefer').update({ aktiv: !p.aktiv }).eq('id', p.id)
+    await loadAll()
+  }
+
+  async function saveSoll() {
+    if (!sollPruefer) return
+    await supabase.from('dguv_pruefer_soll').upsert({
+      pruefer_id: sollPruefer.id,
+      monat: sollForm.monat,
+      soll_stueckzahl: sollForm.soll_stueckzahl,
+    }, { onConflict: 'pruefer_id,monat' })
+    setShowSollModal(false)
+    setSollPruefer(null)
+    await loadAll()
+  }
+
+  // ── Diagramm-Daten vorbereiten ─────────────────────────────────────────
+  function getMessungForPrueferMonat(prueferName: string, monat: string) {
+    return messungen.find(m => m.pruefer_name === prueferName && m.monat === monat)
+  }
+
+  const maxStueck = (() => {
+    let max = 0
+    for (const monat of jahrMonate) {
+      for (const p of aktivePruefer) {
+        const m = getMessungForPrueferMonat(p.name, monat)
+        const soll = getSoll(p.name, monat)
+        max = Math.max(max, m?.anzahl_gesamt || 0, soll)
+      }
+    }
+    return max || 100
+  })()
+
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--color-text-secondary)', fontSize: 14 }}>
+      Daten werden geladen…
     </div>
-  );
+  )
 
   return (
-    <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;900&display=swap');
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-        .au-card { animation: fadeUp 0.4s ease forwards; opacity: 0; }
-      `}</style>
-
+    <div style={{ padding: '1.5rem 2rem', maxWidth: 1200 }}>
       {/* Header */}
-      <div>
-        <h1 style={{ fontSize: 26, fontWeight: 900, color: '#0f172a', margin: 0, letterSpacing: '-.04em' }}>
-          DGUV <span style={{ color: '#8b5cf6' }}>Auswertung</span>
-        </h1>
-        <p style={{ fontSize: 13, color: '#94a3b8', margin: '3px 0 0' }}>
-          {gesamtMessungen.toLocaleString('de-DE')} Prüfungen · {monatsDaten.length} Monate · {allePruefer.length} Prüfer
-        </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+        <div>
+          <h1 style={{ fontSize: 20, fontWeight: 500, margin: 0 }}>DGUV Prüfer-Auswertung</h1>
+          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: '4px 0 0' }}>Messungen & Produktivität nach Mitarbeiter</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={importLoading}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 13, border: '0.5px solid var(--color-border-secondary)', borderRadius: 8, background: 'transparent', color: 'var(--color-text-primary)', cursor: 'pointer' }}
+          >
+            {importLoading ? '⟳ Importiere…' : '↓ CSV importieren'}
+          </button>
+          <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImport} />
+          <button
+            onClick={() => { setEditPruefer(null); setPrueferForm({ name: '', kuerzel: '', soll_stueckzahl_global: 0 }); setShowPrueferModal(true) }}
+            style={{ padding: '7px 14px', fontSize: 13, border: 'none', borderRadius: 8, background: '#533AB7', color: 'white', cursor: 'pointer' }}
+          >
+            + Prüfer anlegen
+          </button>
+        </div>
       </div>
 
-      {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-        {prueferGesamt.slice(0, 4).map((p, i) => (
-          <div key={p.name} className="au-card" style={{ animationDelay: `${i * 0.06}s`, background: '#fff', borderRadius: 16, border: '1px solid #f1f5f9', padding: '16px 18px', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: PRUEFER_FARBEN[p.name] ?? '#94a3b8' }} />
-            <div style={{ width: 36, height: 36, borderRadius: 11, background: `${PRUEFER_FARBEN[p.name] ?? '#94a3b8'}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: PRUEFER_FARBEN[p.name] ?? '#94a3b8' }}>
-                {p.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-              </span>
-            </div>
-            <p style={{ fontSize: 22, fontWeight: 900, color: PRUEFER_FARBEN[p.name] ?? '#0f172a', margin: '0 0 2px', letterSpacing: '-.04em' }}>
-              {p.gesamt.toLocaleString('de-DE')}
-            </p>
-            <p style={{ fontSize: 12, fontWeight: 600, color: '#0f172a', margin: '0 0 1px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</p>
-            <p style={{ fontSize: 11, color: '#94a3b8', margin: 0 }}>{Math.round((p.gesamt / gesamtMessungen) * 100)}% aller Prüfungen</p>
-          </div>
+      {importMsg && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 8, marginBottom: '1rem', fontSize: 13,
+          background: importMsg.type === 'ok' ? '#EAF3DE' : '#FCEBEB',
+          color: importMsg.type === 'ok' ? '#3B6D11' : '#A32D2D',
+          border: `0.5px solid ${importMsg.type === 'ok' ? '#C0DD97' : '#F7C1C1'}`,
+        }}>
+          {importMsg.text}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: '0.5px solid var(--color-border-tertiary)', marginBottom: '1.5rem' }}>
+        {(['auswertung', 'mitarbeiter', 'import'] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{
+            padding: '8px 16px', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer',
+            borderBottom: tab === t ? '2px solid #533AB7' : '2px solid transparent',
+            color: tab === t ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+            fontWeight: tab === t ? 500 : 400,
+          }}>
+            {t === 'auswertung' ? 'Auswertung' : t === 'mitarbeiter' ? 'Mitarbeiter' : 'Import-Verlauf'}
+          </button>
         ))}
       </div>
 
-      {/* Hauptchart: Monatliche Auswertung */}
-      <div style={{ background: '#fff', borderRadius: 20, border: '1px solid #f1f5f9', padding: '24px' }}>
-        <div style={{ marginBottom: 20 }}>
-          <p style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', margin: '0 0 3px', letterSpacing: '-.02em' }}>Monatliche Prüfleistung</p>
-          <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Aufgeteilt nach Prüfer · aus Gesamtliste</p>
-        </div>
-        <ResponsiveContainer width="100%" height={340}>
-          <BarChart data={monatsDaten} barCategoryGap="20%" margin={{ left: -10 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f8fafc" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend wrapperStyle={{ fontSize: 12, paddingTop: 16 }} />
-            {allePruefer.map(p => (
-              <Bar key={p} dataKey={p} stackId="a" fill={PRUEFER_FARBEN[p] ?? '#94a3b8'} radius={allePruefer.indexOf(p) === allePruefer.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+      {/* ── Tab: Auswertung ─────────────────────────────────────────────── */}
+      {tab === 'auswertung' && (
+        <>
+          {/* Kennzahl-Karten */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12, marginBottom: '1.5rem' }}>
+            {[
+              { label: 'Messungen gesamt', value: gesamtIst.toLocaleString('de'), sub: formatMonat(aktuellerMonat) },
+              { label: 'Prüfer aktiv', value: aktivePruefer.length, sub: aktivePruefer.map(p => p.name.split(' ')[1] || p.name).join(' · ') },
+              { label: 'Zielerreichung Ø', value: avgZiel !== null ? `${avgZiel}%` : '—', sub: 'vs. Soll-Stückzahl', highlight: avgZiel !== null ? (avgZiel >= 100 ? '#3B6D11' : avgZiel >= 80 ? '#854F0B' : '#A32D2D') : undefined },
+              { label: 'Nicht bestanden', value: gesamtNichtBest, sub: gesamtIst > 0 ? `${((gesamtNichtBest / gesamtIst) * 100).toFixed(2)}% Fehlerquote` : '—', highlight: gesamtNichtBest > 0 ? '#A32D2D' : undefined },
+            ].map((k, i) => (
+              <div key={i} style={{ background: 'var(--color-background-secondary)', borderRadius: 8, padding: '1rem' }}>
+                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 4 }}>{k.label}</div>
+                <div style={{ fontSize: 22, fontWeight: 500, color: k.highlight || 'var(--color-text-primary)' }}>{k.value}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 2 }}>{k.sub}</div>
+              </div>
             ))}
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+          </div>
 
-      {/* Prüfer-Verteilung */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        {/* Rangliste */}
-        <div style={{ background: '#fff', borderRadius: 20, border: '1px solid #f1f5f9', padding: 24 }}>
-          <p style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', margin: '0 0 16px', letterSpacing: '-.02em' }}>Prüfer-Rangliste</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {prueferGesamt.map((p, i) => {
-              const farbe = PRUEFER_FARBEN[p.name] ?? '#94a3b8';
-              const pct = (p.gesamt / gesamtMessungen) * 100;
-              return (
-                <div key={p.name} className="au-card" style={{ animationDelay: `${i * 0.05}s`, display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: '#e2e8f0', width: 20, flexShrink: 0, textAlign: 'right' }}>{i + 1}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>{p.name}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: farbe }}>{p.gesamt.toLocaleString('de-DE')}</span>
+          {/* Diagramm + Prüfer-Karte */}
+          <div style={{ display: 'flex', gap: 16, marginBottom: '1.5rem' }}>
+            {/* Balkendiagramm */}
+            <div style={{ flex: 2, background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>Monatliche Stückzahlen — pro Prüfer</div>
+                <select
+                  value={selectedJahr}
+                  onChange={e => setSelectedJahr(Number(e.target.value))}
+                  style={{ fontSize: 12, padding: '4px 8px', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 6, background: 'var(--color-background-primary)', color: 'var(--color-text-primary)' }}
+                >
+                  {[2025, 2026, 2027].map(y => <option key={y}>{y}</option>)}
+                </select>
+              </div>
+
+              <div style={{ position: 'relative', height: 200 }}>
+                {/* Y-Achse Hilfslinien */}
+                {[0, 25, 50, 75, 100].map(pct => (
+                  <div key={pct} style={{
+                    position: 'absolute', left: 0, right: 0,
+                    bottom: `${pct}%`,
+                    borderTop: pct === 0 ? '1px solid var(--color-border-secondary)' : '0.5px solid var(--color-border-tertiary)',
+                    zIndex: 0,
+                  }} />
+                ))}
+
+                {/* Balken */}
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'flex-end', gap: 8, paddingBottom: 28 }}>
+                  {jahrMonate.map((monat, mi) => {
+                    const hatDaten = aktivePruefer.some(p => getMessungForPrueferMonat(p.name, monat))
+                    return (
+                      <div key={monat} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, height: '100%', justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 'calc(100% - 24px)' }}>
+                          {aktivePruefer.map((p, pi) => {
+                            const m = getMessungForPrueferMonat(p.name, monat)
+                            const h = m ? Math.max(2, Math.round((m.anzahl_gesamt / maxStueck) * 100)) : 2
+                            return (
+                              <div key={p.id} title={m ? `${p.name}: ${m.anzahl_gesamt} Messungen` : `${p.name}: keine Daten`} style={{
+                                width: 14, height: `${h}%`,
+                                background: COLORS[pi % COLORS.length],
+                                borderRadius: '2px 2px 0 0',
+                                opacity: hatDaten ? 1 : 0.15,
+                                transition: 'height 0.3s ease',
+                                cursor: m ? 'pointer' : 'default',
+                              }} />
+                            )
+                          })}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--color-text-secondary)', position: 'absolute', bottom: 6 }}>
+                          {MONAT_LABELS[mi]}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Soll-Linie (durchschnitt global) */}
+                {aktivePruefer.length > 0 && (() => {
+                  const avgSoll = aktivePruefer.reduce((s, p) => s + p.soll_stueckzahl_global, 0) / aktivePruefer.length
+                  const pct = Math.min(100, Math.round((avgSoll / maxStueck) * 100))
+                  return (
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: `calc(${pct}% + 28px - ${pct * 0.28}px)`, borderTop: '1.5px dashed #AFA9EC', zIndex: 2 }}>
+                      <span style={{ position: 'absolute', right: 0, top: -16, fontSize: 10, color: '#7F77DD', background: 'var(--color-background-primary)', padding: '0 4px' }}>
+                        Ø Soll: {Math.round(avgSoll)}
+                      </span>
                     </div>
-                    <div style={{ height: 5, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${pct}%`, background: farbe, borderRadius: 99, transition: 'width 0.6s cubic-bezier(0.16,1,0.3,1)' }} />
+                  )
+                })()}
+              </div>
+
+              {/* Legende */}
+              <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
+                {aktivePruefer.map((p, pi) => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                    <div style={{ width: 10, height: 10, background: COLORS[pi % COLORS.length], borderRadius: 2 }} />
+                    {p.name}
+                  </div>
+                ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                  <div style={{ width: 10, height: 0, borderTop: '1.5px dashed #AFA9EC' }} />
+                  Ø Soll-Linie
+                </div>
+              </div>
+            </div>
+
+            {/* Prüfer-Karte aktueller Monat */}
+            <div style={{ flex: 1, background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, padding: '1rem 1.25rem' }}>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: '1rem' }}>Prüfer — {formatMonat(aktuellerMonat)}</div>
+              {aktivePruefer.length === 0 && (
+                <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>Noch keine Prüfer angelegt.</div>
+              )}
+              {aktivePruefer.map((p, pi) => {
+                const m = getMessungForPrueferMonat(p.name, aktuellerMonat)
+                const soll = getSoll(p.name, aktuellerMonat)
+                const ist = m?.anzahl_gesamt || 0
+                const ziel = getZielerreichung(ist, soll)
+                const pct = soll > 0 ? Math.min(100, Math.round((ist / soll) * 100)) : 0
+                const initials = p.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+                return (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: pi < aktivePruefer.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: '50%', background: `${COLORS[pi % COLORS.length]}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: COLORS[pi % COLORS.length], flexShrink: 0 }}>
+                      {initials}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{p.name}</div>
+                      <div style={{ marginTop: 5 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>{ist} / {soll}</span>
+                          {ziel !== null && <span style={{ color: ziel >= 100 ? '#3B6D11' : ziel >= 80 ? '#854F0B' : '#A32D2D', fontWeight: 500 }}>{ziel}%</span>}
+                        </div>
+                        <div style={{ background: 'var(--color-background-secondary)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: COLORS[pi % COLORS.length], borderRadius: 4, transition: 'width 0.4s ease' }} />
+                        </div>
+                      </div>
+                    </div>
+                    {ziel !== null && (
+                      <span style={{
+                        fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 500,
+                        background: ziel >= 100 ? '#EAF3DE' : ziel >= 80 ? '#FAEEDA' : '#FCEBEB',
+                        color: ziel >= 100 ? '#3B6D11' : ziel >= 80 ? '#854F0B' : '#A32D2D',
+                      }}>
+                        {ziel >= 100 ? `+${ziel - 100}%` : `-${100 - ziel}%`}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Detailtabelle */}
+          <div style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, padding: '1rem 1.25rem' }}>
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: '1rem' }}>Detailübersicht — alle Importe</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1fr 1fr 1fr 1fr', gap: 8, padding: '6px 0 8px', fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
+              <div>Prüfer</div><div style={{ textAlign: 'right' }}>Monat</div><div style={{ textAlign: 'right' }}>Soll</div><div style={{ textAlign: 'right' }}>Ist</div><div style={{ textAlign: 'right' }}>Nicht best.</div><div style={{ textAlign: 'right' }}>Zielerreichung</div>
+            </div>
+            {messungen.length === 0 && (
+              <div style={{ padding: '1rem 0', fontSize: 13, color: 'var(--color-text-secondary)' }}>Noch keine Messungen importiert.</div>
+            )}
+            {messungen.slice(0, 50).map(m => {
+              const soll = getSoll(m.pruefer_name, m.monat)
+              const ziel = getZielerreichung(m.anzahl_gesamt, soll)
+              const pi = aktivePruefer.findIndex(p => p.name === m.pruefer_name)
+              const initials = m.pruefer_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
+              return (
+                <div key={m.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1fr 1fr 1fr 1fr', gap: 8, padding: '10px 0', borderBottom: '0.5px solid var(--color-border-tertiary)', fontSize: 13, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: pi >= 0 ? `${COLORS[pi % COLORS.length]}22` : '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 500, color: pi >= 0 ? COLORS[pi % COLORS.length] : '#1D9E75' }}>
+                      {initials}
+                    </div>
+                    {m.pruefer_name}
+                  </div>
+                  <div style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>{formatMonat(m.monat)}</div>
+                  <div style={{ textAlign: 'right' }}>{soll || '—'}</div>
+                  <div style={{ textAlign: 'right', fontWeight: 500 }}>{m.anzahl_gesamt}</div>
+                  <div style={{ textAlign: 'right', color: m.anzahl_nicht_bestanden > 0 ? '#A32D2D' : 'var(--color-text-secondary)' }}>{m.anzahl_nicht_bestanden}</div>
+                  <div style={{ textAlign: 'right' }}>
+                    {ziel !== null ? (
+                      <span style={{
+                        fontSize: 11, padding: '2px 8px', borderRadius: 20, fontWeight: 500,
+                        background: ziel >= 100 ? '#EAF3DE' : ziel >= 80 ? '#FAEEDA' : '#FCEBEB',
+                        color: ziel >= 100 ? '#3B6D11' : ziel >= 80 ? '#854F0B' : '#A32D2D',
+                      }}>{ziel}%</span>
+                    ) : <span style={{ color: 'var(--color-text-secondary)' }}>—</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {/* ── Tab: Mitarbeiter ────────────────────────────────────────────── */}
+      {tab === 'mitarbeiter' && (
+        <div>
+          {pruefer.length === 0 && (
+            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: 14, background: 'var(--color-background-secondary)', borderRadius: 12 }}>
+              Noch keine Prüfer angelegt. Klicke auf "Prüfer anlegen".
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {pruefer.map((p, pi) => {
+              const monSoll = prueferSoll.filter(s => s.pruefer_id === p.id).sort((a, b) => b.monat.localeCompare(a.monat))
+              return (
+                <div key={p.id} style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, padding: '1rem 1.25rem', opacity: p.aktiv ? 1 : 0.5 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', background: `${COLORS[pi % COLORS.length]}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 500, color: COLORS[pi % COLORS.length] }}>
+                      {p.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 14, fontWeight: 500 }}>{p.name} {p.kuerzel && <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>({p.kuerzel})</span>}</div>
+                      <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 2 }}>Globales Soll: {p.soll_stueckzahl_global} Stück/Monat</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => { setSollPruefer(p); setSollForm({ monat: getCurrentMonthStr(), soll_stueckzahl: 0 }); setShowSollModal(true) }}
+                        style={{ padding: '5px 12px', fontSize: 12, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'transparent', color: 'var(--color-text-primary)', cursor: 'pointer' }}>
+                        Soll setzen
+                      </button>
+                      <button onClick={() => { setEditPruefer(p); setPrueferForm({ name: p.name, kuerzel: p.kuerzel || '', soll_stueckzahl_global: p.soll_stueckzahl_global }); setShowPrueferModal(true) }}
+                        style={{ padding: '5px 12px', fontSize: 12, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'transparent', color: 'var(--color-text-primary)', cursor: 'pointer' }}>
+                        Bearbeiten
+                      </button>
+                      <button onClick={() => togglePrueferAktiv(p)}
+                        style={{ padding: '5px 12px', fontSize: 12, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'transparent', color: p.aktiv ? '#A32D2D' : '#3B6D11', cursor: 'pointer' }}>
+                        {p.aktiv ? 'Deaktivieren' : 'Aktivieren'}
+                      </button>
                     </div>
                   </div>
-                  <span style={{ fontSize: 11, color: '#94a3b8', width: 36, textAlign: 'right' }}>{pct.toFixed(1)}%</span>
+                  {monSoll.length > 0 && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '0.5px solid var(--color-border-tertiary)' }}>
+                      <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Individuelle Monatsvorgaben</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {monSoll.map(s => (
+                          <span key={s.id} style={{ fontSize: 12, padding: '3px 10px', borderRadius: 20, background: 'var(--color-background-secondary)', color: 'var(--color-text-primary)', border: '0.5px solid var(--color-border-tertiary)' }}>
+                            {formatMonat(s.monat)}: {s.soll_stueckzahl}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              );
+              )
             })}
           </div>
         </div>
+      )}
 
-        {/* Letzter Monat Detail */}
-        {monatsDaten.length > 0 && (() => {
-          const letzter = monatsDaten[monatsDaten.length - 1];
-          const { key, label, gesamt, ...pruefer } = letzter;
-          return (
-            <div style={{ background: '#fff', borderRadius: 20, border: '1px solid #f1f5f9', padding: 24 }}>
-              <div style={{ marginBottom: 16 }}>
-                <p style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', margin: '0 0 2px' }}>Letzter Monat: {label}</p>
-                <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>{(gesamt as number).toLocaleString('de-DE')} Prüfungen gesamt</p>
+      {/* ── Tab: Import-Verlauf ──────────────────────────────────────────── */}
+      {tab === 'import' && (
+        <div style={{ background: 'var(--color-background-primary)', border: '0.5px solid var(--color-border-tertiary)', borderRadius: 12, padding: '1rem 1.25rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, padding: '6px 0 8px', fontSize: 11, fontWeight: 500, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '0.5px solid var(--color-border-tertiary)' }}>
+            <div>Datei</div><div style={{ textAlign: 'right' }}>Monat</div><div style={{ textAlign: 'right' }}>Messungen</div><div style={{ textAlign: 'right' }}>Datum</div>
+          </div>
+          {importLogs.length === 0 && (
+            <div style={{ padding: '1rem 0', fontSize: 13, color: 'var(--color-text-secondary)' }}>Noch keine Importe.</div>
+          )}
+          {importLogs.map(log => (
+            <div key={log.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, padding: '10px 0', borderBottom: '0.5px solid var(--color-border-tertiary)', fontSize: 13 }}>
+              <div style={{ color: 'var(--color-text-primary)' }}>{log.dateiname || '—'}</div>
+              <div style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>{log.monat || '—'}</div>
+              <div style={{ textAlign: 'right', fontWeight: 500 }}>{log.anzahl_gesamt || 0}</div>
+              <div style={{ textAlign: 'right', color: 'var(--color-text-secondary)' }}>{new Date(log.created_at).toLocaleDateString('de-DE')}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Modal: Prüfer anlegen/bearbeiten ────────────────────────────── */}
+      {showPrueferModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+          <div style={{ background: 'var(--color-background-primary)', borderRadius: 12, padding: '1.5rem', width: 380, border: '0.5px solid var(--color-border-tertiary)' }}>
+            <h2 style={{ fontSize: 16, fontWeight: 500, marginBottom: '1.25rem' }}>{editPruefer ? 'Prüfer bearbeiten' : 'Prüfer anlegen'}</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 4 }}>Name (wie in CSV)</label>
+                <input value={prueferForm.name} onChange={e => setPrueferForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="z.B. M. Münch"
+                  style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'var(--color-background-primary)', color: 'var(--color-text-primary)' }} />
+                <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 3 }}>Muss exakt mit "LETZTER PRÜFER" in der CSV übereinstimmen</div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {Object.entries(pruefer as Record<string, number>).sort(([,a],[,b]) => b - a).map(([name, cnt]) => {
-                  const farbe = PRUEFER_FARBEN[name] ?? '#94a3b8';
-                  return (
-                    <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 2, background: farbe, flexShrink: 0 }} />
-                      <span style={{ fontSize: 13, color: '#374151', flex: 1 }}>{name}</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: farbe }}>{cnt.toLocaleString('de-DE')}</span>
-                    </div>
-                  );
-                })}
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 4 }}>Kürzel (optional)</label>
+                <input value={prueferForm.kuerzel} onChange={e => setPrueferForm(f => ({ ...f, kuerzel: e.target.value }))}
+                  placeholder="z.B. MM"
+                  style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'var(--color-background-primary)', color: 'var(--color-text-primary)' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 4 }}>Globales Soll (Stück/Monat)</label>
+                <input type="number" value={prueferForm.soll_stueckzahl_global} onChange={e => setPrueferForm(f => ({ ...f, soll_stueckzahl_global: parseInt(e.target.value) || 0 }))}
+                  style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'var(--color-background-primary)', color: 'var(--color-text-primary)' }} />
               </div>
             </div>
-          );
-        })()}
-      </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowPrueferModal(false); setEditPruefer(null) }}
+                style={{ padding: '7px 14px', fontSize: 13, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'transparent', color: 'var(--color-text-primary)', cursor: 'pointer' }}>
+                Abbrechen
+              </button>
+              <button onClick={savePruefer}
+                style={{ padding: '7px 14px', fontSize: 13, border: 'none', borderRadius: 6, background: '#533AB7', color: 'white', cursor: 'pointer' }}>
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Soll setzen ───────────────────────────────────────────── */}
+      {showSollModal && sollPruefer && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+          <div style={{ background: 'var(--color-background-primary)', borderRadius: 12, padding: '1.5rem', width: 340, border: '0.5px solid var(--color-border-tertiary)' }}>
+            <h2 style={{ fontSize: 16, fontWeight: 500, marginBottom: 4 }}>Monatliches Soll setzen</h2>
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: '1.25rem' }}>{sollPruefer.name}</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 4 }}>Monat</label>
+                <input type="month" value={sollForm.monat} onChange={e => setSollForm(f => ({ ...f, monat: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'var(--color-background-primary)', color: 'var(--color-text-primary)' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 4 }}>Soll-Stückzahl</label>
+                <input type="number" value={sollForm.soll_stueckzahl} onChange={e => setSollForm(f => ({ ...f, soll_stueckzahl: parseInt(e.target.value) || 0 }))}
+                  style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'var(--color-background-primary)', color: 'var(--color-text-primary)' }} />
+                <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 3 }}>Globales Soll: {sollPruefer.soll_stueckzahl_global} · Leer lassen = global gilt</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowSollModal(false); setSollPruefer(null) }}
+                style={{ padding: '7px 14px', fontSize: 13, border: '0.5px solid var(--color-border-secondary)', borderRadius: 6, background: 'transparent', color: 'var(--color-text-primary)', cursor: 'pointer' }}>
+                Abbrechen
+              </button>
+              <button onClick={saveSoll}
+                style={{ padding: '7px 14px', fontSize: 13, border: 'none', borderRadius: 6, background: '#533AB7', color: 'white', cursor: 'pointer' }}>
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-  );
+  )
 }
