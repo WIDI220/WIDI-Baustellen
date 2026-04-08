@@ -48,6 +48,7 @@ import InternePage from '@/pages/InternePage';
 
 // ── Auswertung ────────────────────────────────────────────────
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
+import WidiChatbot from '@/components/WidiChatbot';
 import AufgabenPage from '@/pages/AufgabenPage';
 
 const queryClient = new QueryClient({
@@ -149,6 +150,7 @@ export default function App() {
         <BrowserRouter>
           <AppRoutes />
           <Toaster position="bottom-right" richColors />
+          <WidiChatbot />
         </BrowserRouter>
       </AuthProvider>
     </QueryClientProvider>
