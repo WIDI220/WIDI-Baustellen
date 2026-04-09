@@ -2,8 +2,8 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, LineChart, Line, Cell,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, LineChart, Line,
 } from 'recharts';
 import { TrendingUp, Award, Calendar, Target, ChevronLeft, ChevronRight, BarChart2 } from 'lucide-react';
 
@@ -234,7 +234,7 @@ export default function DGUVMessAuswertung() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <h3 style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Messungen pro Monat — {year}</h3>
-                <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Gestapelt nach Prüfer · Linie = Soll-Stückzahl</p>
+                <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Flächen-Chart nach Prüfer · gestrichelte Linie = Soll</p>
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {allePruefer.map((name, i) => (
@@ -253,28 +253,45 @@ export default function DGUVMessAuswertung() {
             </div>
 
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={monatsDaten} margin={{ top: 10, right: 10, left: 0, bottom: 0 }} barCategoryGap="30%">
+              <AreaChart data={monatsDaten} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  {allePruefer.map((name, i) => (
+                    <linearGradient key={name} id={`grad${i}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor={COLORS[i % COLORS.length]} stopOpacity={0.25}/>
+                      <stop offset="95%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.03}/>
+                    </linearGradient>
+                  ))}
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                 <XAxis dataKey="monat" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => v.toLocaleString('de-DE')} />
-                <Tooltip content={<DarkTooltip />} cursor={{ fill: 'rgba(0,0,0,.03)' }} />
+                <Tooltip content={<DarkTooltip />} cursor={{ stroke: '#f1f5f9', strokeWidth: 1 }} />
                 {allePruefer.map((name, i) => (
-                  <Bar key={name} dataKey={name} stackId="a" fill={COLORS[i % COLORS.length]}
-                    radius={i === allePruefer.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                  <Area
+                    key={name}
+                    type="monotone"
+                    dataKey={name}
+                    stackId="1"
+                    stroke={COLORS[i % COLORS.length]}
+                    strokeWidth={2}
+                    fill={`url(#grad${i})`}
+                    dot={{ r: 4, fill: COLORS[i % COLORS.length], strokeWidth: 0 }}
+                    activeDot={{ r: 6, strokeWidth: 0 }}
+                  />
                 ))}
                 {soll > 0 && (
                   <Line
                     type="monotone"
-                    data={trendData}
                     dataKey="Soll"
+                    data={trendData}
                     stroke="#94a3b8"
-                    strokeWidth={2}
+                    strokeWidth={1.5}
                     strokeDasharray="6 3"
                     dot={false}
                     legendType="none"
                   />
                 )}
-              </BarChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
 
