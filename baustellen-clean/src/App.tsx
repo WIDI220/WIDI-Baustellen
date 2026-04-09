@@ -16,9 +16,6 @@ import DGUVPage from '@/pages/DGUVPage';
 import DGUVRoadmap from '@/pages/DGUVRoadmap';
 import DGUVAuswertung from '@/pages/DGUVAuswertung';
 import DGUVAbgleich from '@/pages/DGUVAbgleich';
-import DGUVPruefer from '@/pages/DGUVPruefer';
-import DGUVImport from '@/pages/DGUVImport';
-import DGUVMessAuswertung from '@/pages/DGUVMessAuswertung';
 import AppLayoutDGUV from '@/components/AppLayoutDGUV';
 
 // Auth
@@ -51,6 +48,7 @@ import InternePage from '@/pages/InternePage';
 
 // ── Auswertung ────────────────────────────────────────────────
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
+import WidiChatbot from '@/components/WidiChatbot';
 import AufgabenPage from '@/pages/AufgabenPage';
 
 const queryClient = new QueryClient({
@@ -85,9 +83,6 @@ function AppRoutes() {
       <Route path="/dguv/roadmap" element={<AppLayoutDGUV><DGUVRoadmap /></AppLayoutDGUV>} />
       <Route path="/dguv/auswertung" element={<AppLayoutDGUV><DGUVAuswertung /></AppLayoutDGUV>} />
       <Route path="/dguv/abgleich" element={<AppLayoutDGUV><DGUVAbgleich /></AppLayoutDGUV>} />
-      <Route path="/dguv/pruefer" element={<AppLayoutDGUV><DGUVPruefer /></AppLayoutDGUV>} />
-      <Route path="/dguv/import" element={<AppLayoutDGUV><DGUVImport /></AppLayoutDGUV>} />
-      <Route path="/dguv/auswertung" element={<AppLayoutDGUV><DGUVMessAuswertung /></AppLayoutDGUV>} />
 
       {/* ── Baustellen-Bereich ─────────────────────────── */}
       <Route path="/baustellen/*" element={
@@ -155,6 +150,7 @@ export default function App() {
         <BrowserRouter>
           <AppRoutes />
           <Toaster position="bottom-right" richColors />
+          <WidiChatbot />
         </BrowserRouter>
       </AuthProvider>
     </QueryClientProvider>
