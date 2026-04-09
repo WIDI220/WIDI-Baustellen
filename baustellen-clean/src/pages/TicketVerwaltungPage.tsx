@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   AlertTriangle, CheckCircle, ChevronDown, ChevronRight,
   Search, TrendingDown, Calendar, Layers, Building2,
@@ -222,6 +224,257 @@ function MonatBlock({ ym, tickets, notes, onErledige, onNoteOpen, loading, gewer
   );
 }
 
+
+// ─── PDF Export ───────────────────────────────────────────────────────────────
+function exportVerwaltungPDF(
+  tickets: any[],
+  notes: Record<string, string>,
+  gewerkFilter: string
+) {
+  const C = {
+    navy:   [15, 31, 61]    as [number,number,number],
+    accent: [59, 130, 246]  as [number,number,number],
+    green:  [21, 128, 61]   as [number,number,number],
+    greenL: [220, 252, 231] as [number,number,number],
+    blue:   [29, 78, 216]   as [number,number,number],
+    blueL:  [219, 234, 254] as [number,number,number],
+    red:    [220, 38, 38]   as [number,number,number],
+    amber:  [217, 119, 6]   as [number,number,number],
+    purple: [124, 58, 237]  as [number,number,number],
+    white:  [255, 255, 255] as [number,number,number],
+    light:  [248, 250, 252] as [number,number,number],
+    border: [226, 232, 240] as [number,number,number],
+    gray:   [100, 116, 139] as [number,number,number],
+    text:   [51,  65,  85]  as [number,number,number],
+  };
+
+  const filtered = gewerkFilter === 'all'
+    ? tickets
+    : tickets.filter(t => t.gewerk === gewerkFilter);
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+  function addHeader(subtitle: string) {
+    doc.setFillColor(...C.navy); doc.rect(0, 0, 210, 14, 'F');
+    doc.setFillColor(...C.accent); doc.rect(0, 14, 210, 2, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+    doc.setTextColor(...C.white);
+    doc.text('WIDI · TICKET-VERWALTUNG · KLINIKUM', 14, 6);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+    doc.text(subtitle, 14, 11);
+    doc.text(`${dateStr}  ·  ${timeStr} Uhr`, 196, 6, { align: 'right' });
+    const pg = (doc as any).internal.getCurrentPageInfo().pageNumber;
+    doc.text(`Seite ${pg}`, 196, 11, { align: 'right' });
+  }
+
+  function addFooter() {
+    doc.setDrawColor(...C.border); doc.line(14, 284, 196, 284);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
+    doc.setTextColor(...C.gray);
+    doc.text('Vertraulich · Nur für interne Verwendung', 14, 288);
+    doc.text('WIDI Baustellen-Management', 196, 288, { align: 'right' });
+  }
+
+  function ageDays(dateStr: string) {
+    return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+  }
+  function fmt(d: string) {
+    const [y, m, day] = d.split('-');
+    return `${day}.${m}.${y}`;
+  }
+  function getKW(dateStr: string) {
+    const d = new Date(dateStr);
+    const jan1 = new Date(d.getFullYear(), 0, 1);
+    return Math.ceil(((d.getTime() - jan1.getTime()) / 86400000 + jan1.getDay() + 1) / 7);
+  }
+  function monthLabel(ym: string) {
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+  }
+
+  // ── Kennzahlen berechnen ──
+  const total   = filtered.length;
+  const hbCount = filtered.filter(t => t.gewerk === 'Hochbau').length;
+  const elCount = filtered.filter(t => t.gewerk === 'Elektro').length;
+  const overdue = filtered.filter(t => ageDays(t.eingangsdatum) > 14).length;
+  const withNoteCount = filtered.filter(t => notes[t.id]).length;
+
+  // ── SEITE 1: Übersicht ────────────────────────────────────────────────────
+  addHeader(gewerkFilter === 'all' ? 'Alle Gewerke' : `Gewerk: ${gewerkFilter}`);
+
+  let y = 22;
+
+  // Titel-Block
+  doc.setFillColor(...C.navy);
+  doc.roundedRect(14, y, 182, 24, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+  doc.setTextColor(...C.white);
+  doc.text('Ticket-Rückstandsbericht', 20, y + 9);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+  doc.text(`Klinikum · Stand: ${dateStr}  ·  ${gewerkFilter === 'all' ? 'Alle Gewerke' : 'Gewerk: ' + gewerkFilter}`, 20, y + 17);
+  y += 30;
+
+  // KPI-Kacheln
+  const kpis = [
+    { label: 'Offen gesamt',    val: String(total),    color: C.accent },
+    { label: 'Hochbau offen',   val: String(hbCount),  color: C.green },
+    { label: 'Elektro offen',   val: String(elCount),  color: C.blue },
+    { label: 'Überfällig >14T', val: String(overdue),  color: overdue > 0 ? C.red : C.gray },
+    { label: 'Mit Begründung',  val: String(withNoteCount), color: C.purple },
+  ];
+  const kpiW = 182 / kpis.length;
+  kpis.forEach((k, i) => {
+    const x = 14 + i * kpiW;
+    doc.setFillColor(...C.light); doc.roundedRect(x + (i > 0 ? 1.5 : 0), y, kpiW - (i > 0 ? 3 : 1.5), 18, 1.5, 1.5, 'F');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(...C.gray);
+    doc.text(k.label, x + (i > 0 ? 4 : 2.5), y + 5.5);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(...k.color);
+    doc.text(k.val, x + (i > 0 ? 4 : 2.5), y + 14);
+  });
+  y += 24;
+
+  // Fortschrittsbalken Hochbau / Elektro
+  if (total > 0) {
+    [
+      { label: 'Hochbau', count: hbCount, color: C.green, bg: C.greenL },
+      { label: 'Elektro', count: elCount, color: C.blue,  bg: C.blueL },
+    ].forEach(g => {
+      const pct = Math.round((g.count / total) * 100);
+      const barW = 130;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(...g.color);
+      doc.text(`${g.label}  `, 14, y + 4);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(...C.gray);
+      doc.text(`${g.count} Tickets · ${pct}% der Rückstände`, 38, y + 4);
+      doc.setFillColor(...C.border); doc.roundedRect(14, y + 6, barW, 5, 1, 1, 'F');
+      if (pct > 0) { doc.setFillColor(...g.bg); doc.roundedRect(14, y + 6, barW * pct / 100, 5, 1, 1, 'F'); }
+      y += 14;
+    });
+  }
+  y += 4;
+
+  // ── Monatstabelle Übersicht ──
+  doc.setFillColor(...C.light); doc.rect(14, y, 182, 7, 'F');
+  doc.setFillColor(...C.accent); doc.rect(14, y, 3, 7, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(...C.navy);
+  doc.text('Übersicht nach Monat', 20, y + 5);
+  y += 11;
+
+  const byMonth: Record<string, any[]> = {};
+  for (const t of filtered) {
+    const ym = (t.eingangsdatum as string).slice(0, 7);
+    if (!byMonth[ym]) byMonth[ym] = [];
+    byMonth[ym].push(t);
+  }
+  const sortedMonths = Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b));
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Monat', 'Gesamt offen', 'Hochbau', 'Elektro', 'davon >14 Tage', 'mit Begründung']],
+    body: sortedMonths.map(([ym, tix]) => {
+      const hb = tix.filter(t => t.gewerk === 'Hochbau').length;
+      const el = tix.filter(t => t.gewerk === 'Elektro').length;
+      const od = tix.filter(t => ageDays(t.eingangsdatum) > 14).length;
+      const wn = tix.filter(t => notes[t.id]).length;
+      return [monthLabel(ym), String(tix.length), String(hb), String(el), String(od), String(wn)];
+    }),
+    foot: [['Gesamt', String(total), String(hbCount), String(elCount), String(overdue), String(withNoteCount)]],
+    headStyles: { fillColor: C.navy, textColor: C.white, fontStyle: 'bold', fontSize: 8 },
+    bodyStyles: { fontSize: 8, textColor: C.text },
+    footStyles: { fillColor: C.light, textColor: C.navy, fontStyle: 'bold', fontSize: 8 },
+    alternateRowStyles: { fillColor: C.light },
+    columnStyles: {
+      1: { halign: 'center', fontStyle: 'bold' },
+      2: { halign: 'center' },
+      3: { halign: 'center' },
+      4: { halign: 'center' },
+      5: { halign: 'center' },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 4) {
+        const v = parseInt(String(data.cell.raw));
+        if (v > 10) data.cell.styles.textColor = C.red;
+        else if (v > 0) data.cell.styles.textColor = C.amber;
+      }
+    },
+    margin: { left: 14, right: 14 },
+  });
+
+  addFooter();
+
+  // ── SEITE 2+: Detail-Tabellen pro Monat ──────────────────────────────────
+  for (const [ym, tix] of sortedMonths) {
+    doc.addPage();
+    addHeader(`${monthLabel(ym)} · ${tix.length} offene Tickets`);
+
+    let dy = 22;
+
+    // Monat-Header
+    doc.setFillColor(...C.navy); doc.roundedRect(14, dy, 182, 12, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...C.white);
+    doc.text(monthLabel(ym), 20, dy + 8);
+    const hbM = tix.filter(t => t.gewerk === 'Hochbau').length;
+    const elM = tix.filter(t => t.gewerk === 'Elektro').length;
+    const odM = tix.filter(t => ageDays(t.eingangsdatum) > 14).length;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+    doc.text(`${tix.length} offen  ·  Hochbau: ${hbM}  ·  Elektro: ${elM}  ·  Überfällig >14T: ${odM}`, 196, dy + 8, { align: 'right' });
+    dy += 16;
+
+    autoTable(doc, {
+      startY: dy,
+      head: [['A-Nummer', 'Gewerk', 'Eingang', 'Alter', 'KW', 'Begründung / Notiz']],
+      body: tix.map(t => {
+        const days = ageDays(t.eingangsdatum);
+        return [
+          t.a_nummer,
+          t.gewerk,
+          fmt(t.eingangsdatum),
+          `${days} Tage`,
+          `KW${getKW(t.eingangsdatum)}`,
+          notes[t.id] || '—',
+        ];
+      }),
+      headStyles: { fillColor: C.navy, textColor: C.white, fontStyle: 'bold', fontSize: 7.5 },
+      bodyStyles: { fontSize: 7.5, textColor: C.text },
+      alternateRowStyles: { fillColor: C.light },
+      columnStyles: {
+        0: { cellWidth: 30, fontStyle: 'bold' },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 22, halign: 'center' },
+        3: { cellWidth: 20, halign: 'center' },
+        4: { cellWidth: 14, halign: 'center' },
+        5: { cellWidth: 'auto', textColor: C.purple as [number,number,number] },
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body') {
+          if (data.column.index === 1) {
+            const v = String(data.cell.raw);
+            data.cell.styles.textColor = v === 'Hochbau' ? C.green : C.blue;
+            data.cell.styles.fontStyle = 'bold';
+          }
+          if (data.column.index === 3) {
+            const days = parseInt(String(data.cell.raw));
+            if (days > 30) data.cell.styles.textColor = C.red;
+            else if (days > 14) data.cell.styles.textColor = C.amber;
+          }
+          if (data.column.index === 5 && String(data.cell.raw) !== '—') {
+            data.cell.styles.textColor = C.purple;
+          }
+        }
+      },
+      margin: { left: 14, right: 14 },
+    });
+
+    addFooter();
+  }
+
+  const filterSuffix = gewerkFilter === 'all' ? 'Alle' : gewerkFilter;
+  const dateSuffix = now.toISOString().slice(0, 10);
+  doc.save(`Ticket-Rueckstand_${filterSuffix}_${dateSuffix}.pdf`);
+}
+
 // ─── Hauptseite ───────────────────────────────────────────────────────────────
 export default function TicketVerwaltungPage() {
   const { user } = useAuth();
@@ -394,6 +647,22 @@ export default function TicketVerwaltungPage() {
             </button>
           ))}
         </div>
+
+        {/* PDF Export Button */}
+        <button
+          onClick={() => exportVerwaltungPDF(tickets, notes, gewerkFilter)}
+          disabled={tickets.length === 0}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px',
+            background: '#0f172a', color: '#fff', border: 'none', borderRadius: 12,
+            fontSize: 13, fontWeight: 600, cursor: tickets.length === 0 ? 'not-allowed' : 'pointer',
+            opacity: tickets.length === 0 ? 0.5 : 1, whiteSpace: 'nowrap', transition: 'all .15s',
+          }}
+          onMouseEnter={e => { if (tickets.length > 0) (e.currentTarget as HTMLElement).style.background = '#1e293b'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#0f172a'; }}
+        >
+          <FileDown size={15} /> PDF exportieren
+        </button>
       </div>
 
       {/* Monats-Blöcke */}
