@@ -4,7 +4,6 @@ import { supabase } from '@/integrations/supabase/client';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, LineChart, Line, Cell,
-  PieChart, Pie, Sector,
 } from 'recharts';
 import { TrendingUp, Award, Calendar, Target, ChevronLeft, ChevronRight, BarChart2 } from 'lucide-react';
 
@@ -37,31 +36,10 @@ function DarkTooltip({ active, payload, label }: any) {
   );
 }
 
-// ── Aktiver Sektor im Pie ────────────────────────────────────────────────
-function renderActiveShape(props: any) {
-  const { cx, cy, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value } = props;
-  return (
-    <g>
-      <text x={cx} y={cy - 10} textAnchor="middle" fill="#0f172a" fontSize={18} fontWeight={800}>
-        {value.toLocaleString('de-DE')}
-      </text>
-      <text x={cx} y={cy + 12} textAnchor="middle" fill="#64748b" fontSize={12}>
-        {payload.name}
-      </text>
-      <text x={cx} y={cy + 28} textAnchor="middle" fill="#94a3b8" fontSize={11}>
-        {(percent * 100).toFixed(1)}%
-      </text>
-      <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 8} startAngle={startAngle} endAngle={endAngle} fill={fill} />
-      <Sector cx={cx} cy={cy} innerRadius={innerRadius - 4} outerRadius={innerRadius - 2} startAngle={startAngle} endAngle={endAngle} fill={fill} />
-    </g>
-  );
-}
 
 export default function DGUVMessAuswertung() {
   const curYear = new Date().getFullYear();
   const [year, setYear] = useState(curYear);
-  const [activePI, setActivePI] = useState(0);
-
   // ── Daten laden ──────────────────────────────────────────────────────────
   const { data: pruefer = [] } = useQuery({
     queryKey: ['dguv-pruefer'],
@@ -158,13 +136,6 @@ export default function DGUVMessAuswertung() {
       farbe: COLORS[i % COLORS.length],
     })).sort((a, b) => b.ist - a.ist);
   }, [m, p, soll]);
-
-  // ── Pie Daten ────────────────────────────────────────────────────────────
-  const pieData = prueférStats.map((p, i) => ({
-    name: p.name,
-    value: p.ist,
-    fill: COLORS[i % COLORS.length],
-  }));
 
   // ── Trend-Linie (Gesamtmessungen pro Monat) ──────────────────────────────
   const trendData = monatsDaten.map(d => ({ monat: d.monat, Messungen: d.gesamt, Soll: soll * p.filter((x: any) => x.aktiv).length }));
@@ -310,27 +281,39 @@ export default function DGUVMessAuswertung() {
           {/* ── Unteres Grid: Pie + Prüfer-Tabelle ──────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16 }}>
 
-            {/* Pie Chart */}
+            {/* Proportional Bars */}
             <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', padding: '24px' }}>
-              <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Anteil pro Prüfer</h3>
-              <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>Klicken für Details</p>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    activeIndex={activePI}
-                    activeShape={renderActiveShape}
-                    data={pieData}
-                    cx="50%" cy="50%"
-                    innerRadius={65} outerRadius={90}
-                    dataKey="value"
-                    onMouseEnter={(_, index) => setActivePI(index)}
-                  >
-                    {pieData.map((entry, i) => (
-                      <Cell key={i} fill={entry.fill} />
-                    ))}
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', margin: '0 0 3px' }}>Anteil pro Prüfer</h3>
+              <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 20px' }}>Anteil an Gesamtmessungen {year}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {prueférStats.map((pr, i) => {
+                  const pct = gesamtJahr > 0 ? Math.round(pr.ist / gesamtJahr * 100) : 0;
+                  return (
+                    <div key={pr.name}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                          <div style={{ width: 30, height: 30, borderRadius: 9, background: pr.farbe + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: pr.farbe }}>{pr.kuerzel}</span>
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>{pr.name}</span>
+                        </div>
+                        <span style={{ fontSize: 20, fontWeight: 800, color: pr.farbe }}>{pr.ist.toLocaleString('de-DE')}</span>
+                      </div>
+                      <div style={{ height: 10, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${pct}%`, background: `linear-gradient(90deg,${pr.farbe},${pr.farbe}aa)`, borderRadius: 99, transition: 'width .6s ease' }}/>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                        <span>{pct}% der Gesamtmessungen</span>
+                        <span>{pr.aktiveMonate} Monate aktiv</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 500 }}>Gesamt</span>
+                  <span style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>{gesamtJahr.toLocaleString('de-DE')}</span>
+                </div>
+              </div>
             </div>
 
             {/* Prüfer-Tabelle */}
