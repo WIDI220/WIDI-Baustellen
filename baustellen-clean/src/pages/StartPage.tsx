@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield } from 'lucide-react';
+import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield, Briefcase } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -15,15 +15,17 @@ export default function StartPage() {
   const { data: baustellen = [] } = useQuery({ queryKey: ['start-baustellen'], queryFn: async () => { const { data } = await supabase.from('baustellen').select('status'); return data ?? []; } });
   const { data: employees = [] } = useQuery({ queryKey: ['start-employees'], queryFn: async () => { const { data } = await supabase.from('employees').select('id').eq('aktiv', true); return data ?? []; } });
   const { data: recentLogs = [] } = useQuery({ queryKey: ['start-admin-logs'], enabled: isAdmin, queryFn: async () => { const { data } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(5); return data ?? []; } });
+  const { data: extAuftraege = [] } = useQuery({ queryKey: ['start-ext'], queryFn: async () => { const { data } = await supabase.from('ext_auftraege').select('status'); return data ?? []; } });
 
   const t = tickets as any[];
   const b = baustellen as any[];
 
   const BEREICHE = [
-    { path: '/baustellen/dashboard', color: '#2563eb', colorRgb: '37,99,235', icon: HardHat, titel: 'Baustellen', sub: 'Controlling & Management', stat: b.filter(x => x.status !== 'abgerechnet').length, statLabel: 'aktive Projekte', punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'] },
+    { path: '/baustellen/liste?typ=intern', color: '#2563eb', colorRgb: '37,99,235', icon: HardHat, titel: 'Baustellen', sub: 'Controlling & Management', stat: b.filter(x => x.status !== 'abgerechnet').length, statLabel: 'aktive Projekte', punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'] },
     { path: '/tickets/dashboard', color: '#10b981', colorRgb: '16,185,129', icon: Ticket, titel: 'Ticketsystem', sub: 'WIDI Controlling', stat: t.filter(x => x.status === 'in_bearbeitung').length, statLabel: 'Tickets offen', punkte: ['Tickets erfassen', 'PDF-Rücklauf OCR', 'Excel-Import', 'Monatsanalyse'] },
     { path: '/auswertung', color: '#8b5cf6', colorRgb: '139,92,246', icon: TrendingUp, titel: 'MA-Auswertung', sub: 'Mitarbeiter & Statistik', stat: (employees as any[]).length, statLabel: 'Mitarbeiter', punkte: ['Stunden & Kosten', 'Monatsvergleich', 'Einzelperson', 'Trends'] },
     { path: '/dguv', color: '#f59e0b', colorRgb: '245,158,11', icon: Shield, titel: 'DGUV Prüfung', sub: 'Geräteprüfung & Roadmap', stat: 23352, statLabel: 'Prüflinge gesamt', punkte: ['Rohdaten verarbeiten', 'Roadmap 2025/2026', 'Prüfer-Auswertung', 'Neue Prüflinge'] },
+    { path: '/baustellen/liste?typ=extern', color: '#e11d48', colorRgb: '225,29,72', icon: Briefcase, titel: 'Externe Tickets', sub: 'Aufträge & Zeiterfassung', stat: (extAuftraege as any[]).filter(x => !['abgerechnet','abgeschlossen'].includes(x.status)).length, statLabel: 'aktive Aufträge', punkte: ['PDF-Import OCR', 'Zeiterfassung', 'Budget-Tracking', 'Dokumente'] },
   ];
 
   return (
@@ -75,6 +77,8 @@ export default function StartPage() {
         .s-card:nth-child(1) { animation-delay: 0.3s; }
         .s-card:nth-child(2) { animation-delay: 0.42s; }
         .s-card:nth-child(3) { animation-delay: 0.54s; }
+        .s-card:nth-child(4) { animation-delay: 0.62s; }
+        .s-card:nth-child(5) { animation-delay: 0.70s; }
 
         .s-card:hover { transform: translateY(-8px) scale(1.01) !important; }
         .s-card:hover .card-arrow { transform: translateX(5px); opacity:1 !important; }
