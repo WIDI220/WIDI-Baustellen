@@ -227,12 +227,17 @@ export default function PdfRuecklauf() {
                 result.ticket_id = ticket.id;
                 result.ticket_status = ticket.status;
 
-                // ── NEU: Bereits erledigt prüfen ──────────────────────────
-                if (ticket.status === 'erledigt') {
+                // ── Bereits abgeschlossene Status prüfen ──────────────
+                const ABGESCHLOSSEN = ['erledigt', 'abrechenbar', 'abgerechnet', 'zur_unterschrift'];
+                if (ABGESCHLOSSEN.includes(ticket.status)) {
                   result.already_erledigt = true;
                   result.needsReview = true;
-                  result.reviewReasons.push('Ticket bereits als erledigt eingetragen');
-                  addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} bereits erledigt!`);
+                  const statusLabel: Record<string,string> = {
+                    erledigt: 'Erledigt', abrechenbar: 'Abrechenbar',
+                    abgerechnet: 'Abgerechnet', zur_unterschrift: 'Zur Unterschrift',
+                  };
+                  result.reviewReasons.push(`Ticket bereits als "${statusLabel[ticket.status] ?? ticket.status}" eingetragen`);
+                  addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} bereits "${statusLabel[ticket.status]}"!`);
                 }
 
                 const namen: string[] = [];
@@ -703,7 +708,7 @@ export default function PdfRuecklauf() {
                   className={`w-6 h-6 rounded-md text-xs font-mono transition-colors
                     ${i === verifyIndex ? 'bg-[#1e3a5f] text-white' :
                       v.confirmed ? 'bg-emerald-100 text-emerald-700' :
-                      v.already_erledigt ? 'bg-amber-100 text-amber-700' :
+                      v.already_erledigt ? 'bg-orange-200 text-orange-800 ring-1 ring-orange-400' :
                       (v.manuelleEingabe && !v.ticket_id) ? 'bg-red-100 text-red-700' :
                       v.needsReview ? 'bg-amber-100 text-amber-700' :
                       'bg-gray-100 text-gray-500'}`}>
@@ -721,7 +726,7 @@ export default function PdfRuecklauf() {
                 <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
                   <span className="text-xs text-gray-400 font-mono">ORIGINAL — Seite {currentVerify.page}</span>
                   {currentVerify.already_erledigt && (
-                    <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Bereits erledigt</span>
+                    <span style={{ fontSize: 11, background: '#f59e0b', color: '#fff', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>⚠ BEREITS ABGESCHLOSSEN</span>
                   )}
                   {currentVerify.needsReview && !currentVerify.already_erledigt && (
                     <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Prüfung empfohlen</span>
@@ -742,24 +747,37 @@ export default function PdfRuecklauf() {
               <div className="flex flex-col overflow-y-auto border-l border-gray-100">
                 <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
 
-                  {/* ── BEREITS ERLEDIGT Banner ── */}
+                  {/* ── BEREITS ABGESCHLOSSEN Banner — auffällig ── */}
                   {currentVerify.already_erledigt && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                        <div className="flex-1">
-                          <p className="text-sm font-bold text-amber-800">Bereits eingetragen</p>
-                          <p className="text-xs text-amber-700 mt-0.5">
-                            Dieses Ticket wurde bereits als <strong>erledigt</strong> gebucht. Normalerweise muss hier nichts geändert werden.
+                    <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: 14, padding: '12px 14px', marginBottom: 12, position: 'relative', overflow: 'hidden' }}>
+                      {/* Farbstreifen oben */}
+                      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(90deg,#f59e0b,#ef4444)', borderRadius: '14px 14px 0 0' }} />
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 4 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <AlertTriangle className="h-4 w-4" style={{ color: '#fff' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontSize: 13, fontWeight: 800, color: '#92400e', margin: '0 0 3px' }}>
+                            ⚠️ Ticket bereits abgeschlossen!
                           </p>
-                          <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                          <p style={{ fontSize: 12, color: '#92400e', margin: '0 0 6px', lineHeight: 1.4 }}>
+                            Status in der Datenbank: <strong style={{ background: '#fde68a', padding: '1px 6px', borderRadius: 4 }}>
+                              {currentVerify.ticket_status === 'erledigt' ? 'Erledigt' :
+                               currentVerify.ticket_status === 'abrechenbar' ? 'Abrechenbar' :
+                               currentVerify.ticket_status === 'abgerechnet' ? 'Abgerechnet' :
+                               currentVerify.ticket_status === 'zur_unterschrift' ? 'Zur Unterschrift' :
+                               currentVerify.ticket_status}
+                            </strong><br/>
+                            Dieses Ticket wird <strong>automatisch übersprungen</strong> und nicht überschrieben.
+                          </p>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: 'rgba(255,255,255,0.6)', padding: '6px 10px', borderRadius: 8, border: '1px solid #fcd34d' }}>
                             <input
                               type="checkbox"
                               checked={currentVerify.override_erledigt ?? false}
                               onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, override_erledigt: e.target.checked, confirmed: false } : v))}
                               className="rounded"
                             />
-                            <span className="text-xs text-amber-800 font-medium">Trotzdem nochmal buchen (Korrektur)</span>
+                            <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Trotzdem überschreiben (nur bei Korrektur!)</span>
                           </label>
                         </div>
                       </div>
