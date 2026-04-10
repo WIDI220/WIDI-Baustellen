@@ -8,7 +8,7 @@ import { Select, SelectOption } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { FileText, CheckCircle, Loader2, Hash, HardHat, Euro, User, AlertCircle } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const GEWERK_OPTIONS = ['Hochbau', 'Elektro', 'Beides'];
 
@@ -35,7 +35,9 @@ export default function AuftragImportPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<'upload'|'review'|'done'>('upload');
   const [loading, setLoading] = useState(false);
-  const [typ, setTyp] = useState<'intern'|'extern'>('intern');
+  const [searchParams] = useSearchParams();
+  const typ = (searchParams.get('typ') ?? 'intern') as 'intern' | 'extern';
+  const isExtern = typ === 'extern';
   const [form, setForm] = useState<ExtractedData | null>(null);
 
   const handleFile = async (file: File) => {
@@ -88,7 +90,7 @@ export default function AuftragImportPage() {
       return data;
     },
     onSuccess: (data) => {
-      toast.success(form?.typ === 'extern' ? 'Externes Ticket angelegt!' : 'Baustelle angelegt!');
+      toast.success(isExtern ? 'Externes Ticket angelegt!' : 'Baustelle angelegt!');
       queryClient.invalidateQueries({ queryKey: ['baustellen-list'] });
       setStep('done');
       setTimeout(() => navigate(`/baustellen/${data.id}`), 1500);
@@ -101,8 +103,8 @@ export default function AuftragImportPage() {
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Auftrag importieren</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Typ wählen → PDF hochladen → KI liest Daten aus → anlegen</p>
+        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{isExtern ? 'Externes Ticket' : 'Baustelle'} importieren</h1>
+        <p className="text-sm text-gray-500 mt-0.5">PDF hochladen → KI liest Betreff & A-Nummer aus → anlegen</p>
       </div>
 
       {/* Fortschrittsleiste */}
@@ -124,21 +126,13 @@ export default function AuftragImportPage() {
         })}
       </div>
 
-      {/* Typ-Auswahl */}
-      {step === 'upload' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <p className="text-sm font-semibold text-gray-700 mb-3">Was möchtest du anlegen?</p>
-          <div style={{ display:'flex', gap:10 }}>
-            {([['intern','Baustelle','#2563eb','Internes Projekt / Auftrag'],['extern','Externes Ticket','#e11d48','Auftrag von externem Kunden']] as const).map(([t,l,col,sub]) => (
-              <button key={t} type="button" onClick={() => setTyp(t)}
-                style={{ flex:1, padding:'12px 16px', borderRadius:12, border:`2px solid ${typ===t?col:'#e2e8f0'}`, background:typ===t?col+'0d':'#fff', cursor:'pointer', textAlign:'left', transition:'all .15s' }}>
-                <p style={{ fontSize:13, fontWeight:700, color:typ===t?col:'#374151', margin:'0 0 2px' }}>{l}</p>
-                <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{sub}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Typ-Anzeige */}
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: isExtern ? '#fff1f2' : '#eff6ff', borderRadius:12, border:`1px solid ${isExtern ? '#fecdd3' : '#bfdbfe'}` }}>
+        <span style={{ fontSize:13, fontWeight:700, color: isExtern ? '#e11d48' : '#2563eb' }}>
+          {isExtern ? '📋 Externes Ticket' : '🏗 Baustelle'}
+        </span>
+        <span style={{ fontSize:12, color:'#64748b' }}>· PDF hochladen → KI liest Daten aus → anlegen</span>
+      </div>
 
       {/* Upload */}
       {step === 'upload' && (
@@ -291,7 +285,7 @@ export default function AuftragImportPage() {
               disabled={saveMutation.isPending || !form.name}>
               {saveMutation.isPending
                 ? <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>Legt an...</>
-                : <><CheckCircle className="h-4 w-4 mr-2"/>{(form as any).typ==='extern'?'Externes Ticket anlegen':'Baustelle anlegen'}</>}
+                : <><CheckCircle className="h-4 w-4 mr-2"/>{isExtern ? 'Externes Ticket anlegen' : 'Baustelle anlegen'}</>}
             </Button>
           </div>
         </div>
@@ -303,7 +297,7 @@ export default function AuftragImportPage() {
           <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="h-8 w-8 text-emerald-500" />
           </div>
-          <p className="text-xl font-bold text-gray-900">Baustelle angelegt!</p>
+          <p className="text-xl font-bold text-gray-900">{isExtern ? 'Externes Ticket angelegt!' : 'Baustelle angelegt!'}</p>
           <p className="text-sm text-gray-400 mt-2">Du wirst gleich weitergeleitet...</p>
         </div>
       )}
