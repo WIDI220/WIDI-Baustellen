@@ -16,6 +16,7 @@ interface ExtractedData {
   name: string; a_nummer: string; auftraggeber: string; beschreibung: string;
   budget: number; gewerk: string; startdatum: string; enddatum: string;
   ansprechpartner: string; adresse: string; betreff_original: string;
+  typ: 'intern' | 'extern'; kostenstelle: string;
 }
 
 // Einheitliches Format: [A20917] Betreff oder nur Betreff
@@ -34,6 +35,7 @@ export default function AuftragImportPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<'upload'|'review'|'done'>('upload');
   const [loading, setLoading] = useState(false);
+  const [typ, setTyp] = useState<'intern'|'extern'>('intern');
   const [form, setForm] = useState<ExtractedData | null>(null);
 
   const handleFile = async (file: File) => {
@@ -53,7 +55,7 @@ export default function AuftragImportPage() {
       });
       const result = await response.json();
       if (!result.success) throw new Error(result.error || 'Fehler beim Auslesen');
-      setForm(result.data);
+      setForm({ ...result.data, typ, kostenstelle: result.data.kostenstelle || '' });
       setStep('review');
       toast.success('PDF erfolgreich ausgelesen!');
     } catch (e: any) {
@@ -79,12 +81,14 @@ export default function AuftragImportPage() {
         fortschritt: 0,
         budget: Number(form.budget) || 0,
         beschreibung: form.beschreibung + (notizen ? '\n\n' + notizen : ''),
+        typ: form.typ || typ,
+        kostenstelle: form.kostenstelle || null,
       }).select().single();
       if (error) throw error;
       return data;
     },
     onSuccess: (data) => {
-      toast.success('Baustelle angelegt!');
+      toast.success(form?.typ === 'extern' ? 'Externes Ticket angelegt!' : 'Baustelle angelegt!');
       queryClient.invalidateQueries({ queryKey: ['baustellen-list'] });
       setStep('done');
       setTimeout(() => navigate(`/baustellen/${data.id}`), 1500);
@@ -98,7 +102,7 @@ export default function AuftragImportPage() {
     <div className="space-y-5 max-w-3xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Auftrag importieren</h1>
-        <p className="text-sm text-gray-500 mt-0.5">PDF hochladen → KI liest Betreff & A-Nummer aus → Baustelle anlegen</p>
+        <p className="text-sm text-gray-500 mt-0.5">Typ wählen → PDF hochladen → KI liest Daten aus → anlegen</p>
       </div>
 
       {/* Fortschrittsleiste */}
@@ -119,6 +123,22 @@ export default function AuftragImportPage() {
           );
         })}
       </div>
+
+      {/* Typ-Auswahl */}
+      {step === 'upload' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <p className="text-sm font-semibold text-gray-700 mb-3">Was möchtest du anlegen?</p>
+          <div style={{ display:'flex', gap:10 }}>
+            {([['intern','Baustelle','#2563eb','Internes Projekt / Auftrag'],['extern','Externes Ticket','#e11d48','Auftrag von externem Kunden']] as const).map(([t,l,col,sub]) => (
+              <button key={t} type="button" onClick={() => setTyp(t)}
+                style={{ flex:1, padding:'12px 16px', borderRadius:12, border:`2px solid ${typ===t?col:'#e2e8f0'}`, background:typ===t?col+'0d':'#fff', cursor:'pointer', textAlign:'left', transition:'all .15s' }}>
+                <p style={{ fontSize:13, fontWeight:700, color:typ===t?col:'#374151', margin:'0 0 2px' }}>{l}</p>
+                <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{sub}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Upload */}
       {step === 'upload' && (
@@ -210,6 +230,12 @@ export default function AuftragImportPage() {
                 <Label>Ansprechpartner</Label>
                 <Input value={form.ansprechpartner} onChange={e => setForm(f => f?{...f,ansprechpartner:e.target.value}:f)} />
               </div>
+              {(form as any).typ === 'extern' && (
+                <div>
+                  <Label>Kostenstelle</Label>
+                  <Input value={(form as any).kostenstelle||''} placeholder="z.B. 900120" onChange={e => setForm(f => f?{...f,kostenstelle:e.target.value}:f)} />
+                </div>
+              )}
               <div className="col-span-2">
                 <Label>Adresse / Ort</Label>
                 <Input value={form.adresse} onChange={e => setForm(f => f?{...f,adresse:e.target.value}:f)} />
@@ -265,7 +291,7 @@ export default function AuftragImportPage() {
               disabled={saveMutation.isPending || !form.name}>
               {saveMutation.isPending
                 ? <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>Legt an...</>
-                : <><CheckCircle className="h-4 w-4 mr-2"/>Baustelle anlegen</>}
+                : <><CheckCircle className="h-4 w-4 mr-2"/>{(form as any).typ==='extern'?'Externes Ticket anlegen':'Baustelle anlegen'}</>}
             </Button>
           </div>
         </div>
