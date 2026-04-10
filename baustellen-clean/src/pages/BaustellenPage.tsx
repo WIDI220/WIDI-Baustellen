@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,7 @@ const STATUS_OPTIONS = [
   { value:'abgerechnet',    label:'Abgerechnet',     dot:'#8b5cf6', bg:'#faf5ff', text:'#5b21b6' },
 ];
 const GEWERK_OPTIONS = ['Hochbau', 'Elektro', 'Beides'];
-const EMPTY = { name:'', adresse:'', auftraggeber:'', kostenstelle:'', startdatum:'', enddatum:'', status:'offen', gewerk:'Hochbau', projektleiter:'', beschreibung:'', budgetInput:'', typ:'intern' };
+const EMPTY = { name:'', adresse:'', auftraggeber:'', kostenstelle:'', startdatum:'', enddatum:'', status:'offen', gewerk:'Hochbau', projektleiter:'', beschreibung:'', budgetInput:'' };
 
 
 // A-Nummer aus Baustellenname extrahieren: "[A20917] Betreff" → "20917"
@@ -32,7 +32,9 @@ function extractANummer(name: string): string {
   return m ? m[1] : '';
 }
 export default function BaustellenPage() {
-  const [aktiverTyp, setAktiverTyp] = useState<'intern'|'extern'>('intern');
+  const [searchParams] = useSearchParams();
+  const typ = (searchParams.get('typ') ?? 'intern') as 'intern' | 'extern';
+  const isExtern = typ === 'extern';
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -52,8 +54,8 @@ export default function BaustellenPage() {
         name: form.name,
         adresse: form.adresse || null,
         auftraggeber: form.auftraggeber || null,
-        kostenstelle: form.kostenstelle || null,
-        typ: form.typ || 'intern',
+        kostenstelle: (form as any).kostenstelle || null,
+        typ: typ,
         startdatum: form.startdatum || null,
         enddatum: form.enddatum || null,
         status: form.status,
@@ -94,8 +96,8 @@ export default function BaustellenPage() {
 
   const filtered = aktiveBS.filter(b => {
     if (!search) return true;
-    const matchTyp = (b as any).typ === aktiverTyp || !(b as any).typ && aktiverTyp === 'intern';
-    if (!matchTyp) return false;
+    const bTyp = (b as any).typ || 'intern';
+    if (bTyp !== typ) return false;
     return b.name.toLowerCase().includes(search.toLowerCase()) || (b.auftraggeber||'').toLowerCase().includes(search.toLowerCase());
   });
 
@@ -105,7 +107,7 @@ export default function BaustellenPage() {
     let budgetInput = String(b.budget || '');
     if (b.budget_typ === 'stunden' && b.budget_menge) budgetInput = `${b.budget_menge}h`;
     else if (b.budget_typ === 'stueckzahl' && b.budget_menge) budgetInput = `${b.budget_menge}stk`;
-    setForm({ name:b.name, adresse:b.adresse||'', auftraggeber:b.auftraggeber||'', kostenstelle:(b as any).kostenstelle||'', startdatum:b.startdatum||'', enddatum:b.enddatum||'', status:b.status, gewerk:b.gewerk||'Hochbau', projektleiter:b.projektleiter||'', beschreibung:b.beschreibung||'', budgetInput, typ:(b as any).typ||'intern' });
+    setForm({ name:b.name, adresse:b.adresse||'', auftraggeber:b.auftraggeber||'', kostenstelle:(b as any).kostenstelle||'', startdatum:b.startdatum||'', enddatum:b.enddatum||'', status:b.status, gewerk:b.gewerk||'Hochbau', projektleiter:b.projektleiter||'', beschreibung:b.beschreibung||'', budgetInput });
     setEditItem(b);
     setDialog(true);
   };
@@ -131,36 +133,17 @@ export default function BaustellenPage() {
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div>
           <h1 style={{ fontSize:24, fontWeight:800, color:'#0f172a', margin:0, letterSpacing:'-.03em' }}>
-            Baustellen <span style={{ color:'#2563eb' }}>({aktiveBS.length})</span>
+            {isExtern ? 'Externe Tickets' : 'Baustellen'} <span style={{ color: isExtern ? '#e11d48' : '#2563eb' }}>({aktiveBS.length})</span>
           </h1>
-          <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>{aktiveBS.length} aktive Projekte</p>
+          {/* Dynamic marker */}<p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>{aktiveBS.length} aktive Projekte</p>
         </div>
         <button
           onClick={() => {setForm(EMPTY);setEditItem(null);setDialog(true);}}
-          style={{ display:'flex', alignItems:'center', gap:7, padding:'10px 18px', background:'linear-gradient(135deg,#2563eb,#1d4ed8)', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 14px rgba(37,99,235,0.3)', transition:'all .15s' }}
+          style={{ display:'flex', alignItems:'center', gap:7, padding:'10px 18px', background: isExtern ? 'linear-gradient(135deg,#e11d48,#9f1239)' : 'linear-gradient(135deg,#2563eb,#1d4ed8)', color:'#fff', border:'none', borderRadius:12, fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 14px rgba(37,99,235,0.3)', transition:'all .15s' }}
           onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform='translateY(-1px)';(e.currentTarget as HTMLElement).style.boxShadow='0 8px 20px rgba(37,99,235,0.4)';}}
           onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform='translateY(0)';(e.currentTarget as HTMLElement).style.boxShadow='0 4px 14px rgba(37,99,235,0.3)';}}>
-          <Plus size={15} /> Neue Baustelle
+          <Plus size={15} /> {isExtern ? 'Neues ext. Ticket' : 'Neue Baustelle'}
         </button>
-      </div>
-
-      {/* Typ-Toggle: Baustellen / Externe Tickets */}
-      <div style={{ display:'flex', gap:4, background:'#f1f5f9', borderRadius:12, padding:4, width:'fit-content' }}>
-        {([['intern','Baustellen','#2563eb'],['extern','Externe Tickets','#e11d48']] as [string,string,string][]).map(([typ, label, color]) => (
-          <button key={typ} onClick={() => setAktiverTyp(typ as 'intern'|'extern')}
-            style={{ padding:'8px 20px', borderRadius:9, border:'none', fontSize:13, fontWeight:600, cursor:'pointer', transition:'all .15s', fontFamily:'inherit',
-              background: aktiverTyp===typ ? '#fff' : 'transparent',
-              color: aktiverTyp===typ ? color : '#94a3b8',
-              boxShadow: aktiverTyp===typ ? '0 1px 4px rgba(0,0,0,.08)' : 'none',
-            }}>
-            {label}
-            <span style={{ marginLeft:6, fontSize:11, padding:'2px 7px', borderRadius:10,
-              background: aktiverTyp===typ ? color+'18' : 'transparent',
-              color: aktiverTyp===typ ? color : '#94a3b8' }}>
-              {(baustellen as any[]).filter((b:any) => (b.typ||'intern')===typ && b.status!=='abgerechnet').length}
-            </span>
-          </button>
-        ))}
       </div>
 
       {/* Search */}
@@ -183,7 +166,7 @@ export default function BaustellenPage() {
             <p style={{ color:'#94a3b8', fontSize:14, marginBottom:16 }}>Keine Baustellen gefunden</p>
             <button onClick={()=>{setForm(EMPTY);setDialog(true);}}
               style={{ padding:'9px 18px', background:'#2563eb', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer' }}>
-              <Plus size={14} style={{ display:'inline', marginRight:6 }} />Erste anlegen
+              <Plus size={14} style={{ display:'inline', marginRight:6 }} />{isExtern ? 'Erstes Ticket anlegen' : 'Erste anlegen'}
             </button>
           </div>
         )}
@@ -266,23 +249,12 @@ export default function BaustellenPage() {
 
       <Dialog open={dialog} onOpenChange={v=>{setDialog(v);if(!v){setEditItem(null);setForm(EMPTY);}}}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editItem?'Baustelle bearbeiten':'Neue Baustelle'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editItem ? (isExtern?'Ext. Ticket bearbeiten':'Baustelle bearbeiten') : (isExtern?'Ext. Ticket anlegen':'Neue Baustelle')}</DialogTitle></DialogHeader>
           <div className="space-y-3 pt-1">
             <div><Label>Name *</Label><Input value={form.name} onChange={e=>setForm((f:any)=>({...f,name:e.target.value}))} autoFocus placeholder="z.B. Klinikum – Station 3" /></div>
             <div className="grid grid-cols-2 gap-2">
-              <div style={{gridColumn:'1/-1'}}>
-                <Label>Typ</Label>
-                <div style={{display:'flex',gap:8,marginTop:4}}>
-                  {[['intern','Baustelle','#2563eb'],['extern','Externes Ticket','#e11d48']].map(([v,l,col])=>(
-                    <button key={v} type="button" onClick={()=>setForm((f:any)=>({...f,typ:v}))}
-                      style={{padding:'7px 16px',borderRadius:8,border:`2px solid ${form.typ===v?col:'#e2e8f0'}`,background:form.typ===v?col+'12':'transparent',color:form.typ===v?col:'#64748b',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',transition:'all .15s'}}>
-                      {l}
-                    </button>
-                  ))}
-                </div>
-              </div>
               <div><Label>Auftraggeber</Label><Input value={form.auftraggeber} onChange={e=>setForm((f:any)=>({...f,auftraggeber:e.target.value}))} /></div>
-              {form.typ==='extern' && <div><Label>Kostenstelle</Label><Input value={form.kostenstelle||''} onChange={e=>setForm((f:any)=>({...f,kostenstelle:e.target.value}))} placeholder="z.B. 900120" /></div>}
+              {isExtern && <div><Label>Kostenstelle</Label><Input value={(form as any).kostenstelle||''} placeholder="z.B. 900120" onChange={e=>setForm((f:any)=>({...f,kostenstelle:e.target.value}))} /></div>}
               <div><Label>Adresse / Ort</Label><Input value={form.adresse} onChange={e=>setForm((f:any)=>({...f,adresse:e.target.value}))} /></div>
             </div>
 
