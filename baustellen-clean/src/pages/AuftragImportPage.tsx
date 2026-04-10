@@ -8,7 +8,7 @@ import { Select, SelectOption } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { FileText, CheckCircle, Loader2, Hash, HardHat, Euro, User, AlertCircle } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 const GEWERK_OPTIONS = ['Hochbau', 'Elektro', 'Beides'];
 
@@ -16,7 +16,7 @@ interface ExtractedData {
   name: string; a_nummer: string; auftraggeber: string; beschreibung: string;
   budget: number; gewerk: string; startdatum: string; enddatum: string;
   ansprechpartner: string; adresse: string; betreff_original: string;
-  typ: 'intern' | 'extern'; kostenstelle: string;
+  kostenstelle: string;
 }
 
 // Einheitliches Format: [A20917] Betreff oder nur Betreff
@@ -35,10 +35,9 @@ export default function AuftragImportPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<'upload'|'review'|'done'>('upload');
   const [loading, setLoading] = useState(false);
-  const [searchParams] = useSearchParams();
-  const typ = (searchParams.get('typ') ?? 'intern') as 'intern' | 'extern';
-  const isExtern = typ === 'extern';
   const [form, setForm] = useState<ExtractedData | null>(null);
+  const [typ, setTyp] = useState<'intern'|'extern'>('intern');
+  const isExtern = typ === 'extern';
 
   const handleFile = async (file: File) => {
     if (file.type !== 'application/pdf') { toast.error('Bitte eine PDF-Datei auswählen'); return; }
@@ -57,7 +56,7 @@ export default function AuftragImportPage() {
       });
       const result = await response.json();
       if (!result.success) throw new Error(result.error || 'Fehler beim Auslesen');
-      setForm({ ...result.data, typ, kostenstelle: result.data.kostenstelle || '' });
+      setForm({ ...result.data, kostenstelle: '' });
       setStep('review');
       toast.success('PDF erfolgreich ausgelesen!');
     } catch (e: any) {
@@ -83,7 +82,7 @@ export default function AuftragImportPage() {
         fortschritt: 0,
         budget: Number(form.budget) || 0,
         beschreibung: form.beschreibung + (notizen ? '\n\n' + notizen : ''),
-        typ: form.typ || typ,
+        typ: typ,
         kostenstelle: form.kostenstelle || null,
       }).select().single();
       if (error) throw error;
@@ -103,8 +102,8 @@ export default function AuftragImportPage() {
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{isExtern ? 'Externes Ticket' : 'Baustelle'} importieren</h1>
-        <p className="text-sm text-gray-500 mt-0.5">PDF hochladen → KI liest Betreff & A-Nummer aus → anlegen</p>
+        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Auftrag importieren</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Typ wählen → PDF hochladen → KI liest Daten aus → anlegen</p>
       </div>
 
       {/* Fortschrittsleiste */}
@@ -126,13 +125,25 @@ export default function AuftragImportPage() {
         })}
       </div>
 
-      {/* Typ-Anzeige */}
-      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: isExtern ? '#fff1f2' : '#eff6ff', borderRadius:12, border:`1px solid ${isExtern ? '#fecdd3' : '#bfdbfe'}` }}>
-        <span style={{ fontSize:13, fontWeight:700, color: isExtern ? '#e11d48' : '#2563eb' }}>
-          {isExtern ? '📋 Externes Ticket' : '🏗 Baustelle'}
-        </span>
-        <span style={{ fontSize:12, color:'#64748b' }}>· PDF hochladen → KI liest Daten aus → anlegen</span>
-      </div>
+      {/* Typ-Auswahl — immer sichtbar im Upload-Schritt */}
+      {step === 'upload' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <p className="text-sm font-semibold text-gray-700 mb-3">Was möchtest du anlegen?</p>
+          <div style={{ display:'flex', gap:10 }}>
+            {([
+              ['intern', 'Baustelle', '#2563eb', 'Internes Projekt oder Auftrag'],
+              ['extern', 'Externes Ticket', '#e11d48', 'Auftrag von externem Kunden'],
+            ] as const).map(([t, label, color, sub]) => (
+              <button key={t} type="button" onClick={() => setTyp(t)}
+                style={{ flex:1, padding:'14px 18px', borderRadius:14, border:`2px solid ${typ===t ? color : '#e2e8f0'}`,
+                  background: typ===t ? color+'0d' : '#fff', cursor:'pointer', textAlign:'left', transition:'all .15s' }}>
+                <p style={{ fontSize:14, fontWeight:700, color: typ===t ? color : '#374151', margin:'0 0 3px' }}>{label}</p>
+                <p style={{ fontSize:12, color:'#94a3b8', margin:0 }}>{sub}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Upload */}
       {step === 'upload' && (
@@ -224,10 +235,11 @@ export default function AuftragImportPage() {
                 <Label>Ansprechpartner</Label>
                 <Input value={form.ansprechpartner} onChange={e => setForm(f => f?{...f,ansprechpartner:e.target.value}:f)} />
               </div>
-              {(form as any).typ === 'extern' && (
+              {isExtern && (
                 <div>
                   <Label>Kostenstelle</Label>
-                  <Input value={(form as any).kostenstelle||''} placeholder="z.B. 900120" onChange={e => setForm(f => f?{...f,kostenstelle:e.target.value}:f)} />
+                  <Input value={form.kostenstelle||''} placeholder="z.B. 900120"
+                    onChange={e => setForm(f => f?{...f,kostenstelle:e.target.value}:f)} />
                 </div>
               )}
               <div className="col-span-2">
