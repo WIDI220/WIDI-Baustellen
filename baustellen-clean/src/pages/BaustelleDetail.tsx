@@ -9,7 +9,7 @@ import { Select, SelectOption } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { ArrowLeft, Euro, Clock, Package, Camera, Plus, Pencil, Trash2, Upload, TrendingUp, BarChart2 } from 'lucide-react';
+import { ArrowLeft, Euro, Clock, Package, Camera, Plus, Pencil, Trash2, Upload, TrendingUp, BarChart2, FileText, Download, File, X } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import { fmtEur, fmtDate } from '@/lib/utils';
 import { exportBaustellePDF } from '@/lib/exportPDF';
@@ -32,7 +32,7 @@ const NACH_STATUS = [
   { value:'genehmigt', label:'Genehmigt', bg:'#f0fdf4', text:'#065f46' },
   { value:'abgelehnt', label:'Abgelehnt', bg:'#fef2f2', text:'#b91c1c' },
 ];
-const TABS = ['Übersicht','Analyse','Stunden','Material','Nachträge','Fotos'];
+const TABS = ['Übersicht','Analyse','Stunden','Material','Nachträge','Fotos','Dokumente'];
 const STUNDEN_EMPTY = { mitarbeiter_id:'', datum:new Date().toISOString().split('T')[0], stunden:'', beschreibung:'' };
 const MAT_EMPTY = { bezeichnung:'', menge:'1', einheit:'Stk', einzelpreis:'', gesamtpreis:'', status:'bestellt', datum:new Date().toISOString().split('T')[0] };
 const NACH_EMPTY = { titel:'', beschreibung:'', betrag:'', status:'entwurf', datum:new Date().toISOString().split('T')[0], begruendung:'' };
@@ -77,12 +77,20 @@ export default function BaustelleDetail() {
   const [fotoDialog, setFotoDialog] = useState(false);
   const [fotoForm, setFotoForm] = useState<any>(FOTO_EMPTY);
   const [uploading, setUploading] = useState(false);
+  const [dokUploading, setDokUploading] = useState(false);
+  const [dokDragOver, setDokDragOver] = useState(false);
 
   const { data: bs, isLoading: bsLoading } = useQuery({ queryKey:['baustelle',id], queryFn: async () => { const {data,error}=await supabase.from('baustellen').select('*').eq('id',id!).single(); if(error)throw error; return data; }, enabled:!!id });
   const { data: employees=[] } = useQuery({ queryKey:['employees'], queryFn: async () => { const {data}=await supabase.from('employees').select('id,name,kuerzel,stundensatz').eq('aktiv',true).order('name'); return data??[]; } });
   const { data: stunden=[] } = useQuery({ queryKey:['bs-stunden',id], queryFn: async () => { const {data,error}=await supabase.from('bs_stundeneintraege').select('*, employees(id,name,kuerzel,stundensatz)').eq('baustelle_id',id!).order('datum',{ascending:false}); if(error)throw error; return data??[]; }, enabled:!!id });
   const { data: materialien=[] } = useQuery({ queryKey:['bs-mat',id], queryFn: async () => { const {data,error}=await supabase.from('bs_materialien').select('*').eq('baustelle_id',id!).order('created_at',{ascending:false}); if(error)throw error; return data??[]; }, enabled:!!id });
   const { data: nachtraege=[] } = useQuery({ queryKey:['bs-nach',id], queryFn: async () => { const {data,error}=await supabase.from('bs_nachtraege').select('*').eq('baustelle_id',id!).order('created_at',{ascending:false}); if(error)throw error; return data??[]; }, enabled:!!id });
+  const { data: dokumente = [] } = useQuery({ queryKey:['bs-dokumente',id],
+    queryFn: async () => {
+      const {data} = await supabase.from('bs_dokumente').select('*').eq('baustelle_id',id!).order('created_at',{ascending:false});
+      return data??[];
+    }, enabled:!!id });
+
   const { data: fotos=[] } = useQuery({ queryKey:['bs-fotos',id], queryFn: async () => { const {data,error}=await supabase.from('bs_fotos').select('*').eq('baustelle_id',id!).order('created_at',{ascending:false}); if(error)throw error; return data??[]; }, enabled:!!id });
 
   useEffect(() => {
@@ -550,6 +558,73 @@ export default function BaustelleDetail() {
               </div>
             );
           })}
+        </div>
+      )}
+
+
+      {/* ── DOKUMENTE ── */}
+      {tab==='Dokumente' && (
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+
+          {/* Drag & Drop Zone */}
+          <div
+            onDragOver={e=>{e.preventDefault();setDokDragOver(true);}}
+            onDragLeave={()=>setDokDragOver(false)}
+            onDrop={e=>{e.preventDefault();setDokDragOver(false);const f=e.dataTransfer.files[0];if(f)uploadDokument(f);}}
+            style={{border:`2px dashed ${dokDragOver?'#2563eb':'#e2e8f0'}`,borderRadius:14,padding:'32px 24px',textAlign:'center',background:dokDragOver?'#eff6ff':'#f8fafc',transition:'all .15s',cursor:'pointer'}}
+            onClick={()=>document.getElementById('dok-upload-input')?.click()}>
+            <input id="dok-upload-input" type="file" accept=".pdf,.xlsx,.xls,.csv" style={{display:'none'}}
+              onChange={e=>{const f=e.target.files?.[0];if(f)uploadDokument(f);e.target.value='';}}/>
+            {dokUploading ? (
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+                <div style={{width:32,height:32,border:'3px solid #2563eb',borderTopColor:'transparent',borderRadius:'50%',animation:'spin 1s linear infinite'}}/>
+                <p style={{fontSize:13,color:'#2563eb',fontWeight:600}}>Lädt hoch...</p>
+              </div>
+            ) : (
+              <>
+                <Upload size={28} style={{color:dokDragOver?'#2563eb':'#94a3b8',marginBottom:10}}/>
+                <p style={{fontSize:14,fontWeight:600,color:'#374151',margin:'0 0 4px'}}>Dokument ablegen oder klicken</p>
+                <p style={{fontSize:12,color:'#94a3b8',margin:0}}>PDF, Excel, CSV</p>
+              </>
+            )}
+          </div>
+
+          {/* Dokumente Liste */}
+          {(dokumente as any[]).length === 0 ? (
+            <div className="card p-12 text-center">
+              <FileText size={36} style={{color:'#e5e9f2',margin:'0 auto 12px'}}/>
+              <p style={{fontSize:13,color:'#9ca3af'}}>Noch keine Dokumente hochgeladen</p>
+            </div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {(dokumente as any[]).map((dok:any)=>{
+                const ext = dok.name.split('.').pop()?.toLowerCase();
+                const iconColor = ext==='pdf'?'#e11d48':ext==='csv'?'#10b981':'#0891b2';
+                const sizeMB = dok.groesse ? (dok.groesse/1024/1024).toFixed(2)+' MB' : '';
+                return (
+                  <div key={dok.id} className="card" style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:12}}>
+                    <div style={{width:40,height:40,borderRadius:10,background:iconColor+'18',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                      <FileText size={18} style={{color:iconColor}}/>
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <p style={{fontSize:13,fontWeight:600,color:'#0f172a',margin:'0 0 2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{dok.name}</p>
+                      <p style={{fontSize:11,color:'#94a3b8',margin:0}}>
+                        {ext?.toUpperCase()} {sizeMB && `· ${sizeMB}`} · {new Date(dok.created_at).toLocaleDateString('de-DE')}
+                      </p>
+                    </div>
+                    <button onClick={()=>downloadDokument(dok)}
+                      style={{display:'flex',alignItems:'center',gap:5,padding:'6px 12px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,cursor:'pointer',fontSize:12,color:'#374151',fontFamily:'inherit'}}>
+                      <Download size={13}/> Download
+                    </button>
+                    <button onClick={()=>deleteDokument(dok)}
+                      style={{padding:'6px 8px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,cursor:'pointer',display:'flex',alignItems:'center'}}>
+                      <Trash2 size={13} style={{color:'#dc2626'}}/>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
