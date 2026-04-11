@@ -84,7 +84,7 @@ Antworte NUR mit:
 {"a_nummer":"A26-02015","werkstatt":"Elektrotechnik","mitarbeiter_namen":["Matthias Kubista"],"mitarbeiter_name":"Matthias Kubista","leistungsdatum":"2026-01-14","stunden_gesamt":0.5,"arbeitszeit_von":"12:15","arbeitszeit_bis":"12:45","konfidenz":0.85}`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 55000);
 
     // Monat/Jahr in Prompt einsetzen
     const finalPrompt = prompt
@@ -178,7 +178,7 @@ Antworte NUR mit:
       if (fetchErr.name === 'AbortError') {
         return res.status(200).json({ 
           success: false, 
-          error: `Timeout nach 30s | Datei: ${fileName} | Seite: ${pageNumber}` 
+          error: `Timeout nach 55s | Datei: ${fileName} | Seite: ${pageNumber}` 
         });
       }
       throw fetchErr;
