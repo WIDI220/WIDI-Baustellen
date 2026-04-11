@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { renderPdfPageToBase64, getPdfPageCount } from '@/lib/pdf-renderer';
 import { toast } from 'sonner';
-import { Upload, CheckCircle, XCircle, AlertCircle, RotateCcw, RefreshCw, Plus, Trash2, ChevronLeft, ChevronRight, FileText, Scan, Zap, Info, AlertTriangle } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, AlertCircle, RotateCcw, RefreshCw, Plus, Trash2, ChevronLeft, ChevronRight, FileText, Scan, Zap, Info, AlertTriangle, X } from 'lucide-react';
 import { logActivity } from '@/lib/activityLog';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -57,6 +57,7 @@ interface OcrPageResult {
   reviewReasons: string[];
   error?: string;
   imageBase64?: string;
+  existing_worklogs?: { stunden: number; datum: string; kuerzel: string }[];
 }
 
 interface VerifyItem extends OcrPageResult {
@@ -67,8 +68,8 @@ interface VerifyItem extends OcrPageResult {
   manuelleEingabe?: boolean;
   // NEU: für bereits erledigte Tickets
   override_erledigt?: boolean;          // User will überschreiben trotz bereits erledigt
-  skip?: boolean;                        // User will dieses Ticket nicht importieren
-  existing_worklogs?: { stunden: number; datum: string; kuerzel: string }[]; // bereits gebuchte Stunden
+  skip?: boolean;
+  existing_worklogs?: { stunden: number; datum: string; kuerzel: string }[];
   // NEU: für nicht gefundene Tickets — manuelles Anlegen
   neues_ticket_gewerk?: string;
   neues_ticket_eingang?: string;
