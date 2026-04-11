@@ -120,10 +120,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isResizing, setIsResizing]             = useState(false);
 
   const [hochbauCollapsed, setHochbauCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('sidebar_hochbau_collapsed') === 'true'; } catch { return false; }
+    try { const v = localStorage.getItem('sidebar_hochbau_collapsed'); return v === null ? true : v === 'true'; } catch { return true; }
   });
   const [elektroCollapsed, setElektroCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('sidebar_elektro_collapsed') === 'true'; } catch { return false; }
+    try { const v = localStorage.getItem('sidebar_elektro_collapsed'); return v === null ? true : v === 'true'; } catch { return true; }
   });
 
   const toggleHochbau = () => {
