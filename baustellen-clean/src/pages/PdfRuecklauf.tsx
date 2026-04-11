@@ -67,6 +67,8 @@ interface VerifyItem extends OcrPageResult {
   manuelleEingabe?: boolean;
   // NEU: für bereits erledigte Tickets
   override_erledigt?: boolean;          // User will überschreiben trotz bereits erledigt
+  skip?: boolean;                        // User will dieses Ticket nicht importieren
+  existing_worklogs?: { stunden: number; datum: string; kuerzel: string }[]; // bereits gebuchte Stunden
   // NEU: für nicht gefundene Tickets — manuelles Anlegen
   neues_ticket_gewerk?: string;
   neues_ticket_eingang?: string;
@@ -168,28 +170,42 @@ export default function PdfRuecklauf() {
           setScanResult({a_nummer:null,mitarbeiter:null,stunden:null,datum:null});
           setScanField('a_nummer');
 
-          const ocrResult = await new Promise<any>((resolve, reject) => {
+          // OCR mit Retry bei Timeout
+          const sendOCR = () => new Promise<any>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.open('POST', OCR_URL, true);
             xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.timeout = 30000;
+            xhr.timeout = 58000;
             xhr.ontimeout = () => reject(new Error(`Timeout Seite ${i + 1}`));
-            xhr.onerror = () => reject(new Error(`Netzwerkfehler Seite ${i + 1}`));
-            xhr.onload = () => {
+            xhr.onerror  = () => reject(new Error(`Netzwerkfehler Seite ${i + 1}`));
+            xhr.onload   = () => {
               if (xhr.status >= 200 && xhr.status < 300) {
                 try { resolve(JSON.parse(xhr.responseText)); }
                 catch { reject(new Error(`Antwort-Fehler Seite ${i + 1}`)); }
               } else { reject(new Error(`Server-Fehler ${xhr.status}`)); }
             };
             const now = new Date();
-            const uploadMonth = String(now.getMonth() + 1).padStart(2, '0');
-            const uploadYear = String(now.getFullYear());
             xhr.send(JSON.stringify({
               imageBase64, fileName: file.name, pageNumber: i + 1,
               employees: (employees as any[]).map((e: any) => ({ name: e.name, kuerzel: e.kuerzel })),
-              uploadMonth, uploadYear
+              uploadMonth: String(now.getMonth() + 1).padStart(2, '0'),
+              uploadYear:  String(now.getFullYear()),
             }));
           });
+
+          let ocrResult: any;
+          try {
+            ocrResult = await sendOCR();
+          } catch (firstErr: any) {
+            if (firstErr.message.includes('Timeout')) {
+              addLog(i + 1, 'warn', `Seite ${i + 1} — Timeout, versuche erneut...`);
+              await new Promise(r => setTimeout(r, 3000));
+              try { ocrResult = await sendOCR(); }
+              catch { ocrResult = { success: false, error: firstErr.message }; }
+            } else {
+              ocrResult = { success: false, error: firstErr.message };
+            }
+          }
 
           if (!ocrResult.success) {
             result.status = 'error';
@@ -226,18 +242,25 @@ export default function PdfRuecklauf() {
               } else {
                 result.ticket_id = ticket.id;
                 result.ticket_status = ticket.status;
+                // Bereits vorhandene Worklogs laden
+                const { data: existWl } = await supabase
+                  .from('ticket_worklogs')
+                  .select('stunden, leistungsdatum, employees(kuerzel)')
+                  .eq('ticket_id', ticket.id);
+                if (existWl && existWl.length > 0) {
+                  result.existing_worklogs = existWl.map((w: any) => ({
+                    stunden: Number(w.stunden),
+                    datum: w.leistungsdatum,
+                    kuerzel: w.employees?.kuerzel ?? '?',
+                  }));
+                }
 
-                // ── Bereits abgeschlossene Status prüfen ──────────────
-                const ABGESCHLOSSEN = ['erledigt', 'abrechenbar', 'abgerechnet', 'zur_unterschrift'];
-                if (ABGESCHLOSSEN.includes(ticket.status)) {
+                // ── NEU: Bereits erledigt prüfen ──────────────────────────
+                if (ticket.status === 'erledigt') {
                   result.already_erledigt = true;
                   result.needsReview = true;
-                  const statusLabel: Record<string,string> = {
-                    erledigt: 'Erledigt', abrechenbar: 'Abrechenbar',
-                    abgerechnet: 'Abgerechnet', zur_unterschrift: 'Zur Unterschrift',
-                  };
-                  result.reviewReasons.push(`Ticket bereits als "${statusLabel[ticket.status] ?? ticket.status}" eingetragen`);
-                  addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} bereits "${statusLabel[ticket.status]}"!`);
+                  result.reviewReasons.push('Ticket bereits als erledigt eingetragen');
+                  addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} bereits erledigt!`);
                 }
 
                 const namen: string[] = [];
@@ -338,6 +361,7 @@ export default function PdfRuecklauf() {
         confirmed: false,
         manuelleEingabe: !r.ticket_id,
         override_erledigt: false,
+        skip: false,
         // Felder für manuelles Ticket-Anlegen
         neues_ticket_gewerk: 'Hochbau',
         neues_ticket_eingang: new Date().toISOString().split('T')[0],
@@ -394,6 +418,8 @@ export default function PdfRuecklauf() {
     let saved = 0, skipped = 0, neuAngelegt = 0;
 
     for (const item of verifyItems) {
+      // User hat explizit 'Nicht importieren' gewählt
+      if (item.skip) { addLog(item.page, 'info', `Seite ${item.page} — ${item.a_nummer ?? ''} übersprungen (manuell)`); skipped++; continue; }
 
       // ── Fall 1: Bereits erledigt & kein Override → überspringen ──────────
       if (item.already_erledigt && !item.override_erledigt) {
@@ -490,7 +516,8 @@ export default function PdfRuecklauf() {
 
   const progress = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
   const currentVerify = verifyItems[verifyIndex];
-  const confirmedCount = verifyItems.filter(v => v.confirmed).length;
+  const confirmedCount = verifyItems.filter(v => v.confirmed || v.skip).length;
+  const skippedCount   = verifyItems.filter(v => v.skip).length;
   const problemCount = verifyItems.filter(v => v.needsReview).length;
   const bereitsErledigtCount = verifyItems.filter(v => v.already_erledigt).length;
   const nichtInDbCount = verifyItems.filter(v => v.manuelleEingabe && !v.ticket_id).length;
@@ -708,7 +735,7 @@ export default function PdfRuecklauf() {
                   className={`w-6 h-6 rounded-md text-xs font-mono transition-colors
                     ${i === verifyIndex ? 'bg-[#1e3a5f] text-white' :
                       v.confirmed ? 'bg-emerald-100 text-emerald-700' :
-                      v.already_erledigt ? 'bg-orange-200 text-orange-800 ring-1 ring-orange-400' :
+                      v.skip ? 'bg-red-100 text-red-500 line-through' : v.already_erledigt ? 'bg-amber-100 text-amber-700' :
                       (v.manuelleEingabe && !v.ticket_id) ? 'bg-red-100 text-red-700' :
                       v.needsReview ? 'bg-amber-100 text-amber-700' :
                       'bg-gray-100 text-gray-500'}`}>
@@ -726,7 +753,7 @@ export default function PdfRuecklauf() {
                 <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
                   <span className="text-xs text-gray-400 font-mono">ORIGINAL — Seite {currentVerify.page}</span>
                   {currentVerify.already_erledigt && (
-                    <span style={{ fontSize: 11, background: '#f59e0b', color: '#fff', padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>⚠ BEREITS ABGESCHLOSSEN</span>
+                    <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Bereits erledigt</span>
                   )}
                   {currentVerify.needsReview && !currentVerify.already_erledigt && (
                     <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Prüfung empfohlen</span>
@@ -747,38 +774,52 @@ export default function PdfRuecklauf() {
               <div className="flex flex-col overflow-y-auto border-l border-gray-100">
                 <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
 
-                  {/* ── BEREITS ABGESCHLOSSEN Banner — auffällig ── */}
+                  {/* ── BEREITS ERLEDIGT Banner ── */}
                   {currentVerify.already_erledigt && (
-                    <div style={{ background: '#fef3c7', border: '2px solid #f59e0b', borderRadius: 14, padding: '12px 14px', marginBottom: 12, position: 'relative', overflow: 'hidden' }}>
-                      {/* Farbstreifen oben */}
-                      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: 'linear-gradient(90deg,#f59e0b,#ef4444)', borderRadius: '14px 14px 0 0' }} />
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 4 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 8, background: '#f59e0b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <AlertTriangle className="h-4 w-4" style={{ color: '#fff' }} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <p style={{ fontSize: 13, fontWeight: 800, color: '#92400e', margin: '0 0 3px' }}>
-                            ⚠️ Ticket bereits abgeschlossen!
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-amber-800">Bereits eingetragen</p>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            Dieses Ticket wurde bereits als <strong>erledigt</strong> gebucht. Normalerweise muss hier nichts geändert werden.
                           </p>
-                          <p style={{ fontSize: 12, color: '#92400e', margin: '0 0 6px', lineHeight: 1.4 }}>
-                            Status in der Datenbank: <strong style={{ background: '#fde68a', padding: '1px 6px', borderRadius: 4 }}>
-                              {currentVerify.ticket_status === 'erledigt' ? 'Erledigt' :
-                               currentVerify.ticket_status === 'abrechenbar' ? 'Abrechenbar' :
-                               currentVerify.ticket_status === 'abgerechnet' ? 'Abgerechnet' :
-                               currentVerify.ticket_status === 'zur_unterschrift' ? 'Zur Unterschrift' :
-                               currentVerify.ticket_status}
-                            </strong><br/>
-                            Dieses Ticket wird <strong>automatisch übersprungen</strong> und nicht überschrieben.
-                          </p>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: 'rgba(255,255,255,0.6)', padding: '6px 10px', borderRadius: 8, border: '1px solid #fcd34d' }}>
+                          <label className="flex items-center gap-2 mt-2 cursor-pointer">
                             <input
                               type="checkbox"
                               checked={currentVerify.override_erledigt ?? false}
                               onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, override_erledigt: e.target.checked, confirmed: false } : v))}
                               className="rounded"
                             />
-                            <span style={{ fontSize: 12, color: '#92400e', fontWeight: 600 }}>Trotzdem überschreiben (nur bei Korrektur!)</span>
+                            <span className="text-xs text-amber-800 font-medium">Trotzdem nochmal buchen (Korrektur)</span>
                           </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── DUPLIKAT-WARNUNG: Bereits Worklogs vorhanden ── */}
+                  {currentVerify.existing_worklogs && currentVerify.existing_worklogs.length > 0 && !currentVerify.already_erledigt && (
+                    <div style={{ background:'#eff6ff', border:'2px solid #2563eb', borderRadius:14, padding:'12px 14px', marginBottom:12 }}>
+                      <div style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
+                        <div style={{ width:32, height:32, borderRadius:8, background:'#2563eb', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                          <AlertTriangle className="h-4 w-4" style={{ color:'#fff' }} />
+                        </div>
+                        <div style={{ flex:1 }}>
+                          <p style={{ fontSize:13, fontWeight:800, color:'#1e3a5f', margin:'0 0 4px' }}>
+                            Bereits Stunden gebucht!
+                          </p>
+                          <p style={{ fontSize:11, color:'#1e40af', margin:'0 0 8px' }}>Folgende Einträge existieren bereits für dieses Ticket:</p>
+                          <div style={{ background:'#fff', borderRadius:8, padding:'8px 10px', marginBottom:8 }}>
+                            {currentVerify.existing_worklogs.map((w, wi) => (
+                              <div key={wi} style={{ display:'flex', gap:12, fontSize:11, color:'#374151', borderBottom: wi < (currentVerify.existing_worklogs?.length ?? 0)-1 ? '1px solid #f1f5f9' : 'none', padding:'3px 0' }}>
+                                <span style={{ fontWeight:700, color:'#2563eb' }}>{w.kuerzel}</span>
+                                <span>{w.stunden}h</span>
+                                <span style={{ color:'#94a3b8' }}>{w.datum}</span>
+                              </div>
+                            ))}
+                          </div>
+                          <p style={{ fontSize:11, color:'#1e40af', margin:0 }}>Du kannst trotzdem neue Stunden hinzubuchen — oder "Nicht importieren" wählen.</p>
                         </div>
                       </div>
                     </div>
@@ -935,24 +976,35 @@ export default function PdfRuecklauf() {
 
                 {/* Aktionen */}
                 <div className="px-6 pb-6 pt-2 border-t border-gray-100 space-y-2">
-                  <button
-                    onClick={() => {
-                      setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, confirmed: true } : v));
-                      if (verifyIndex < verifyItems.length - 1) setVerifyIndex(i => i + 1);
-                    }}
-                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors
-                      ${currentVerify.confirmed
-                        ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                        : currentVerify.already_erledigt && !currentVerify.override_erledigt
-                          ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
-                    <CheckCircle className="h-4 w-4" />
-                    {currentVerify.confirmed
-                      ? '✓ Bestätigt — weiter'
-                      : currentVerify.already_erledigt && !currentVerify.override_erledigt
-                        ? 'Überspringen & weiter'
-                        : 'Bestätigen & weiter'}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, confirmed: true, skip: false } : v));
+                        if (verifyIndex < verifyItems.length - 1) setVerifyIndex(i => i + 1);
+                      }}
+                      className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors
+                        ${currentVerify.skip
+                          ? 'bg-gray-100 text-gray-400 border border-gray-200'
+                          : currentVerify.confirmed
+                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
+                      <CheckCircle className="h-4 w-4" />
+                      {currentVerify.skip ? 'Übersprungen' : currentVerify.confirmed ? '✓ Bestätigt' : 'Bestätigen & weiter'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, skip: !v.skip, confirmed: false } : v));
+                        if (verifyIndex < verifyItems.length - 1) setVerifyIndex(i => i + 1);
+                      }}
+                      className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors border
+                        ${currentVerify.skip
+                          ? 'bg-red-50 text-red-600 border-red-300 hover:bg-red-100'
+                          : 'bg-white text-gray-500 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-300'}`}
+                      title="Dieses Ticket nicht importieren">
+                      <X className="h-4 w-4" />
+                      {currentVerify.skip ? 'Doch importieren' : 'Nicht importieren'}
+                    </button>
+                  </div>
                   <div className="flex gap-2">
                     <button onClick={() => setVerifyIndex(i => Math.max(0, i - 1))} disabled={verifyIndex === 0}
                       className="flex-1 flex items-center justify-center gap-1 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors">
@@ -975,7 +1027,7 @@ export default function PdfRuecklauf() {
                 <p className="text-sm font-semibold text-gray-700">{confirmedCount} von {verifyItems.length} bestätigt</p>
                 <p className="text-xs text-gray-400">
                   {confirmedCount < verifyItems.length
-                    ? `Noch ${verifyItems.length - confirmedCount} Seite${verifyItems.length - confirmedCount !== 1 ? 'n' : ''} offen`
+                    ? `Noch ${verifyItems.length - confirmedCount} offen${skippedCount > 0 ? ` · ${skippedCount} übersprungen` : ''}`
                     : 'Alle bestätigt — bereit zum Import'}
                 </p>
               </div>
