@@ -139,6 +139,36 @@ export default function BaustelleDetail() {
   if (bsLoading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-2 border-t-blue-500 rounded-full animate-spin" style={{borderColor:'#eef1f9', borderTopColor:'#1e3a5f'}} /></div>;
   if (!bs) return <div className="text-center py-20" style={{color:'#9ca3af'}}>Baustelle nicht gefunden</div>;
 
+  const uploadDokument = async (file: File) => {
+    if (!id) return;
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (!['pdf','xlsx','xls','csv'].includes(ext||'')) { toast.error('Nur PDF, Excel und CSV erlaubt'); return; }
+    setDokUploading(true);
+    try {
+      const path = `${id}/${Date.now()}_${file.name}`;
+      const {error:upErr} = await supabase.storage.from('baustellen-dokumente').upload(path, file);
+      if (upErr) throw upErr;
+      const {error:dbErr} = await supabase.from('bs_dokumente').insert({ baustelle_id:id, name:file.name, storage_path:path, dateityp:file.type||ext, groesse:file.size });
+      if (dbErr) throw dbErr;
+      toast.success(`${file.name} hochgeladen`);
+      queryClient.invalidateQueries({queryKey:['bs-dokumente',id]});
+    } catch(e:any) { toast.error('Upload fehlgeschlagen: '+e.message); }
+    finally { setDokUploading(false); }
+  };
+
+  const deleteDokument = async (dok: any) => {
+    if (!confirm(`"${dok.name}" löschen?`)) return;
+    await supabase.storage.from('baustellen-dokumente').remove([dok.storage_path]);
+    await supabase.from('bs_dokumente').delete().eq('id', dok.id);
+    queryClient.invalidateQueries({queryKey:['bs-dokumente',id]});
+    toast.success('Dokument gelöscht');
+  };
+
+  const downloadDokument = async (dok: any) => {
+    const {data} = await supabase.storage.from('baustellen-dokumente').createSignedUrl(dok.storage_path, 60);
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank');
+  };
+
   const sw = stunden as any[], mat = materialien as any[], nach = nachtraege as any[], fts = fotos as any[], emps = employees as any[];
 
   const gesamtStunden = sw.reduce((s,w) => s+Number(w.stunden??0), 0);
