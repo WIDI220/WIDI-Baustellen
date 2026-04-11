@@ -91,28 +91,28 @@ export default function EskalationenPage() {
       const k = berechneKosten(baustelle.id, sw, mat, nach, budget);
 
       // ── Budget Personal ───────────────────────────────────────────────
-      const pctPersonal = budget > 0 ? (k.personalKosten / budget) * 100 : 0;
+      const pctPersonal = budget > 0 ? (k.personalkosten / budget) * 100 : 0;
       if (pctPersonal >= 80) {
         const vorhanden = await pruefeVorhanden(baustelle.id, 'budget_personal');
         if (!vorhanden) {
           await legeEskalationAn(baustelle.id, 'budget_personal',
             `Personalkosten bei ${Math.round(pctPersonal)}% des Budgets`,
             pctPersonal >= 100 ? 'kritisch' : 'hoch',
-            { prozent: Math.round(pctPersonal), betrag: k.personalKosten, budget }
+            { prozent: Math.round(pctPersonal), betrag: k.personalkosten, budget }
           );
           neu++;
         }
       }
 
       // ── Budget Material ───────────────────────────────────────────────
-      const pctMaterial = budget > 0 ? (k.materialKosten / budget) * 100 : 0;
+      const pctMaterial = budget > 0 ? (k.materialkosten / budget) * 100 : 0;
       if (pctMaterial >= 80) {
         const vorhanden = await pruefeVorhanden(baustelle.id, 'budget_material');
         if (!vorhanden) {
           await legeEskalationAn(baustelle.id, 'budget_material',
             `Materialkosten bei ${Math.round(pctMaterial)}% des Budgets`,
             pctMaterial >= 100 ? 'kritisch' : 'hoch',
-            { prozent: Math.round(pctMaterial), betrag: k.materialKosten, budget }
+            { prozent: Math.round(pctMaterial), betrag: k.materialkosten, budget }
           );
           neu++;
         }
@@ -126,7 +126,7 @@ export default function EskalationenPage() {
           await legeEskalationAn(baustelle.id, 'budget_gesamt',
             `Gesamtkosten bei ${Math.round(pctGesamt)}% des Budgets`,
             pctGesamt >= 100 ? 'kritisch' : 'hoch',
-            { prozent: Math.round(pctGesamt), betrag: k.gesamtKosten, budget }
+            { prozent: Math.round(pctGesamt), betrag: k.gesamtkosten, budget }
           );
           neu++;
         }
