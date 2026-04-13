@@ -66,14 +66,16 @@ export default function MitarbeiterAuswertungPage() {
     queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum').gte('datum', von).lte('datum', bis); return data ?? []; },
   });
 
-  // 6 Monate für Verlauf
+  // 6 Monate für Verlauf — gefiltert auf relevanten Zeitraum, queryKey mit year/month damit korrekt neu geladen
+  const verlaufVon = (() => { const d = new Date(year, month - 1 - 5, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; })();
+  const verlaufBis = (() => { const lastDay = new Date(year, month, 0).getDate(); return `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`; })();
   const { data: ticketAll = [] } = useQuery({
-    queryKey: ['ausw-tickets-all'],
-    queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('employee_id,stunden,leistungsdatum'); return data ?? []; },
+    queryKey: ['ausw-tickets-all', year, month],
+    queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('employee_id,stunden,leistungsdatum').gte('leistungsdatum', verlaufVon).lte('leistungsdatum', verlaufBis); return data ?? []; },
   });
   const { data: bauAll = [] } = useQuery({
-    queryKey: ['ausw-bau-all'],
-    queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum'); return data ?? []; },
+    queryKey: ['ausw-bau-all', year, month],
+    queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum').gte('datum', verlaufVon).lte('datum', verlaufBis); return data ?? []; },
   });
 
   const { data: abwesenheiten = [], refetch: refetchAbw } = useQuery({
