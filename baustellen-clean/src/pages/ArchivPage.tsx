@@ -1,17 +1,74 @@
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Archive, HardHat, ArrowRight, Calendar, TrendingUp, Euro, Clock } from 'lucide-react';
+import { Archive, HardHat, ArrowRight, Calendar, TrendingUp, Euro, Clock, Pencil } from 'lucide-react';
+import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectOption } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { fmtEur, fmtDate } from '@/lib/utils';
 import { berechneKosten } from '@/lib/berechnung';
 
 const STATUS_OPTIONS = [
-  { value:'abgeschlossen', label:'Abgeschlossen', dot:'#10b981', bg:'#f0fdf4', text:'#065f46' },
-  { value:'abgerechnet',   label:'Abgerechnet',   dot:'#8b5cf6', bg:'#faf5ff', text:'#5b21b6' },
+  { value:'offen',          label:'Offen',          dot:'#94a3b8', bg:'#f8fafc', text:'#64748b' },
+  { value:'in_bearbeitung', label:'In Bearbeitung',  dot:'#3b82f6', bg:'#eff6ff', text:'#1d4ed8' },
+  { value:'pausiert',       label:'Pausiert',        dot:'#f59e0b', bg:'#fffbeb', text:'#b45309' },
+  { value:'abgeschlossen',  label:'Abgeschlossen',   dot:'#10b981', bg:'#f0fdf4', text:'#065f46' },
+  { value:'abgerechnet',    label:'Abgerechnet',     dot:'#8b5cf6', bg:'#faf5ff', text:'#5b21b6' },
 ];
+const GEWERK_OPTIONS = ['Hochbau', 'Elektro', 'Beides'];
 
 export default function ArchivPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [editItem, setEditItem] = useState<any>(null);
+  const [form, setForm] = useState<any>({});
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from('baustellen').update({
+        name:        form.name,
+        status:      form.status,
+        gewerk:      form.gewerk,
+        auftraggeber:form.auftraggeber || null,
+        adresse:     form.adresse      || null,
+        startdatum:  form.startdatum   || null,
+        enddatum:    form.enddatum     || null,
+        beschreibung:form.beschreibung || null,
+        budget:      Number(form.budget) || 0,
+        updated_at:  new Date().toISOString(),
+      }).eq('id', editItem.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Baustelle gespeichert');
+      queryClient.invalidateQueries({ queryKey: ['baustellen-archiv'] });
+      queryClient.invalidateQueries({ queryKey: ['baustellen-list'] });
+      setEditItem(null);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const openEdit = (b: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditItem(b);
+    setForm({
+      name:        b.name || '',
+      status:      b.status || 'abgeschlossen',
+      gewerk:      b.gewerk || 'Hochbau',
+      auftraggeber:b.auftraggeber || '',
+      adresse:     b.adresse || '',
+      startdatum:  b.startdatum || '',
+      enddatum:    b.enddatum || '',
+      beschreibung:b.beschreibung || '',
+      budget:      String(b.budget || ''),
+    });
+  };
 
   const { data: baustellen = [] } = useQuery({ queryKey: ['baustellen-archiv'],
     staleTime: 0,
@@ -112,6 +169,15 @@ export default function ArchivPage() {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 text-right">
                     {b.enddatum && <span className="text-xs flex items-center gap-1" style={{color:'#9ca3af'}}><Calendar className="h-3 w-3" />{fmtDate(b.enddatum)}</span>}
+                    <button
+                      onClick={(e) => openEdit(b, e)}
+                      className="p-1.5 rounded-lg transition-colors"
+                      style={{background:'#f4f6fa', border:'1px solid #e5e9f2'}}
+                      onMouseEnter={e=>(e.currentTarget as HTMLElement).style.background='#e5e9f2'}
+                      onMouseLeave={e=>(e.currentTarget as HTMLElement).style.background='#f4f6fa'}
+                      title="Bearbeiten">
+                      <Pencil className="h-3.5 w-3.5" style={{color:'#6b7a99'}} />
+                    </button>
                     <ArrowRight className="h-4 w-4" style={{color:'#d1d5db'}} />
                   </div>
                 </div>
@@ -120,6 +186,45 @@ export default function ArchivPage() {
           })}
         </div>
       )}
+      {/* Bearbeiten Dialog */}
+      <Dialog open={!!editItem} onOpenChange={v => { if(!v) setEditItem(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Baustelle bearbeiten</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-1">
+            <div><Label>Name</Label><Input value={form.name||''} onChange={e=>setForm((f:any)=>({...f,name:e.target.value}))} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Status</Label>
+                <Select value={form.status||''} onValueChange={v=>setForm((f:any)=>({...f,status:v}))}>
+                  {STATUS_OPTIONS.map(o=><SelectOption key={o.value} value={o.value}>{o.label}</SelectOption>)}
+                </Select>
+              </div>
+              <div>
+                <Label>Gewerk</Label>
+                <Select value={form.gewerk||''} onValueChange={v=>setForm((f:any)=>({...f,gewerk:v}))}>
+                  {GEWERK_OPTIONS.map(g=><SelectOption key={g} value={g}>{g}</SelectOption>)}
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Auftraggeber</Label><Input value={form.auftraggeber||''} onChange={e=>setForm((f:any)=>({...f,auftraggeber:e.target.value}))} /></div>
+              <div><Label>Budget (€)</Label><Input type="number" value={form.budget||''} onChange={e=>setForm((f:any)=>({...f,budget:e.target.value}))} /></div>
+            </div>
+            <div><Label>Adresse</Label><Input value={form.adresse||''} onChange={e=>setForm((f:any)=>({...f,adresse:e.target.value}))} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Startdatum</Label><Input type="date" value={form.startdatum||''} onChange={e=>setForm((f:any)=>({...f,startdatum:e.target.value}))} /></div>
+              <div><Label>Enddatum</Label><Input type="date" value={form.enddatum||''} onChange={e=>setForm((f:any)=>({...f,enddatum:e.target.value}))} /></div>
+            </div>
+            <div><Label>Beschreibung</Label><Textarea value={form.beschreibung||''} onChange={e=>setForm((f:any)=>({...f,beschreibung:e.target.value}))} className="min-h-[80px]" /></div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" className="flex-1" onClick={()=>setEditItem(null)}>Abbrechen</Button>
+            <Button className="flex-1" onClick={()=>saveMutation.mutate()} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? 'Speichert...' : 'Speichern'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
