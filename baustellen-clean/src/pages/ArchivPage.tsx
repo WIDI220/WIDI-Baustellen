@@ -41,7 +41,6 @@ export default function ArchivPage() {
         enddatum:    form.enddatum     || null,
         beschreibung:form.beschreibung || null,
         budget:      Number(form.budget) || 0,
-        updated_at:  new Date().toISOString(),
       }).eq('id', editItem.id);
       if (error) throw error;
     },
