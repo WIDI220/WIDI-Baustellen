@@ -320,9 +320,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Budget Chart — volle Breite */}
-      <BudgetChart bsK={bsK} />
-
       {/* Baustellenliste */}
       <div style={{ background: '#fff', borderRadius: 18, padding: 24, border: '1px solid #f1f5f9' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
