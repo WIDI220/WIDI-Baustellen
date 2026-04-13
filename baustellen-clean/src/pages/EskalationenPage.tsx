@@ -333,7 +333,7 @@ export default function EskalationenPage() {
                     <span style={{ fontSize:11, padding:'2px 8px', borderRadius:20, fontWeight:600, background:schwere.bg, color:schwere.color }}>{schwere.label}</span>
                     <span style={{ fontSize:11, padding:'2px 8px', borderRadius:20, fontWeight:500, background: typCfg.farbe+'12', color: typCfg.farbe }}>{typCfg.label}</span>
                   </div>
-                  <p style={{ fontSize:13, color:'#374151', margin:'0 0 6px' }}>{e.beschreibung}</p>
+                  <p style={{ fontSize:13, color:'#374151', margin:'0 0 6px' }}>{e.nachricht}</p>
                   <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
                     {details.prozent !== undefined && (
                       <span style={{ fontSize:12, color:'#64748b' }}>Auslastung: <strong style={{ color: details.prozent >= 100 ? '#dc2626' : '#f59e0b' }}>{details.prozent}%</strong></span>
