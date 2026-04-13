@@ -217,7 +217,8 @@ export default function MitarbeiterAuswertungPage() {
     return Array.from({ length: 6 }, (_, i) => {
       const d = new Date(year, month - 1 - (5 - i), 1);
       const y2 = d.getFullYear(); const m2 = d.getMonth() + 1;
-      const v = `${monatStr(y2, m2)}-01`; const b = `${monatStr(y2, m2)}-31`;
+      const lastDay = new Date(y2, m2, 0).getDate();
+      const v = `${monatStr(y2, m2)}-01`; const b = `${monatStr(y2, m2)}-${String(lastDay).padStart(2, '0')}`;
       const tH2 = (ticketAll as any[]).filter(w => w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
       const bH2 = (bauAll as any[]).filter(w => w.datum >= v && w.datum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
       return { monat: MONATE[m2 - 1], Tickets: Math.round(tH2 * 10) / 10, Baustellen: Math.round(bH2 * 10) / 10, Gesamt: Math.round((tH2 + bH2) * 10) / 10 };
