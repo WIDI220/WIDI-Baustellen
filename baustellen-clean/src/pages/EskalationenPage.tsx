@@ -173,7 +173,7 @@ export default function EskalationenPage() {
 
   const legeEskalationAn = async (baustelleId: string, typ: string, beschreibung: string, schweregrad: string, details: any) => {
     await supabase.from('bs_eskalationen').insert({
-      baustelle_id: baustelleId, typ, beschreibung, schweregrad,
+      baustelle_id: baustelleId, typ, nachricht: beschreibung, schweregrad,
       details, gelesen: false,
     });
   };
