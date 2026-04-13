@@ -65,8 +65,6 @@ interface GewerkSectionProps {
 
 function GewerkSection({ label, icon, accentColor, accentBg, items, collapsed, sidebarCollapsed, currentPath, onNavigate, onToggle, sidebarWidth }: GewerkSectionProps) {
   if (sidebarCollapsed || items.length === 0) return null;
-  // Wie viele Zeichen passen in die verfügbare Breite
-  const nameMaxChars = Math.max(10, Math.floor((sidebarWidth - 60) / 7));
 
   return (
     <div style={{ marginBottom: 4 }}>
@@ -87,19 +85,18 @@ function GewerkSection({ label, icon, accentColor, accentBg, items, collapsed, s
           {items.map((b: any) => {
             const isActive = currentPath === `/baustellen/liste/${b.id}`;
             const st = STATUS_STYLE[b.status] ?? STATUS_STYLE.offen;
-            const displayName = b.name?.length > nameMaxChars ? b.name.slice(0, nameMaxChars - 1) + '…' : b.name;
             return (
               <div
                 key={b.id}
                 onClick={() => onNavigate(b.id)}
                 title={b.name}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 8px', borderRadius: 8, cursor: 'pointer', background: isActive ? st.bg : 'rgba(255,255,255,0.04)', border: isActive ? `1px solid ${st.border}` : '1px solid transparent', transition: 'all .15s' }}
+                style={{ display: 'flex', alignItems: 'flex-start', gap: 7, padding: '6px 8px', borderRadius: 8, cursor: 'pointer', background: isActive ? st.bg : 'rgba(255,255,255,0.04)', border: isActive ? `1px solid ${st.border}` : '1px solid transparent', transition: 'all .15s' }}
                 onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = st.bg; (e.currentTarget as HTMLElement).style.border = `1px solid ${st.border}`; } }}
                 onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; (e.currentTarget as HTMLElement).style.border = '1px solid transparent'; } }}
               >
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: st.dot, flexShrink: 0, boxShadow: isActive ? `0 0 4px ${st.dot}` : 'none' }} />
-                <span style={{ fontSize: 11, color: isActive ? st.text : 'rgba(255,255,255,0.55)', fontWeight: isActive ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, transition: 'color .15s' }}>
-                  {displayName}
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: st.dot, flexShrink: 0, marginTop: 4, boxShadow: isActive ? `0 0 4px ${st.dot}` : 'none' }} />
+                <span style={{ fontSize: 11, color: isActive ? st.text : 'rgba(255,255,255,0.55)', fontWeight: isActive ? 600 : 400, flex: 1, lineHeight: 1.4, wordBreak: 'break-word', transition: 'color .15s' }}>
+                  {b.name}
                 </span>
               </div>
             );
