@@ -70,20 +70,24 @@ export default function MitarbeiterAuswertungPage() {
   const verlaufVon = (() => { const d = new Date(year, month - 1 - 6, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; })();
   const verlaufBis = (() => { const lastDay = new Date(year, month, 0).getDate(); return `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`; })();
   const { data: ticketAll = [] } = useQuery({
-    queryKey: ['ausw-tickets-all', year, month],
+    queryKey: ['ausw-tickets-all', year, month, verlaufVon, verlaufBis],
     queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('employee_id,stunden,leistungsdatum').gte('leistungsdatum', verlaufVon).lte('leistungsdatum', verlaufBis); return data ?? []; },
+    staleTime: 0,
   });
   const { data: bauAll = [] } = useQuery({
-    queryKey: ['ausw-bau-all', year, month],
+    queryKey: ['ausw-bau-all', year, month, verlaufVon, verlaufBis],
     queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum').gte('datum', verlaufVon).lte('datum', verlaufBis); return data ?? []; },
+    staleTime: 0,
   });
   const { data: begehungenAll = [] } = useQuery({
-    queryKey: ['ausw-beg-all', year, month],
+    queryKey: ['ausw-beg-all', year, month, verlaufVon, verlaufBis],
     queryFn: async () => { const { data } = await supabase.from('begehungen').select('mitarbeiter,stunden,datum_von').gte('datum_von', verlaufVon).lte('datum_von', verlaufBis); return data ?? []; },
+    staleTime: 0,
   });
   const { data: interneAll = [] } = useQuery({
-    queryKey: ['ausw-int-all', year, month],
+    queryKey: ['ausw-int-all', year, month, verlaufVon, verlaufBis],
     queryFn: async () => { const { data } = await supabase.from('interne_stunden').select('employee_id,stunden,datum').gte('datum', verlaufVon).lte('datum', verlaufBis); return data ?? []; },
+    staleTime: 0,
   });
 
   const { data: abwesenheiten = [], refetch: refetchAbw } = useQuery({
@@ -819,25 +823,6 @@ export default function MitarbeiterAuswertungPage() {
                 <Line type="monotone" dataKey="Intern"     stroke="#8b5cf6" strokeWidth={2}   dot={{ r: 3, fill: '#8b5cf6' }} />
                 <Line type="monotone" dataKey="Gesamt"     stroke="#64748b" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, fill: '#64748b' }} />
               </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Gestapelter Vergleich pro Monat */}
-          <div style={{ background: '#fff', borderRadius: 18, padding: 24, border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,.04)' }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Mitarbeiter-Vergleich nach Monat</h3>
-            <p style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 20px' }}>Gestapelt pro Person</p>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={verlauf6} barCategoryGap="30%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="monat" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="Tickets"    stackId="a" fill="#3b82f6" radius={[0,0,0,0]} />
-                <Bar dataKey="Baustellen" stackId="a" fill="#10b981" radius={[0,0,0,0]} />
-                <Bar dataKey="Begehungen" stackId="a" fill="#f59e0b" radius={[0,0,0,0]} />
-                <Bar dataKey="Intern"     stackId="a" fill="#8b5cf6" radius={[5,5,0,0]} />
-              </BarChart>
             </ResponsiveContainer>
           </div>
 
