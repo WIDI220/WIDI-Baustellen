@@ -67,25 +67,42 @@ export default function MitarbeiterAuswertungPage() {
   });
 
   // Alle Verlaufsdaten ungefiltert laden — Aggregation im Frontend
+  // Datumsfelder als ::text casten damit Supabase sie garantiert als String zurückgibt
   const { data: ticketAll = [] } = useQuery({
-    queryKey: ['ausw-tickets-all'],
-    queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('employee_id,stunden,leistungsdatum'); return data ?? []; },
-    staleTime: 30000,
+    queryKey: ['ausw-tickets-all-v2'],
+    queryFn: async () => {
+      const { data } = await supabase.from('ticket_worklogs').select('employee_id,stunden,leistungsdatum::text');
+      return (data ?? []).map((r: any) => ({ ...r, leistungsdatum: String(r.leistungsdatum ?? '') }));
+    },
+    staleTime: 0,
+    gcTime: 0,
   });
   const { data: bauAll = [] } = useQuery({
-    queryKey: ['ausw-bau-all'],
-    queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum'); return data ?? []; },
-    staleTime: 30000,
+    queryKey: ['ausw-bau-all-v2'],
+    queryFn: async () => {
+      const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum::text');
+      return (data ?? []).map((r: any) => ({ ...r, datum: String(r.datum ?? '') }));
+    },
+    staleTime: 0,
+    gcTime: 0,
   });
   const { data: begehungenAll = [] } = useQuery({
-    queryKey: ['ausw-beg-all'],
-    queryFn: async () => { const { data } = await supabase.from('begehungen').select('mitarbeiter,stunden,datum_von'); return data ?? []; },
-    staleTime: 30000,
+    queryKey: ['ausw-beg-all-v2'],
+    queryFn: async () => {
+      const { data } = await supabase.from('begehungen').select('mitarbeiter,stunden,datum_von::text');
+      return (data ?? []).map((r: any) => ({ ...r, datum_von: String(r.datum_von ?? '') }));
+    },
+    staleTime: 0,
+    gcTime: 0,
   });
   const { data: interneAll = [] } = useQuery({
-    queryKey: ['ausw-int-all'],
-    queryFn: async () => { const { data } = await supabase.from('interne_stunden').select('employee_id,stunden,datum'); return data ?? []; },
-    staleTime: 30000,
+    queryKey: ['ausw-int-all-v2'],
+    queryFn: async () => {
+      const { data } = await supabase.from('interne_stunden').select('employee_id,stunden,datum::text');
+      return (data ?? []).map((r: any) => ({ ...r, datum: String(r.datum ?? '') }));
+    },
+    staleTime: 0,
+    gcTime: 0,
   });
 
   const { data: abwesenheiten = [], refetch: refetchAbw } = useQuery({
@@ -239,10 +256,10 @@ export default function MitarbeiterAuswertungPage() {
   const verlauf6 = useMemo(() => {
     // Alle vorhandenen Monate aus allen Quellen sammeln
     const monatsSet = new Set<string>();
-    (ticketAll as any[]).forEach(w => { if (w.leistungsdatum) monatsSet.add(w.leistungsdatum.slice(0, 7)); });
-    (bauAll as any[]).forEach(w => { if (w.datum) monatsSet.add(w.datum.slice(0, 7)); });
-    (begehungenAll as any[]).forEach(w => { if (w.datum_von) monatsSet.add(w.datum_von.slice(0, 7)); });
-    (interneAll as any[]).forEach(w => { if (w.datum) monatsSet.add(w.datum.slice(0, 7)); });
+    (ticketAll as any[]).forEach(w => { const d = String(w.leistungsdatum ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
+    (bauAll as any[]).forEach(w => { const d = String(w.datum ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
+    (begehungenAll as any[]).forEach(w => { const d = String(w.datum_von ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
+    (interneAll as any[]).forEach(w => { const d = String(w.datum ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
 
     const heute = new Date().toISOString().slice(0, 7);
     return Array.from(monatsSet).filter(ym => ym >= '2025-11' && ym <= heute).sort().map(ym => {
@@ -250,10 +267,10 @@ export default function MitarbeiterAuswertungPage() {
       const y2 = parseInt(y2str); const m2 = parseInt(m2str);
       const lastDay = new Date(y2, m2, 0).getDate();
       const v = `${ym}-01`; const b = `${ym}-${String(lastDay).padStart(2, '0')}`;
-      const tH2   = (ticketAll as any[]).filter(w => w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-      const bH2   = (bauAll as any[]).filter(w => w.datum >= v && w.datum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-      const begH2 = (begehungenAll as any[]).filter(w => w.datum_von >= v && w.datum_von <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-      const intH2 = (interneAll as any[]).filter(w => w.datum >= v && w.datum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const tH2   = (ticketAll as any[]).filter(w => { const d = String(w.leistungsdatum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const bH2   = (bauAll as any[]).filter(w => { const d = String(w.datum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const begH2 = (begehungenAll as any[]).filter(w => { const d = String(w.datum_von ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const intH2 = (interneAll as any[]).filter(w => { const d = String(w.datum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
       const gesamt = Math.round((tH2 + bH2 + begH2 + intH2) * 10) / 10;
       return {
         monat: `${MONATE[m2 - 1]} ${y2 !== new Date().getFullYear() ? y2 : ''}`.trim(),
@@ -466,10 +483,10 @@ export default function MitarbeiterAuswertungPage() {
               const v = `${mv.ym}-01`;
               const lastD = new Date(parseInt(mv.ym.slice(0,4)), parseInt(mv.ym.slice(5,7)), 0).getDate();
               const b = `${mv.ym}-${String(lastD).padStart(2,'0')}`;
-              const tH2   = (ticketAll as any[]).filter(w => w.employee_id === selectedEmp.id && w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
-              const bH2   = (bauAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && w.datum >= v && w.datum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
-              const begH2 = (begehungenAll as any[]).filter(w => w.datum_von >= v && w.datum_von <= b && matchBegehung(w.mitarbeiter, selectedEmp)).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
-              const intH2 = (interneAll as any[]).filter(w => w.employee_id === selectedEmp.id && w.datum >= v && w.datum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const tH2   = (ticketAll as any[]).filter(w => w.employee_id === selectedEmp.id && String(w.leistungsdatum ?? '') >= v && String(w.leistungsdatum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const bH2   = (bauAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && String(w.datum ?? '') >= v && String(w.datum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const begH2 = (begehungenAll as any[]).filter(w => String(w.datum_von ?? '') >= v && String(w.datum_von ?? '') <= b && matchBegehung(w.mitarbeiter, selectedEmp)).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const intH2 = (interneAll as any[]).filter(w => w.employee_id === selectedEmp.id && String(w.datum ?? '') >= v && String(w.datum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
               return {
                 monat: mv.monat,
                 Tickets:    Math.round(tH2 * 4) / 4,
