@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield } from 'lucide-react';
+import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield, CalendarDays } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -16,14 +16,31 @@ export default function StartPage() {
   const { data: employees = [] } = useQuery({ queryKey: ['start-employees'], queryFn: async () => { const { data } = await supabase.from('employees').select('id').eq('aktiv', true); return data ?? []; } });
   const { data: recentLogs = [] } = useQuery({ queryKey: ['start-admin-logs'], enabled: isAdmin, queryFn: async () => { const { data } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(5); return data ?? []; } });
 
+  // Wochenplanung: Anzahl Einträge diese Woche
+  const now = new Date();
+  const dayOfWeek = now.getDay() || 7;
+  const monday = new Date(now); monday.setDate(now.getDate() - dayOfWeek + 1); monday.setHours(0,0,0,0);
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  const vonW = `${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,'0')}-${String(monday.getDate()).padStart(2,'0')}`;
+  const bisW = `${sunday.getFullYear()}-${String(sunday.getMonth()+1).padStart(2,'0')}-${String(sunday.getDate()).padStart(2,'0')}`;
+  const dt = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const dn = dt.getUTCDay() || 7; dt.setUTCDate(dt.getUTCDate() + 4 - dn);
+  const ys = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  const kw = Math.ceil((((dt.getTime() - ys.getTime()) / 86400000) + 1) / 7);
+  const { data: wpEintraege = [] } = useQuery({ queryKey: ['start-wp', vonW], queryFn: async () => { const { data } = await supabase.from('wochenplanung').select('mitarbeiter_id,stunden').gte('datum', vonW).lte('datum', bisW); return data ?? []; } });
+
   const t = tickets as any[];
   const b = baustellen as any[];
+  const wp = wpEintraege as any[];
+  const wpMaCount = new Set(wp.map((e:any) => e.mitarbeiter_id)).size;
+  const wpStunden = wp.reduce((s:number, e:any) => s + Number(e.stunden ?? 0), 0);
 
   const BEREICHE = [
     { path: '/baustellen/dashboard', color: '#2563eb', colorRgb: '37,99,235', icon: HardHat, titel: 'Baustellen', sub: 'Controlling & Management', stat: b.filter(x => x.status !== 'abgerechnet').length, statLabel: 'aktive Projekte', punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'] },
     { path: '/tickets/dashboard', color: '#10b981', colorRgb: '16,185,129', icon: Ticket, titel: 'Ticketsystem', sub: 'WIDI Controlling', stat: t.filter(x => x.status === 'in_bearbeitung').length, statLabel: 'Tickets offen', punkte: ['Tickets erfassen', 'PDF-Rücklauf OCR', 'Excel-Import', 'Monatsanalyse'] },
-    { path: '/auswertung', color: '#8b5cf6', colorRgb: '139,92,246', icon: TrendingUp, titel: 'MA-Auswertung', sub: 'Mitarbeiter & Statistik', stat: (employees as any[]).length, statLabel: 'Mitarbeiter', punkte: ['Stunden & Kosten', 'Monatsvergleich', 'Einzelperson', 'Trends'] },
+    { path: '/auswertung', color: '#8b5cf6', colorRgb: '139,92,246', icon: TrendingUp, titel: 'MA-Auswertung', sub: 'Mitarbeiter & Statistik', stat: (employees as any[]).length, statLabel: 'Mitarbeiter', punkte: ['Stunden & Kosten', 'Einzelperson', 'Monatsabschluss'] },
     { path: '/dguv', color: '#f59e0b', colorRgb: '245,158,11', icon: Shield, titel: 'DGUV Prüfung', sub: 'Geräteprüfung & Roadmap', stat: 23352, statLabel: 'Prüflinge gesamt', punkte: ['Rohdaten verarbeiten', 'Roadmap 2025/2026', 'Prüfer-Auswertung', 'Neue Prüflinge'] },
+    { path: '/planung', color: '#6366f1', colorRgb: '99,102,241', icon: CalendarDays, titel: 'Wochenplanung', sub: `KW ${kw} · Personalplanung`, stat: wpMaCount, statLabel: 'MA eingeplant', punkte: ['Baustellen planen', 'Tickets & DGUV', 'Begehungen', 'Interne Stunden'] },
   ];
 
   return (
@@ -170,7 +187,7 @@ export default function StartPage() {
         </div>
 
         {/* Cards */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, width:'100%', maxWidth:1200, marginBottom: isAdmin ? 24 : 0 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:16, width:'100%', maxWidth:1400, marginBottom: isAdmin ? 24 : 0 }}>
           {BEREICHE.map((bereich, i) => (
             <div key={i} className="s-card"
               onClick={() => navigate(bereich.path)}
