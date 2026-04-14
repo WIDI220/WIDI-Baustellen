@@ -37,6 +37,7 @@ import AuftragImportPage from '@/pages/AuftragImportPage';
 import MitarbeiterPage from '@/pages/MitarbeiterPage';
 import ArchivPage from '@/pages/ArchivPage';
 import WochenplanerPage from '@/pages/WochenplanerPage';
+import WochenplanungPage from '@/pages/WochenplanungPage';
 
 // Tickets
 import TicketsDashboard from '@/pages/TicketsDashboard';
@@ -83,6 +84,7 @@ function AppRoutes() {
       {/* ── Startseite ─────────────────────────────────── */}
       <Route path="/" element={<StartPage />} />
       <Route path="/admin/log" element={<AdminLogPage />} />
+      <Route path="/planung" element={<WochenplanungPage />} />
 
       {/* ── DGUV-Bereich ───────────────────────────────── */}
       <Route path="/dguv"              element={<AppLayoutDGUV><DGUVPage /></AppLayoutDGUV>} />
@@ -108,7 +110,6 @@ function AppRoutes() {
             <Route path="import"       element={<AuftragImportPage />} />
             <Route path="mitarbeiter"  element={<MitarbeiterPage />} />
             <Route path="archiv"       element={<ArchivPage />} />
-            <Route path="planung"      element={<WochenplanerPage />} />
             <Route path="*"            element={<Navigate to="dashboard" replace />} />
           </Routes>
         </AppLayoutBaustellen>
