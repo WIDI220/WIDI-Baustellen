@@ -8,7 +8,6 @@ import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriang
 
 const NAV = [
   { to: '/baustellen/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/baustellen/planung',         icon: CalendarDays,    label: 'Wochenplanung' },
   { to: '/baustellen/zeiterfassung', icon: Clock,           label: 'Zeiterfassung' },
   { to: '/baustellen/material',      icon: Package,         label: 'Material' },
   { to: '/baustellen/nachtraege',    icon: FileText,        label: 'Nachträge' },
