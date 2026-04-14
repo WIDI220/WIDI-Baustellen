@@ -66,6 +66,259 @@ export default function MitarbeiterAuswertungPage() {
     queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum').gte('datum', von).lte('datum', bis); return data ?? []; },
   });
 
+  // Monatliche Aggregation direkt per SQL — kein Frontend-Filtering, keine Typ-Probleme
+  const { data: verlaufRaw = [] } = useQuery({
+    queryKey: ['ausw-verlauf-sql'],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_monatsverlauf');
+      if (error) {
+        // Fallback: manuell aggregieren falls RPC nicht existiert
+        const [t, b, bg, i] = await Promise.all([
+          supabase.rpc('get_tickets_pro_monat'),
+          supabase.rpc('get_bau_pro_monat'),
+          supabase.rpc('get_beg_pro_monat'),
+          supabase.rpc('get_intern_pro_monat'),
+        ]);
+        return null;
+      }
+      return data ?? [];
+    },
+    staleTime: 60000,
+  });
+
+  // Einzeldaten für Einzelperson-Verlauf
+  const { data: ticketAll = [] } = useQuery({
+    queryKey: ['ausw-tickets-raw'],
+    queryFn: async () => {
+      const { data } = await supabase.from('ticket_worklogs')
+        .select('employee_id, stunden, leistungsdatum');
+      return (data ?? []).map((r: any) => ({
+        employee_id: r.employee_id,
+        stunden: Number(r.stunden ?? 0),
+        monat: String(r.leistungsdatum ?? '').slice(0, 7),
+      }));
+    },
+    staleTime: 60000,
+  });
+  const { data: bauAll = [] } = useQuery({
+    queryKey: ['ausw-bau-raw'],
+    queryFn: async () => {
+      const { data } = await supabase.from('bs_stundeneintraege')
+        .select('mitarbeiter_id, stunden, datum');
+      return (data ?? []).map((r: any) => ({
+        mitarbeiter_id: r.mitarbeiter_id,
+        stunden: Number(r.stunden ?? 0),
+        monat: String(r.datum ?? '').slice(0, 7),
+      }));
+    },
+    staleTime: 60000,
+  });
+  const { data: begehungenAll = [] } = useQuery({
+    queryKey: ['ausw-beg-raw'],
+    queryFn: async () => {
+      const { data } = await supabase.from('begehungen')
+        .select('mitarbeiter, stunden, datum_von');
+      return (data ?? []).map((r: any) => ({
+        mitarbeiter: r.mitarbeiter,
+        stunden: Number(r.stunden ?? 0),
+        monat: String(r.datum_von ?? '').slice(0, 7),
+      }));
+    },
+    staleTime: 60000,
+  });
+  const { data: interneAll = [] } = useQuery({
+    queryKey: ['ausw-intern-raw'],
+    queryFn: async () => {
+      const { data } = await supabase.from('interne_stunden')
+        .select('employee_id, stunden, datum');
+      return (data ?? []).map((r: any) => ({
+        employee_id: r.employee_id,
+        stunden: Number(r.stunden ?? 0),
+        monat: String(r.datum ?? '').slice(0, 7),
+      }));
+    },
+    staleTime: 60000,
+  });
+
+  const { data: abwesenheiten = [], refetch: refetchAbw } = useQuery({
+    queryKey: ['abwesenheiten', selectedMA ?? 'none', kalYear],
+    queryFn: async () => {
+      if (!selectedMA) return [];
+      const { data } = await supabase
+        .from('mitarbeiter_abwesenheiten')
+        .select('*')
+        .eq('employee_id', selectedMA)
+        .gte('datum', `${kalYear}-01-01`)
+        .lte('datum', `${kalYear}-12-31`);
+      return data ?? [];
+    },
+    enabled: !!selectedMA,
+  });
+
+  async function toggleAbwesenheit(empId: string, datum: string, typ: 'urlaub' | 'krank') {
+    const existing = (abwesenheiten as any[]).find((a: any) => a.datum === datum);
+    setPendingToggle(datum);
+    if (existing) {
+      if (existing.typ === typ) {
+        await supabase.from('mitarbeiter_abwesenheiten').delete().eq('id', existing.id);
+      } else {
+        await supabase.from('mitarbeiter_abwesenheiten').update({ typ }).eq('id', existing.id);
+      }
+    } else {
+      await supabase.from('mitarbeiter_abwesenheiten').insert({ employee_id: empId, datum, typ });
+    }
+    setPendingToggle(null);
+    refetchAbw();
+  }
+
+  const { data: abwesenheitenMonat = [] } = useQuery({
+    queryKey: ['abwesenheiten-monat', year, month],
+    queryFn: async () => {
+      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
+      const bis2 = `${year}-${String(month).padStart(2,'0')}-31`;
+      const { data } = await supabase
+        .from('mitarbeiter_abwesenheiten')
+        .select('*, employees(name)')
+        .gte('datum', von2)
+        .lte('datum', bis2);
+      return data ?? [];
+    },
+  });
+
+  const { data: interneStunden = [] } = useQuery({
+    queryKey: ['interne-stunden-ma', year, month],
+    queryFn: async () => {
+      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
+      const lastDay2 = new Date(year, month, 0).getDate();
+      const bis2 = `${year}-${String(month).padStart(2,'0')}-${String(lastDay2).padStart(2,'0')}`;
+      const { data } = await supabase
+        .from('interne_stunden')
+        .select('employee_id, stunden, datum')
+        .gte('datum', von2)
+        .lte('datum', bis2);
+      return data ?? [];
+    },
+  });
+
+  const { data: begehungenMonat = [] } = useQuery({
+    queryKey: ['begehungen-monat', year, month],
+    queryFn: async () => {
+      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const bis2 = `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`;
+      const { data } = await supabase
+        .from('begehungen')
+        .select('*')
+        .gte('datum_von', von2)
+        .lte('datum_von', bis2);
+      return data ?? [];
+    },
+  });
+
+  function exportMonatsabschlussCSV() {
+    const rows = maStats.map(e => {
+      const urlaubTage = (abwesenheitenMonat as any[]).filter((a:any) => {
+        const emp = employees as any[];
+        const em = emp.find((x:any) => x.id === e.id);
+        return a.employee_id === e.id && a.typ === 'urlaub';
+      }).length;
+      const krankTage = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ === 'krank').length;
+      return [e.name, e.tH.toFixed(1), e.bH.toFixed(1), (e.begH||0).toFixed(1), (e.intH||0).toFixed(1), e.gesamt.toFixed(1), e.kosten.toFixed(2), urlaubTage, krankTage].join(';');
+    });
+    const header = 'Mitarbeiter;Ticket-Std;Baustellen-Std;Begehungen-Std;Interne-Std;Gesamt-Std;Kosten (€);Urlaub-Tage;Krank-Tage';
+    const csv = '\uFEFF' + [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Monatsabschluss_${monatLabel.replace(' ','_')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+
+
+  const emps = employees as any[];
+  const tw = ticketStunden as any[];
+  const bw = bauStunden as any[];
+
+  // MA-Stats für aktuellen Monat
+  const begehungen = begehungenMonat as any[];
+
+  const maStats = useMemo(() => emps.map((e, i) => {
+    const tH = tw.filter(w => w.employee_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+    const bH = bw.filter(w => w.mitarbeiter_id === e.id).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+    const begH = (begehungenMonat as any[])
+      .filter(b => {
+        const bMit = (b.mitarbeiter ?? '').trim().toLowerCase();
+        if (!bMit) return false;
+        const eName = (e.name ?? '').trim().toLowerCase();
+        const eKuerzel = (e.kuerzel ?? '').trim().toLowerCase();
+        // Exakter Name-Match
+        if (bMit === eName) return true;
+        // Kürzel-Match
+        if (bMit === eKuerzel) return true;
+        // Teilname-Match (Vor- oder Nachname)
+        const nameParts = eName.split(' ').filter((p: string) => p.length > 2);
+        if (nameParts.some((p: string) => bMit.includes(p))) return true;
+        return false;
+      })
+      .reduce((s: number, b: any) => s + Number(b.stunden ?? 0), 0);
+    const intH = (interneStunden as any[]).filter(x => x.employee_id === e.id).reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
+    const gesamt = tH + bH + begH + intH;
+    const satz = Number(e.stundensatz ?? STUNDENSATZ);
+    const kosten = gesamt * satz;
+    return { ...e, tH, bH, begH, intH, gesamt, kosten, satz, farbe: FARBEN[i % FARBEN.length] };
+  }).sort((a, b) => b.gesamt - a.gesamt), [emps, tw, bw, begehungenMonat, interneStunden]);
+
+  const totalH = maStats.reduce((s, e) => s + e.gesamt, 0);
+  const totalKosten = maStats.reduce((s, e) => s + e.kosten, 0);
+  const topMA = maStats[0];
+  const aktivMA = maStats.filter(e => e.gesamt > 0).length;
+
+  // Begehungen-Matching Hilfsfunktion
+  function matchBegehung(bMit: string, emp: any): boolean {
+    if (!bMit) return false;
+    const bm = bMit.trim().toLowerCase();
+    const eName = (emp.name ?? '').trim().toLowerCase();
+    const eKuerzel = (emp.kuerzel ?? '').trim().toLowerCase();
+    if (bm === eName || bm === eKuerzel) return true;
+    const nameParts = eName.split(' ').filter((p: string) => p.length > 2);
+    return nameParts.some((p: string) => bm.includes(p));
+  }
+
+  // Alle Monate mit Daten ermitteln und aggregieren
+  const verlauf6 = useMemo(() => {
+    // Alle vorhandenen Monate aus allen Quellen sammeln
+    const monatsSet = new Set<string>();
+    (ticketAll as any[]).forEach(w => { const d = String(w.leistungsdatum ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
+    (bauAll as any[]).forEach(w => { const d = String(w.datum ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
+    (begehungenAll as any[]).forEach(w => { const d = String(w.datum_von ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
+    (interneAll as any[]).forEach(w => { const d = String(w.datum ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
+
+    const heute = new Date().toISOString().slice(0, 7);
+    return Array.from(monatsSet).filter(ym => ym >= '2025-11' && ym <= heute).sort().map(ym => {
+      const [y2str, m2str] = ym.split('-');
+      const y2 = parseInt(y2str); const m2 = parseInt(m2str);
+      const lastDay = new Date(y2, m2, 0).getDate();
+      const v = `${ym}-01`; const b = `${ym}-${String(lastDay).padStart(2, '0')}`;
+      const tH2   = (ticketAll as any[]).filter(w => { const d = String(w.leistungsdatum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const bH2   = (bauAll as any[]).filter(w => { const d = String(w.datum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const begH2 = (begehungenAll as any[]).filter(w => { const d = String(w.datum_von ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const intH2 = (interneAll as any[]).filter(w => { const d = String(w.datum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const gesamt = Math.round((tH2 + bH2 + begH2 + intH2) * 10) / 10;
+      return {
+        monat: `${MONATE[m2 - 1]} ${y2 !== new Date().getFullYear() ? y2 : ''}`.trim(),
+        ym,
+        Tickets:    Math.round(tH2   * 10) / 10,
+        Baustellen: Math.round(bH2   * 10) / 10,
+        Begehungen: Math.round(begH2 * 10) / 10,
+        Intern:     Math.round(intH2 * 10) / 10,
+        Gesamt:     gesamt,
+      };
+    });
+  }, [ticketAll, bauAll, begehungenAll, interneAll]);
+
   // Radar-Daten für ausgewählten MA
   const selectedEmp = maStats.find(e => e.id === selectedMA) ?? maStats[0];
 
@@ -260,6 +513,95 @@ export default function MitarbeiterAuswertungPage() {
             const pU   = gesamtMitAbw > 0 ? (urlaubH / gesamtMitAbw * 100) : 0;
             const pK   = gesamtMitAbw > 0 ? (krankH  / gesamtMitAbw * 100) : 0;
 
+            // Monatsverlauf (6 Monate) inkl. Urlaub/Krank
+            const personVerlauf = verlauf6.map(mv => {
+              const v = `${mv.ym}-01`;
+              const lastD = new Date(parseInt(mv.ym.slice(0,4)), parseInt(mv.ym.slice(5,7)), 0).getDate();
+              const b = `${mv.ym}-${String(lastD).padStart(2,'0')}`;
+              const tH2   = (ticketAll as any[]).filter(w => w.employee_id === selectedEmp.id && String(w.leistungsdatum ?? '') >= v && String(w.leistungsdatum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const bH2   = (bauAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && String(w.datum ?? '') >= v && String(w.datum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const begH2 = (begehungenAll as any[]).filter(w => String(w.datum_von ?? '') >= v && String(w.datum_von ?? '') <= b && matchBegehung(w.mitarbeiter, selectedEmp)).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const intH2 = (interneAll as any[]).filter(w => w.employee_id === selectedEmp.id && String(w.datum ?? '') >= v && String(w.datum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              return {
+                monat: mv.monat,
+                Tickets:    Math.round(tH2 * 4) / 4,
+                Baustellen: Math.round(bH2 * 4) / 4,
+                Begehungen: Math.round(begH2 * 4) / 4,
+                Intern:     Math.round(intH2 * 4) / 4,
+              };
+            });
+
+            const STUNDEN_FELDER = [
+              { label: 'Tickets',     h: selectedEmp.tH,          color: '#3b82f6', bg: '#eff6ff' },
+              { label: 'Baustellen',  h: selectedEmp.bH,          color: '#10b981', bg: '#f0fdf4' },
+              { label: 'Begehungen',  h: selectedEmp.begH||0,     color: '#f59e0b', bg: '#fffbeb' },
+              { label: 'Intern',      h: selectedEmp.intH||0,     color: '#8b5cf6', bg: '#f5f3ff' },
+              { label: 'Urlaub',      h: urlaubH,                  color: '#10b981', bg: '#dcfce7' },
+              { label: 'Krank',       h: krankH,                   color: '#ef4444', bg: '#fee2e2' },
+            ].filter(f => f.h > 0);
+
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                {/* ── Name + Gesamtstunden Header ── */}
+                <div style={{ background: `linear-gradient(135deg, ${selectedEmp.farbe}18, ${selectedEmp.farbe}08)`, border: `1px solid ${selectedEmp.farbe}30`, borderRadius: 18, padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: 12, background: selectedEmp.farbe, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 800, color: '#fff' }}>{selectedEmp.kuerzel}</div>
+                      <div>
+                        <p style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-.03em' }}>{selectedEmp.name}</p>
+                        <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>{monatLabel}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ fontSize: 36, fontWeight: 900, color: selectedEmp.farbe, margin: 0, letterSpacing: '-.05em' }}>{fmt(gesamtMitAbw)}h</p>
+                    <p style={{ fontSize: 12, color: '#64748b', margin: 0 }}>Gesamtstunden inkl. Abwesenheit</p>
+                  </div>
+                </div>
+
+                {/* ── Stunden Aufschlüsselung ── */}
+                <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', padding: '20px 24px' }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 16px', letterSpacing: '-.01em' }}>Stunden-Aufschlüsselung</p>
+
+                  {/* Gestapelter Fortschrittsbalken */}
+                  <div style={{ height: 14, borderRadius: 99, overflow: 'hidden', display: 'flex', marginBottom: 20, background: '#f1f5f9' }}>
+                    {[
+                      { pct: pT,   color: '#3b82f6' },
+                      { pct: pB,   color: '#10b981' },
+                      { pct: pBeg, color: '#f59e0b' },
+                      { pct: pInt, color: '#8b5cf6' },
+                      { pct: pU,   color: '#86efac' },
+                      { pct: pK,   color: '#fca5a5' },
+                    ].filter(s => s.pct > 0).map((s, i) => (
+                      <div key={i} style={{ width: `${s.pct}%`, background: s.color, transition: 'width .6s cubic-bezier(.16,1,.3,1)' }} />
+                    ))}
+                  </div>
+
+                  {/* Einzelne Felder */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {STUNDEN_FELDER.map(f => (
+                      <div key={f.label}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: 3, background: f.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{f.label}</span>
+                            {f.label === 'Urlaub' && <span style={{ fontSize: 11, color: '#94a3b8' }}>({urlaubTage} Tage × 8h)</span>}
+                            {f.label === 'Krank'  && <span style={{ fontSize: 11, color: '#94a3b8' }}>({krankTage} Tage × 8h)</span>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <span style={{ fontSize: 12, color: '#94a3b8' }}>{gesamtMitAbw > 0 ? Math.round(f.h / gesamtMitAbw * 100) : 0}%</span>
+                            <span style={{ fontSize: 15, fontWeight: 800, color: f.color, minWidth: 48, textAlign: 'right' }}>{fmt(f.h)}h</span>
+                          </div>
+                        </div>
+                        <div style={{ height: 6, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${gesamtMitAbw > 0 ? f.h / gesamtMitAbw * 100 : 0}%`, background: f.color, borderRadius: 99, transition: 'width .6s cubic-bezier(.16,1,.3,1)' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 {/* ── Urlaub & Krank Karten ── */}
                 {(urlaubTage > 0 || krankTage > 0) && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -285,6 +627,25 @@ export default function MitarbeiterAuswertungPage() {
                     </div>
                   </div>
                 )}
+
+                {/* ── Monatsverlauf ── */}
+                <div style={{ background: '#fff', borderRadius: 18, padding: '20px 24px', border: '1px solid #f1f5f9' }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Monatsverlauf — {selectedEmp.name}</p>
+                  <p style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 16px' }}>Letzte 6 Monate · Tickets & Baustellen</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={personVerlauf} barGap={3} barCategoryGap="35%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                      <XAxis dataKey="monat" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey="Tickets"    fill="#3b82f6" radius={[0,0,0,0]} />
+                      <Bar dataKey="Baustellen" fill="#10b981" radius={[0,0,0,0]} />
+                      <Bar dataKey="Begehungen" fill="#f59e0b" radius={[0,0,0,0]} />
+                      <Bar dataKey="Intern"     fill="#8b5cf6" radius={[5,5,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
 
                 {/* ── Jahreskalender ── */}
                 <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
