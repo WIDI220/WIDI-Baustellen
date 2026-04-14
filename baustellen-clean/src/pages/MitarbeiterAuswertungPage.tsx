@@ -66,8 +66,8 @@ export default function MitarbeiterAuswertungPage() {
     queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum').gte('datum', von).lte('datum', bis); return data ?? []; },
   });
 
-  // 6 Monate für Verlauf — gefiltert auf relevanten Zeitraum, queryKey mit year/month damit korrekt neu geladen
-  const verlaufVon = (() => { const d = new Date(year, month - 1 - 5, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; })();
+  // 6 Monate für Verlauf — 7 Monate Puffer damit Grenzmonat sicher dabei ist
+  const verlaufVon = (() => { const d = new Date(year, month - 1 - 6, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; })();
   const verlaufBis = (() => { const lastDay = new Date(year, month, 0).getDate(); return `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`; })();
   const { data: ticketAll = [] } = useQuery({
     queryKey: ['ausw-tickets-all', year, month],
@@ -76,6 +76,14 @@ export default function MitarbeiterAuswertungPage() {
   const { data: bauAll = [] } = useQuery({
     queryKey: ['ausw-bau-all', year, month],
     queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum').gte('datum', verlaufVon).lte('datum', verlaufBis); return data ?? []; },
+  });
+  const { data: begehungenAll = [] } = useQuery({
+    queryKey: ['ausw-beg-all', year, month],
+    queryFn: async () => { const { data } = await supabase.from('begehungen').select('mitarbeiter,stunden,datum_von').gte('datum_von', verlaufVon).lte('datum_von', verlaufBis); return data ?? []; },
+  });
+  const { data: interneAll = [] } = useQuery({
+    queryKey: ['ausw-int-all', year, month],
+    queryFn: async () => { const { data } = await supabase.from('interne_stunden').select('employee_id,stunden,datum').gte('datum', verlaufVon).lte('datum', verlaufBis); return data ?? []; },
   });
 
   const { data: abwesenheiten = [], refetch: refetchAbw } = useQuery({
@@ -214,18 +222,39 @@ export default function MitarbeiterAuswertungPage() {
   const topMA = maStats[0];
   const aktivMA = maStats.filter(e => e.gesamt > 0).length;
 
-  // 6-Monats-Verlauf
+  // Begehungen-Matching Hilfsfunktion
+  function matchBegehung(bMit: string, emp: any): boolean {
+    if (!bMit) return false;
+    const bm = bMit.trim().toLowerCase();
+    const eName = (emp.name ?? '').trim().toLowerCase();
+    const eKuerzel = (emp.kuerzel ?? '').trim().toLowerCase();
+    if (bm === eName || bm === eKuerzel) return true;
+    const nameParts = eName.split(' ').filter((p: string) => p.length > 2);
+    return nameParts.some((p: string) => bm.includes(p));
+  }
+
+  // 6-Monats-Verlauf mit allen Stundenarten
   const verlauf6 = useMemo(() => {
     return Array.from({ length: 6 }, (_, i) => {
       const d = new Date(year, month - 1 - (5 - i), 1);
       const y2 = d.getFullYear(); const m2 = d.getMonth() + 1;
       const lastDay = new Date(y2, m2, 0).getDate();
       const v = `${monatStr(y2, m2)}-01`; const b = `${monatStr(y2, m2)}-${String(lastDay).padStart(2, '0')}`;
-      const tH2 = (ticketAll as any[]).filter(w => w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-      const bH2 = (bauAll as any[]).filter(w => w.datum >= v && w.datum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-      return { monat: MONATE[m2 - 1], Tickets: Math.round(tH2 * 10) / 10, Baustellen: Math.round(bH2 * 10) / 10, Gesamt: Math.round((tH2 + bH2) * 10) / 10 };
+      const tH2   = (ticketAll as any[]).filter(w => w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const bH2   = (bauAll as any[]).filter(w => w.datum >= v && w.datum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const begH2 = (begehungenAll as any[]).filter(w => w.datum_von >= v && w.datum_von <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const intH2 = (interneAll as any[]).filter(w => w.datum >= v && w.datum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const gesamt = Math.round((tH2 + bH2 + begH2 + intH2) * 10) / 10;
+      return {
+        monat: MONATE[m2 - 1],
+        Tickets:    Math.round(tH2   * 10) / 10,
+        Baustellen: Math.round(bH2   * 10) / 10,
+        Begehungen: Math.round(begH2 * 10) / 10,
+        Intern:     Math.round(intH2 * 10) / 10,
+        Gesamt:     gesamt,
+      };
     });
-  }, [ticketAll, bauAll, year, month]);
+  }, [ticketAll, bauAll, begehungenAll, interneAll, year, month]);
 
   // Radar-Daten für ausgewählten MA
   const selectedEmp = maStats.find(e => e.id === selectedMA) ?? maStats[0];
@@ -429,10 +458,14 @@ export default function MitarbeiterAuswertungPage() {
               const b = `${monatStr(y2,m2)}-${String(lastD).padStart(2,'0')}`;
               const tH2   = (ticketAll as any[]).filter(w => w.employee_id === selectedEmp.id && w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
               const bH2   = (bauAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && w.datum >= v && w.datum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const begH2 = (begehungenAll as any[]).filter(w => w.datum_von >= v && w.datum_von <= b && matchBegehung(w.mitarbeiter, selectedEmp)).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const intH2 = (interneAll as any[]).filter(w => w.employee_id === selectedEmp.id && w.datum >= v && w.datum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
               return {
                 monat: MONATE[m2-1],
-                Tickets: Math.round(tH2*4)/4,
-                Baustellen: Math.round(bH2*4)/4,
+                Tickets:    Math.round(tH2   * 4) / 4,
+                Baustellen: Math.round(bH2   * 4) / 4,
+                Begehungen: Math.round(begH2 * 4) / 4,
+                Intern:     Math.round(intH2 * 4) / 4,
               };
             });
 
@@ -544,8 +577,10 @@ export default function MitarbeiterAuswertungPage() {
                       <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="Tickets"    fill="#3b82f6" radius={[5,5,0,0]} />
-                      <Bar dataKey="Baustellen" fill="#10b981" radius={[5,5,0,0]} />
+                      <Bar dataKey="Tickets"    fill="#3b82f6" radius={[0,0,0,0]} />
+                      <Bar dataKey="Baustellen" fill="#10b981" radius={[0,0,0,0]} />
+                      <Bar dataKey="Begehungen" fill="#f59e0b" radius={[0,0,0,0]} />
+                      <Bar dataKey="Intern"     fill="#8b5cf6" radius={[5,5,0,0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -746,14 +781,16 @@ export default function MitarbeiterAuswertungPage() {
             <p style={{ fontSize:14, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Stunden-Vergleich · {monatLabel}</p>
             <p style={{ fontSize:11, color:'#94a3b8', margin:'0 0 20px' }}>Tickets vs. Baustellen pro Mitarbeiter</p>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={maStats.map(e=>({ name:e.kuerzel||e.name.split(' ')[0], Tickets:Math.round(e.tH*10)/10, Baustellen:Math.round(e.bH*10)/10 }))} barGap={4} barCategoryGap="35%">
+              <BarChart data={maStats.map(e=>({ name:e.kuerzel||e.name.split(' ')[0], Tickets:Math.round(e.tH*10)/10, Baustellen:Math.round(e.bH*10)/10, Begehungen:Math.round((e.begH||0)*10)/10, Intern:Math.round((e.intH||0)*10)/10 }))} barGap={4} barCategoryGap="35%">
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
                 <XAxis dataKey="name" tick={{fontSize:11,fill:'#94a3b8'}} axisLine={false} tickLine={false}/>
                 <YAxis tick={{fontSize:10,fill:'#94a3b8'}} axisLine={false} tickLine={false} unit="h"/>
                 <Tooltip content={<CustomTooltip/>}/>
                 <Legend wrapperStyle={{fontSize:12}}/>
-                <Bar dataKey="Tickets" fill="#3b82f6" radius={[5,5,0,0]}/>
-                <Bar dataKey="Baustellen" fill="#10b981" radius={[5,5,0,0]}/>
+                <Bar dataKey="Tickets"    fill="#3b82f6" radius={[0,0,0,0]}/>
+                <Bar dataKey="Baustellen" fill="#10b981" radius={[0,0,0,0]}/>
+                <Bar dataKey="Begehungen" fill="#f59e0b" radius={[0,0,0,0]}/>
+                <Bar dataKey="Intern"     fill="#8b5cf6" radius={[5,5,0,0]}/>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -776,9 +813,11 @@ export default function MitarbeiterAuswertungPage() {
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="Tickets" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 4, fill: '#3b82f6' }} />
+                <Line type="monotone" dataKey="Tickets"    stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 4, fill: '#3b82f6' }} />
                 <Line type="monotone" dataKey="Baustellen" stroke="#10b981" strokeWidth={2.5} dot={{ r: 4, fill: '#10b981' }} />
-                <Line type="monotone" dataKey="Gesamt" stroke="#8b5cf6" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, fill: '#8b5cf6' }} />
+                <Line type="monotone" dataKey="Begehungen" stroke="#f59e0b" strokeWidth={2}   dot={{ r: 3, fill: '#f59e0b' }} />
+                <Line type="monotone" dataKey="Intern"     stroke="#8b5cf6" strokeWidth={2}   dot={{ r: 3, fill: '#8b5cf6' }} />
+                <Line type="monotone" dataKey="Gesamt"     stroke="#64748b" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, fill: '#64748b' }} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -794,8 +833,10 @@ export default function MitarbeiterAuswertungPage() {
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="Tickets" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="Baustellen" stackId="a" fill="#10b981" radius={[5, 5, 0, 0]} />
+                <Bar dataKey="Tickets"    stackId="a" fill="#3b82f6" radius={[0,0,0,0]} />
+                <Bar dataKey="Baustellen" stackId="a" fill="#10b981" radius={[0,0,0,0]} />
+                <Bar dataKey="Begehungen" stackId="a" fill="#f59e0b" radius={[0,0,0,0]} />
+                <Bar dataKey="Intern"     stackId="a" fill="#8b5cf6" radius={[5,5,0,0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -806,7 +847,7 @@ export default function MitarbeiterAuswertungPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
-                  {['Monat', 'Tickets', 'Baustellen', 'Gesamt', 'Δ Vormonat'].map(h => (
+                  {['Monat', 'Tickets', 'Baustellen', 'Begehungen', 'Intern', 'Gesamt', 'Δ Vormonat'].map(h => (
                     <th key={h} style={{ textAlign: h === 'Monat' ? 'left' : 'right', padding: '8px 12px', fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
                   ))}
                 </tr>
@@ -820,6 +861,8 @@ export default function MitarbeiterAuswertungPage() {
                       <td style={{ padding: '12px', fontWeight: 600, color: '#0f172a' }}>{m.monat}</td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#3b82f6', fontWeight: 600 }}>{fmt(m.Tickets)}h</td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{fmt(m.Baustellen)}h</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#f59e0b', fontWeight: 600 }}>{fmt(m.Begehungen)}h</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#8b5cf6', fontWeight: 600 }}>{fmt(m.Intern)}h</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>{fmt(m.Gesamt)}h</td>
                       <td style={{ padding: '12px', textAlign: 'right' }}>
                         {delta !== null && (
