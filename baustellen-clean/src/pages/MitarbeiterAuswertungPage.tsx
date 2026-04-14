@@ -66,28 +66,26 @@ export default function MitarbeiterAuswertungPage() {
     queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum').gte('datum', von).lte('datum', bis); return data ?? []; },
   });
 
-  // 6 Monate für Verlauf — 7 Monate Puffer damit Grenzmonat sicher dabei ist
-  const verlaufVon = (() => { const d = new Date(year, month - 1 - 6, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`; })();
-  const verlaufBis = (() => { const lastDay = new Date(year, month, 0).getDate(); return `${year}-${String(month).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`; })();
+  // Alle Verlaufsdaten ungefiltert laden — Aggregation im Frontend
   const { data: ticketAll = [] } = useQuery({
-    queryKey: ['ausw-tickets-all', year, month, verlaufVon, verlaufBis],
-    queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('employee_id,stunden,leistungsdatum').gte('leistungsdatum', verlaufVon).lte('leistungsdatum', verlaufBis); return data ?? []; },
-    staleTime: 0,
+    queryKey: ['ausw-tickets-all'],
+    queryFn: async () => { const { data } = await supabase.from('ticket_worklogs').select('employee_id,stunden,leistungsdatum'); return data ?? []; },
+    staleTime: 30000,
   });
   const { data: bauAll = [] } = useQuery({
-    queryKey: ['ausw-bau-all', year, month, verlaufVon, verlaufBis],
-    queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum').gte('datum', verlaufVon).lte('datum', verlaufBis); return data ?? []; },
-    staleTime: 0,
+    queryKey: ['ausw-bau-all'],
+    queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum'); return data ?? []; },
+    staleTime: 30000,
   });
   const { data: begehungenAll = [] } = useQuery({
-    queryKey: ['ausw-beg-all', year, month, verlaufVon, verlaufBis],
-    queryFn: async () => { const { data } = await supabase.from('begehungen').select('mitarbeiter,stunden,datum_von').gte('datum_von', verlaufVon).lte('datum_von', verlaufBis); return data ?? []; },
-    staleTime: 0,
+    queryKey: ['ausw-beg-all'],
+    queryFn: async () => { const { data } = await supabase.from('begehungen').select('mitarbeiter,stunden,datum_von'); return data ?? []; },
+    staleTime: 30000,
   });
   const { data: interneAll = [] } = useQuery({
-    queryKey: ['ausw-int-all', year, month, verlaufVon, verlaufBis],
-    queryFn: async () => { const { data } = await supabase.from('interne_stunden').select('employee_id,stunden,datum').gte('datum', verlaufVon).lte('datum', verlaufBis); return data ?? []; },
-    staleTime: 0,
+    queryKey: ['ausw-int-all'],
+    queryFn: async () => { const { data } = await supabase.from('interne_stunden').select('employee_id,stunden,datum'); return data ?? []; },
+    staleTime: 30000,
   });
 
   const { data: abwesenheiten = [], refetch: refetchAbw } = useQuery({
@@ -237,20 +235,29 @@ export default function MitarbeiterAuswertungPage() {
     return nameParts.some((p: string) => bm.includes(p));
   }
 
-  // 6-Monats-Verlauf mit allen Stundenarten
+  // Alle Monate mit Daten ermitteln und aggregieren
   const verlauf6 = useMemo(() => {
-    return Array.from({ length: 6 }, (_, i) => {
-      const d = new Date(year, month - 1 - (5 - i), 1);
-      const y2 = d.getFullYear(); const m2 = d.getMonth() + 1;
+    // Alle vorhandenen Monate aus allen Quellen sammeln
+    const monatsSet = new Set<string>();
+    (ticketAll as any[]).forEach(w => { if (w.leistungsdatum) monatsSet.add(w.leistungsdatum.slice(0, 7)); });
+    (bauAll as any[]).forEach(w => { if (w.datum) monatsSet.add(w.datum.slice(0, 7)); });
+    (begehungenAll as any[]).forEach(w => { if (w.datum_von) monatsSet.add(w.datum_von.slice(0, 7)); });
+    (interneAll as any[]).forEach(w => { if (w.datum) monatsSet.add(w.datum.slice(0, 7)); });
+
+    const heute = new Date().toISOString().slice(0, 7);
+    return Array.from(monatsSet).filter(ym => ym >= '2025-11' && ym <= heute).sort().map(ym => {
+      const [y2str, m2str] = ym.split('-');
+      const y2 = parseInt(y2str); const m2 = parseInt(m2str);
       const lastDay = new Date(y2, m2, 0).getDate();
-      const v = `${monatStr(y2, m2)}-01`; const b = `${monatStr(y2, m2)}-${String(lastDay).padStart(2, '0')}`;
+      const v = `${ym}-01`; const b = `${ym}-${String(lastDay).padStart(2, '0')}`;
       const tH2   = (ticketAll as any[]).filter(w => w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
       const bH2   = (bauAll as any[]).filter(w => w.datum >= v && w.datum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
       const begH2 = (begehungenAll as any[]).filter(w => w.datum_von >= v && w.datum_von <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
       const intH2 = (interneAll as any[]).filter(w => w.datum >= v && w.datum <= b).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
       const gesamt = Math.round((tH2 + bH2 + begH2 + intH2) * 10) / 10;
       return {
-        monat: MONATE[m2 - 1],
+        monat: `${MONATE[m2 - 1]} ${y2 !== new Date().getFullYear() ? y2 : ''}`.trim(),
+        ym,
         Tickets:    Math.round(tH2   * 10) / 10,
         Baustellen: Math.round(bH2   * 10) / 10,
         Begehungen: Math.round(begH2 * 10) / 10,
@@ -258,7 +265,7 @@ export default function MitarbeiterAuswertungPage() {
         Gesamt:     gesamt,
       };
     });
-  }, [ticketAll, bauAll, begehungenAll, interneAll, year, month]);
+  }, [ticketAll, bauAll, begehungenAll, interneAll]);
 
   // Radar-Daten für ausgewählten MA
   const selectedEmp = maStats.find(e => e.id === selectedMA) ?? maStats[0];
@@ -352,9 +359,10 @@ export default function MitarbeiterAuswertungPage() {
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="tH" name="Tickets" fill="#3b82f6" radius={[5, 5, 0, 0]} />
-                <Bar dataKey="bH" name="Baustellen" fill="#10b981" radius={[5, 5, 0, 0]} />
-                <Bar dataKey="intH" name="Intern" fill="#8b5cf6" radius={[5, 5, 0, 0]} />
+                <Bar dataKey="tH"   name="Tickets"    fill="#3b82f6" radius={[0,0,0,0]} />
+                <Bar dataKey="bH"   name="Baustellen" fill="#10b981" radius={[0,0,0,0]} />
+                <Bar dataKey="begH" name="Begehungen" fill="#f59e0b" radius={[0,0,0,0]} />
+                <Bar dataKey="intH" name="Intern"     fill="#8b5cf6" radius={[5,5,0,0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -454,20 +462,18 @@ export default function MitarbeiterAuswertungPage() {
             const pK   = gesamtMitAbw > 0 ? (krankH  / gesamtMitAbw * 100) : 0;
 
             // Monatsverlauf (6 Monate) inkl. Urlaub/Krank
-            const personVerlauf = Array.from({ length: 6 }, (_, i) => {
-              const d = new Date(year, month - 1 - (5 - i), 1);
-              const y2 = d.getFullYear(); const m2 = d.getMonth() + 1;
-              const v = `${monatStr(y2,m2)}-01`;
-              const lastD = new Date(y2, m2, 0).getDate();
-              const b = `${monatStr(y2,m2)}-${String(lastD).padStart(2,'0')}`;
+            const personVerlauf = verlauf6.map(mv => {
+              const v = `${mv.ym}-01`;
+              const lastD = new Date(parseInt(mv.ym.slice(0,4)), parseInt(mv.ym.slice(5,7)), 0).getDate();
+              const b = `${mv.ym}-${String(lastD).padStart(2,'0')}`;
               const tH2   = (ticketAll as any[]).filter(w => w.employee_id === selectedEmp.id && w.leistungsdatum >= v && w.leistungsdatum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
               const bH2   = (bauAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && w.datum >= v && w.datum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
               const begH2 = (begehungenAll as any[]).filter(w => w.datum_von >= v && w.datum_von <= b && matchBegehung(w.mitarbeiter, selectedEmp)).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
               const intH2 = (interneAll as any[]).filter(w => w.employee_id === selectedEmp.id && w.datum >= v && w.datum <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
               return {
-                monat: MONATE[m2-1],
-                Tickets:    Math.round(tH2   * 4) / 4,
-                Baustellen: Math.round(bH2   * 4) / 4,
+                monat: mv.monat,
+                Tickets:    Math.round(tH2 * 4) / 4,
+                Baustellen: Math.round(bH2 * 4) / 4,
                 Begehungen: Math.round(begH2 * 4) / 4,
                 Intern:     Math.round(intH2 * 4) / 4,
               };
