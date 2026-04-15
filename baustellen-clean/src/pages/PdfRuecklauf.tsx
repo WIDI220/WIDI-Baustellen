@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { FileText, CheckCircle, AlertTriangle, XCircle, Info } from 'lucide-react';
+import { FileText, CheckCircle, AlertTriangle, XCircle, Info, History, ChevronDown, ChevronUp } from 'lucide-react';
 import { parsePdfTickets, TicketParseResult } from '@/lib/pdf-ticket-parser';
 
 interface VorschauZeile {
@@ -27,6 +27,18 @@ export default function PdfRuecklauf() {
   const [buchend, setBuchend] = useState(false);
   const [bericht, setBericht] = useState<any>(null);
   const [buchungBestaetigt, setBuchungBestaetigt] = useState(false);
+  const [showHistorie, setShowHistorie] = useState(false);
+
+  const { data: ruecklaufHistorie = [], refetch: refetchHistorie } = useQuery({
+    queryKey: ['pdf-ruecklauf-historie'],
+    queryFn: async () => {
+      const { data } = await supabase.from('pdf_ruecklauf_runs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      return data ?? [];
+    },
+  });
 
   const { data: employees = [] } = useQuery({
     queryKey: ['pdf-employees'],
@@ -153,6 +165,20 @@ export default function PdfRuecklauf() {
       }
     }
 
+    // Rücklauf-Run speichern
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      await supabase.from('pdf_ruecklauf_runs').insert({
+        created_by: userData.user?.id,
+        user_email: userData.user?.email,
+        dateiname: dateien.map(d => d.name).join(', '),
+        seiten_gesamt: zuBuchen.length,
+        erfolgreich: ok,
+        fehler,
+        details: zuBuchen.map(z => ({ a_nummer: z.parse.a_nummer, mitarbeiter: z.parse.mitarbeiter, stunden: z.custom_stunden, datum: z.parse.datum })),
+      });
+      refetchHistorie();
+    } catch {}
     setBericht({ ok, fehler, gesamt: zuBuchen.length });
     setBuchend(false);
     qc.invalidateQueries({ queryKey: ['tickets'] });
@@ -356,6 +382,53 @@ export default function PdfRuecklauf() {
           </button>
         </div>
       )}
+      {/* ── Rücklauf-Historie ── */}
+      <div style={{ marginTop: 32, border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden' }}>
+        <div
+          onClick={() => setShowHistorie(!showHistorie)}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: '#f8fafc', cursor: 'pointer', userSelect: 'none' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <History size={15} style={{ color: '#64748b' }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Buchungs-Historie</span>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>({(ruecklaufHistorie as any[]).length} Einträge)</span>
+          </div>
+          {showHistorie ? <ChevronUp size={15} style={{ color: '#94a3b8' }} /> : <ChevronDown size={15} style={{ color: '#94a3b8' }} />}
+        </div>
+        {showHistorie && (
+          <div>
+            {(ruecklaufHistorie as any[]).length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Noch keine Buchungen</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                    {['Datum', 'Von', 'Datei', 'Gebucht', 'Fehler', 'Details'].map(h => (
+                      <th key={h} style={{ padding: '8px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(ruecklaufHistorie as any[]).map((run: any) => (
+                    <tr key={run.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                      <td style={{ padding: '10px 16px', color: '#64748b', whiteSpace: 'nowrap' }}>
+                        {new Date(run.created_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td style={{ padding: '10px 16px', color: '#64748b' }}>{run.user_email?.split('@')[0] ?? '–'}</td>
+                      <td style={{ padding: '10px 16px', color: '#0f172a', fontWeight: 500, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={run.dateiname}>{run.dateiname ?? '–'}</td>
+                      <td style={{ padding: '10px 16px', color: '#10b981', fontWeight: 700 }}>{run.erfolgreich ?? 0}</td>
+                      <td style={{ padding: '10px 16px', color: (run.fehler ?? 0) > 0 ? '#ef4444' : '#94a3b8', fontWeight: 700 }}>{run.fehler ?? 0}</td>
+                      <td style={{ padding: '10px 16px', fontSize: 11, color: '#64748b' }}>
+                        {run.details ? (run.details as any[]).slice(0,3).map((d: any) => d.a_nummer).join(', ') + ((run.details as any[]).length > 3 ? ` +${(run.details as any[]).length - 3}` : '') : '–'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
