@@ -14,7 +14,7 @@ export interface TicketParseResult {
   stunden: number | null;
   bemerkung: string | null;
   fehler: string[];
-  rawText?: string;
+  rawText: string;
 }
 
 export async function parsePdfTickets(file: File): Promise<TicketParseResult[]> {
@@ -28,48 +28,55 @@ export async function parsePdfTickets(file: File): Promise<TicketParseResult[]> 
     const content = await page.getTextContent();
     const items = content.items as any[];
 
-    // Text mit Positionsinformation aufbauen — Zeilenumbrüche wenn Y-Position wechselt
-    let text = '';
-    let lastY = -1;
+    // Alle Textstücke sammeln mit Y-Position
+    const chunks: { text: string; y: number; x: number }[] = [];
     for (const item of items) {
-      const y = Math.round((item.transform?.[5] ?? 0) / 2) * 2; // auf 2px runden
-      if (lastY !== -1 && Math.abs(y - lastY) > 4) text += '\n';
-      text += item.str;
-      lastY = y;
+      if (item.str && item.str.trim()) {
+        chunks.push({
+          text: item.str,
+          y: Math.round(item.transform[5]),
+          x: Math.round(item.transform[4]),
+        });
+      }
     }
 
-    results.push(parseTicketText(text, p));
+    // Nach Y sortieren (von oben nach unten), dann X
+    chunks.sort((a, b) => b.y - a.y || a.x - b.x);
+
+    // Text mit Zeilenumbrüchen zusammenbauen
+    let text = '';
+    let lastY = -1;
+    for (const chunk of chunks) {
+      if (lastY !== -1 && Math.abs(chunk.y - lastY) > 3) text += '\n';
+      else if (lastY !== -1) text += ' ';
+      text += chunk.text;
+      lastY = chunk.y;
+    }
+
+    // Normalisierung: Leerzeichen in A-Nummern entfernen
+    // "A 26-07244", "A26 -07244", "A26- 07244" → "A26-07244"
+    const normalized = text
+      .replace(/\bA\s*(\d{2})\s*-\s*(\d{5})\b/gi, 'A$1-$2')
+      .replace(/\s+/g, ' ');
+
+    results.push(parseTicketText(normalized, text, p));
   }
 
   return results;
 }
 
-// Normalisiert Text: entfernt überflüssige Leerzeichen IN Wörtern/Nummern
-function normText(t: string): string {
-  return t
-    .replace(/\r/g, '')
-    // Leerzeichen zwischen Buchstabe+Zahl-Kombinationen entfernen (A 26 -> A26, A26 -07 -> A26-07)
-    .replace(/([A-Z])\s+(\d)/g, '$1$2')
-    .replace(/(\d)\s*-\s*(\d{4,})/g, '$1-$2')
-    // Mehrfache Leerzeichen auf eines reduzieren
-    .replace(/[ \t]+/g, ' ');
-}
-
-function parseTicketText(rawText: string, seite: number): TicketParseResult {
-  const text = normText(rawText);
+function parseTicketText(text: string, rawText: string, seite: number): TicketParseResult {
   const result: TicketParseResult = {
-    seite, rawText: text,
+    seite, rawText,
     a_nummer: null, mitarbeiter: null, datum: null, datumISO: null,
     stunden: null, bemerkung: null, fehler: []
   };
 
-  // A-Nummer — mehrere Muster, auch mit Lücken im Original
-  // Muster: "# A26-07430", "Arbeitsauftrag # A26-07430", oder einfach "A26-07430"
-  // Nach Normalisierung sollte A26-07430 korrekt sein
+  // A-Nummer — nach Normalisierung sollte A26-07244 korrekt sein
   const aNrPatterns = [
     /Arbeitsauftrag\s*#\s*(A\d{2}-\d{5})/i,
     /#\s*(A\d{2}-\d{5})/i,
-    /Auftrags(?:schein|nr|nummer)?\s*[#:\s]*\s*(A\d{2}-\d{5})/i,
+    /Auftrags(?:schein|nr\.?)?\s*[#:\s]*(A\d{2}-\d{5})/i,
     /\b(A\d{2}-\d{5})\b/i,
   ];
   for (const pat of aNrPatterns) {
@@ -80,8 +87,8 @@ function parseTicketText(rawText: string, seite: number): TicketParseResult {
 
   // Mitarbeiter
   const maPatterns = [
-    /Mitarbeiter\s*:?\s*([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)+)/,
-    /Techniker\s*:?\s*([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)+)/,
+    /Mitarbeiter\s*:?\s*([A-ZÄÖÜ][a-zäöüß]+(?: [A-ZÄÖÜ][a-zäöüß]+)+)/,
+    /Techniker\s*:?\s*([A-ZÄÖÜ][a-zäöüß]+(?: [A-ZÄÖÜ][a-zäöüß]+)+)/,
   ];
   for (const pat of maPatterns) {
     const m = text.match(pat);
@@ -96,7 +103,6 @@ function parseTicketText(rawText: string, seite: number): TicketParseResult {
     const h = parseInt(zeitMatch[4], 10) + parseInt(zeitMatch[5], 10) / 60;
     result.stunden = Math.round(h * 4) / 4;
   } else {
-    // Fallback: Termin Datum
     const terminMatch = text.match(/Termin\s+Datum\s*:?\s*(?:[A-Za-z.]+\s*)?(\d{2}\.\d{2}\.\d{4})/i);
     if (terminMatch) result.datum = terminMatch[1];
     result.fehler.push('Arbeitszeiten nicht erkannt — Stunden bitte prüfen');
