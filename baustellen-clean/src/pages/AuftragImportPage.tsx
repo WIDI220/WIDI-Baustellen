@@ -48,8 +48,10 @@ export default function AuftragImportPage() {
         typ:          'intern',
         enddatum:     '',
       });
-      if (result.fehler.length > 0) setParseHinweise(result.fehler);
-      toast.success('PDF ausgelesen — bitte Felder prüfen');
+      const hinweise = [...result.fehler];
+      if (result.debug) hinweise.push(`Debug (erste 300 Zeichen): ${result.debug}`);
+      setParseHinweise(hinweise);
+      toast.success('PDF ausgelesen — bitte Felder prüfen und ggf. korrigieren');
     } catch (err: any) {
       toast.error(`PDF-Fehler: ${err.message}`);
     } finally {
