@@ -1,1065 +1,314 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { renderPdfPageToBase64, getPdfPageCount } from '@/lib/pdf-renderer';
 import { toast } from 'sonner';
-import { Upload, CheckCircle, XCircle, AlertCircle, RotateCcw, RefreshCw, Plus, Trash2, ChevronLeft, ChevronRight, FileText, Scan, Zap, Info, AlertTriangle, X } from 'lucide-react';
-import { logActivity } from '@/lib/activityLog';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Upload, FileText, CheckCircle, AlertTriangle, XCircle, Info, Trash2 } from 'lucide-react';
 
-const OCR_URL = 'https://widi-220-ticketflow-control.vercel.app/api/ocr';
-const MAX_AUTO_STUNDEN = 5.0;
-
-function roundTo025(val: number): number {
-  return Math.round(val * 4) / 4;
-}
-function isValid025(val: number): boolean {
-  return val > 0 && val <= MAX_AUTO_STUNDEN && Math.abs(val - roundTo025(val)) < 0.001;
-}
-function calcVonBis(von: string | null | undefined, bis: string | null | undefined): number | null {
-  if (!von || !bis) return null;
-  try {
-    const [vonH, vonM] = von.split(':').map(Number);
-    const [bisH, bisM] = bis.split(':').map(Number);
-    const diffMin = (bisH * 60 + bisM) - (vonH * 60 + vonM);
-    if (diffMin > 0 && diffMin <= 480) return Math.round((diffMin / 60) * 4) / 4;
-    return null;
-  } catch { return null; }
+interface ParseResult {
+  seite: number;
+  a_nummer: string | null;
+  mitarbeiter: string | null;
+  datum: string | null;   // DD.MM.YYYY
+  stunden: number | null;
+  bemerkung: string | null;
+  fehler: string[];
 }
 
-interface LogEntry {
-  page: number;
-  type: 'info' | 'ok' | 'warn' | 'error';
-  message: string;
-}
-
-interface OcrPageResult {
-  page: number;
-  fileName: string;
-  status: 'pending' | 'processing' | 'ok' | 'error' | 'no_match';
-  a_nummer?: string | null;
-  ticket_id?: string | null;
-  ticket_status?: string | null;        // NEU: aktueller Status in DB
-  already_erledigt?: boolean;           // NEU: war schon erledigt
-  mitarbeiter_namen?: string[];
-  mitarbeiter_ids?: (string | null)[];
-  stunden_raw?: number | null;
-  stunden_valid?: number | null;
-  arbeitszeit_von?: string | null;
-  arbeitszeit_bis?: string | null;
-  vonbis_stunden?: number | null;
-  leistungsdatum?: string | null;
-  konfidenz?: number;
-  needsReview: boolean;
-  reviewReasons: string[];
-  error?: string;
-  imageBase64?: string;
-  existing_worklogs?: { stunden: number; datum: string; kuerzel: string }[];
-}
-
-interface VerifyItem extends OcrPageResult {
-  stunden_edit: string;
-  datum_edit: string;
-  mitarbeiter_edit: { id: string; name: string }[];
-  confirmed: boolean;
-  manuelleEingabe?: boolean;
-  // NEU: für bereits erledigte Tickets
-  override_erledigt?: boolean;          // User will überschreiben trotz bereits erledigt
-  skip?: boolean;
-  existing_worklogs?: { stunden: number; datum: string; kuerzel: string }[];
-  // NEU: für nicht gefundene Tickets — manuelles Anlegen
-  neues_ticket_gewerk?: string;
-  neues_ticket_eingang?: string;
+interface VorschauZeile {
+  idx: number;
+  parse: ParseResult;
+  ticket_id: string | null;
+  ticket_gefunden: boolean;
+  ma_id: string | null;
+  ma_gefunden: boolean;
+  duplikat: boolean;
+  ausschliessen: boolean;
+  custom_stunden?: number;
+  datumISO: string | null;
 }
 
 export default function PdfRuecklauf() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [pages, setPages] = useState<OcrPageResult[]>([]);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
-  const [fileName, setFileName] = useState('');
-  const [phase, setPhase] = useState<'idle' | 'scanning' | 'verifying' | 'done'>('idle');
-  const [verifyItems, setVerifyItems] = useState<VerifyItem[]>([]);
-  const [verifyIndex, setVerifyIndex] = useState(0);
-  const [importing, setImporting] = useState(false);
-  const [liveLog, setLiveLog] = useState<LogEntry[]>([]);
-  const [currentImage, setCurrentImage] = useState<string | null>(null);
-  const [scanField, setScanField] = useState<string | null>(null);
-  const [scanResult, setScanResult] = useState<{a_nummer:string|null, mitarbeiter:string|null, stunden:string|null, datum:string|null}>({a_nummer:null,mitarbeiter:null,stunden:null,datum:null});
+  const [dateien, setDateien] = useState<File[]>([]);
+  const [laden, setLaden] = useState(false);
+  const [zeilen, setZeilen] = useState<VorschauZeile[]>([]);
+  const [buchend, setBuchend] = useState(false);
+  const [fertig, setFertig] = useState(false);
+  const [bericht, setBericht] = useState<any>(null);
 
   const { data: employees = [] } = useQuery({
-    queryKey: ['employees'],
-    queryFn: async () => {
-      const { data } = await supabase.from('employees').select('*').eq('aktiv', true).order('name');
-      return data ?? [];
-    },
+    queryKey: ['pdf-employees'],
+    queryFn: async () => { const { data } = await supabase.from('employees').select('id,name,kuerzel').eq('aktiv', true); return data ?? []; }
+  });
+  const { data: tickets = [] } = useQuery({
+    queryKey: ['pdf-tickets'],
+    queryFn: async () => { const { data } = await supabase.from('tickets').select('id,a_nummer,status'); return data ?? []; }
   });
 
-  function addLog(page: number, type: LogEntry['type'], message: string) {
-    setLiveLog(prev => [...prev.slice(-49), { page, type, message }]);
+  function parseDatumToISO(datum: string | null): string | null {
+    if (!datum) return null;
+    const m = datum.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (!m) return null;
+    return `${m[3]}-${m[2]}-${m[1]}`;
   }
 
-  function findEmployee(name: string | null): string | null {
+  function findMA(name: string | null): string | null {
     if (!name) return null;
-    const input = name.toLowerCase().trim();
-    if (!input) return null;
-    for (const emp of employees as any[]) {
-      if (input === (emp.kuerzel ?? '').toLowerCase()) return emp.id;
-    }
-    for (const emp of employees as any[]) {
-      if (input === emp.name.toLowerCase()) return emp.id;
-    }
-    for (const emp of employees as any[]) {
-      if (input.includes(emp.name.toLowerCase())) return emp.id;
-    }
-    for (const emp of employees as any[]) {
-      const parts = emp.name.toLowerCase().split(' ').filter((p: string) => p.length > 2);
-      if (parts.length > 0 && parts.every((p: string) => input.includes(p))) return emp.id;
-    }
-    for (const emp of employees as any[]) {
-      const parts = emp.name.toLowerCase().split(' ').filter((p: string) => p.length >= 4);
-      if (parts.some((p: string) => input.includes(p) || p.includes(input))) return emp.id;
-    }
-    for (const emp of employees as any[]) {
-      const kuerzel = (emp.kuerzel ?? '').toLowerCase();
-      if (kuerzel.length >= 2 && new RegExp('\\b' + kuerzel + '\\b').test(input)) return emp.id;
-    }
-    return null;
+    const lower = name.trim().toLowerCase();
+    const emps = employees as any[];
+    // Exakter Name
+    let found = emps.find(e => e.name.toLowerCase() === lower);
+    if (found) return found.id;
+    // Nachname
+    const parts = lower.split(' ');
+    found = emps.find(e => parts.some((p: string) => p.length > 2 && e.name.toLowerCase().includes(p)));
+    return found?.id ?? null;
   }
 
-  function parseEmployees(names: string[]): { ids: (string | null)[]; allFound: boolean } {
-    const ids = names.map(n => findEmployee(n));
-    return { ids, allFound: ids.every(id => id !== null) };
+  function findTicket(a_nummer: string | null): { id: string | null; gefunden: boolean } {
+    if (!a_nummer) return { id: null, gefunden: false };
+    const t = (tickets as any[]).find(t => t.a_nummer === a_nummer);
+    return { id: t?.id ?? null, gefunden: !!t };
   }
 
-  async function processFile(file: File) {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    setPhase('scanning');
-    setPages([]);
-    setCurrentPage(0);
-    setFileName(file.name);
-    setLiveLog([]);
-    setCurrentImage(null);
-    setScanField(null);
-    setScanResult({a_nummer:null,mitarbeiter:null,stunden:null,datum:null});
-    const results: OcrPageResult[] = [];
+  const analyseieren = useCallback(async () => {
+    if (!dateien.length) { toast.error('Keine Dateien ausgewählt'); return; }
+    setLaden(true);
+    setZeilen([]);
+    const alleZeilen: VorschauZeile[] = [];
+    const seenKeys = new Set<string>();
 
-    try {
-      const buffer = await file.arrayBuffer();
-      const count = await getPdfPageCount(buffer);
-      setTotalPages(count);
-      setPages(Array.from({ length: count }, (_, i) => ({ page: i + 1, fileName: file.name, status: 'pending', needsReview: false, reviewReasons: [] })));
-      addLog(0, 'info', `${file.name} — ${count} Seiten`);
-
-      for (let i = 0; i < count; i++) {
-        setCurrentPage(i + 1);
-        setPages(prev => prev.map(p => p.page === i + 1 ? { ...p, status: 'processing' } : p));
-        addLog(i + 1, 'info', `Seite ${i + 1}/${count} wird analysiert...`);
-
-        const result: OcrPageResult = { page: i + 1, fileName: file.name, status: 'pending', needsReview: false, reviewReasons: [] };
-
-        try {
-          const imageBase64 = await renderPdfPageToBase64(buffer, i);
-          result.imageBase64 = imageBase64;
-          setCurrentImage(imageBase64);
-          setScanResult({a_nummer:null,mitarbeiter:null,stunden:null,datum:null});
-          setScanField('a_nummer');
-
-          // OCR mit Retry bei Timeout
-          const sendOCR = () => new Promise<any>((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', OCR_URL, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.timeout = 58000;
-            xhr.ontimeout = () => reject(new Error(`Timeout Seite ${i + 1}`));
-            xhr.onerror  = () => reject(new Error(`Netzwerkfehler Seite ${i + 1}`));
-            xhr.onload   = () => {
-              if (xhr.status >= 200 && xhr.status < 300) {
-                try { resolve(JSON.parse(xhr.responseText)); }
-                catch { reject(new Error(`Antwort-Fehler Seite ${i + 1}`)); }
-              } else { reject(new Error(`Server-Fehler ${xhr.status}`)); }
-            };
-            const now = new Date();
-            xhr.send(JSON.stringify({
-              imageBase64, fileName: file.name, pageNumber: i + 1,
-              employees: (employees as any[]).map((e: any) => ({ name: e.name, kuerzel: e.kuerzel })),
-              uploadMonth: String(now.getMonth() + 1).padStart(2, '0'),
-              uploadYear:  String(now.getFullYear()),
-            }));
-          });
-
-          let ocrResult: any;
-          try {
-            ocrResult = await sendOCR();
-          } catch (firstErr: any) {
-            if (firstErr.message.includes('Timeout')) {
-              addLog(i + 1, 'warn', `Seite ${i + 1} — Timeout, versuche erneut...`);
-              await new Promise(r => setTimeout(r, 3000));
-              try { ocrResult = await sendOCR(); }
-              catch { ocrResult = { success: false, error: firstErr.message }; }
-            } else {
-              ocrResult = { success: false, error: firstErr.message };
-            }
-          }
-
-          if (!ocrResult.success) {
-            result.status = 'error';
-            result.error = ocrResult.error ?? 'OCR fehlgeschlagen';
-            result.needsReview = true;
-            result.reviewReasons.push('OCR fehlgeschlagen');
-            addLog(i + 1, 'error', `Seite ${i + 1} — ${ocrResult.error?.slice(0, 50)}`);
-          } else {
-            const ocr = ocrResult.result;
-            result.konfidenz = ocr.konfidenz;
-            result.arbeitszeit_von = ocr.arbeitszeit_von ?? null;
-            result.arbeitszeit_bis = ocr.arbeitszeit_bis ?? null;
-            result.vonbis_stunden = calcVonBis(ocr.arbeitszeit_von, ocr.arbeitszeit_bis);
-
-            if (!ocr.a_nummer) {
-              result.status = 'error';
-              result.error = 'Keine A-Nummer erkannt';
-              result.needsReview = true;
-              result.reviewReasons.push('Keine A-Nummer erkannt');
-              addLog(i + 1, 'error', `Seite ${i + 1} — Keine A-Nummer`);
-            } else {
-              result.a_nummer = ocr.a_nummer;
-              setScanResult(prev => ({...prev, a_nummer: ocr.a_nummer}));
-              setScanField('mitarbeiter');
-              const { data: ticket } = await supabase.from('tickets').select('id, a_nummer, status').eq('a_nummer', ocr.a_nummer).maybeSingle();
-
-              if (!ticket) {
-                // ── NEU: Nicht in DB → manuelles Anlegen ──────────────────
-                result.status = 'no_match';
-                result.error = `${ocr.a_nummer} nicht in Datenbank`;
-                result.needsReview = true;
-                result.reviewReasons.push('Ticket nicht in Datenbank — bitte manuell anlegen');
-                addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} nicht gefunden → manuell anlegen`);
-              } else {
-                result.ticket_id = ticket.id;
-                result.ticket_status = ticket.status;
-                // Bereits vorhandene Worklogs laden
-                const { data: existWl } = await supabase
-                  .from('ticket_worklogs')
-                  .select('stunden, leistungsdatum, employees(kuerzel)')
-                  .eq('ticket_id', ticket.id);
-                if (existWl && existWl.length > 0) {
-                  result.existing_worklogs = existWl.map((w: any) => ({
-                    stunden: Number(w.stunden),
-                    datum: w.leistungsdatum,
-                    kuerzel: w.employees?.kuerzel ?? '?',
-                  }));
-                }
-
-                // ── NEU: Bereits erledigt prüfen ──────────────────────────
-                if (ticket.status === 'erledigt') {
-                  result.already_erledigt = true;
-                  result.needsReview = true;
-                  result.reviewReasons.push('Ticket bereits als erledigt eingetragen');
-                  addLog(i + 1, 'warn', `Seite ${i + 1} — ${ocr.a_nummer} bereits erledigt!`);
-                }
-
-                const namen: string[] = [];
-                if (ocr.mitarbeiter_name) namen.push(ocr.mitarbeiter_name);
-                if (ocr.mitarbeiter_namen && Array.isArray(ocr.mitarbeiter_namen)) namen.push(...ocr.mitarbeiter_namen);
-                const splitNamen: string[] = [];
-                for (const n of namen) splitNamen.push(...n.split(/[,\/&+]/).map((s: string) => s.trim()).filter(Boolean));
-                const uniqueNamen = [...new Set(splitNamen.filter(Boolean))];
-
-                const { data: maKorrekturen } = await supabase
-                  .from('ocr_korrekturen')
-                  .select('ocr_gelesen, korrigiert_zu, haeufigkeit')
-                  .eq('typ', 'mitarbeiter')
-                  .order('haeufigkeit', { ascending: false });
-
-                const korrigierteNamen = uniqueNamen.map(name => {
-                  if (name.length <= 5) return name;
-                  const korr = (maKorrekturen ?? []).find(k =>
-                    k.ocr_gelesen.toLowerCase() === name.toLowerCase() && k.haeufigkeit >= 2
-                  );
-                  return korr ? korr.korrigiert_zu : name;
-                });
-
-                result.mitarbeiter_namen = korrigierteNamen;
-                setScanResult(prev => ({...prev, mitarbeiter: korrigierteNamen.join(', ') || null}));
-                setScanField('stunden');
-                const { ids, allFound } = parseEmployees(korrigierteNamen);
-                result.mitarbeiter_ids = ids;
-
-                if (!allFound || uniqueNamen.length === 0) {
-                  result.needsReview = true;
-                  result.reviewReasons.push(uniqueNamen.length === 0 ? 'Kein Mitarbeiter erkannt' : `Mitarbeiter nicht zugeordnet (${uniqueNamen.join(', ')})`);
-                }
-
-                let stundenRaw = Number(ocr.stunden_gesamt ?? 0);
-                if ((stundenRaw === 0 || stundenRaw > 8) && result.vonbis_stunden) {
-                  stundenRaw = result.vonbis_stunden;
-                }
-
-                const { data: stdKorrekturen } = await supabase
-                  .from('ocr_korrekturen')
-                  .select('ocr_gelesen, korrigiert_zu, haeufigkeit')
-                  .eq('typ', 'stunden')
-                  .order('haeufigkeit', { ascending: false });
-
-                const stdStr = String(stundenRaw);
-                const stdKorr = (stdKorrekturen ?? []).find(k => k.ocr_gelesen === stdStr);
-                if (stdKorr) {
-                  const korrigiertStd = parseFloat(stdKorr.korrigiert_zu.replace(',', '.'));
-                  if (!isNaN(korrigiertStd)) stundenRaw = korrigiertStd;
-                }
-
-                result.stunden_raw = stundenRaw;
-
-                if (!isValid025(stundenRaw)) {
-                  result.needsReview = true;
-                  result.reviewReasons.push(stundenRaw > MAX_AUTO_STUNDEN ? `Stunden ${stundenRaw}h > ${MAX_AUTO_STUNDEN}h` : `Stunden ${stundenRaw}h unklar`);
-                  result.stunden_valid = roundTo025(Math.min(stundenRaw, MAX_AUTO_STUNDEN)) || 0.25;
-                } else {
-                  result.stunden_valid = stundenRaw;
-                }
-
-                result.leistungsdatum = ocr.leistungsdatum ?? new Date().toISOString().split('T')[0];
-                setScanResult(prev => ({...prev, datum: result.leistungsdatum ?? null}));
-                setScanField(null);
-                result.status = 'ok';
-
-                const empNames = ids.map(id => (employees as any[]).find((e: any) => e.id === id)?.name ?? '?').join(', ') || uniqueNamen.join(', ');
-                addLog(i + 1, result.needsReview ? 'warn' : 'ok', `Seite ${i + 1} — ${ocr.a_nummer} · ${empNames} · ${result.stunden_valid ?? stundenRaw}h`);
-              }
-            }
-          }
-        } catch (err: any) {
-          result.status = 'error';
-          result.error = err.message?.slice(0, 80);
-          result.needsReview = true;
-          result.reviewReasons.push(err.message?.slice(0, 60) ?? 'Fehler');
-          addLog(i + 1, 'error', `Seite ${i + 1} — ${err.message?.slice(0, 50)}`);
-        }
-
-        results.push(result);
-        setPages(prev => prev.map(p => p.page === i + 1 ? result : p));
-        await new Promise(r => setTimeout(r, 150));
-      }
-
-      const erkannt = results.filter(r => r.ticket_id);
-      const nichtErkannt = results.filter(r => !r.ticket_id);
-      const bereitsErledigt = results.filter(r => r.already_erledigt);
-
-      const allVerify: VerifyItem[] = results.map(r => ({
-        ...r,
-        stunden_edit: String(r.stunden_valid ?? r.stunden_raw ?? ''),
-        datum_edit: r.leistungsdatum ?? new Date().toISOString().split('T')[0],
-        mitarbeiter_edit: (r.mitarbeiter_ids ?? []).map((id, i) => ({
-          id: id ?? '',
-          name: r.mitarbeiter_namen?.[i] ?? '',
-        })).filter(m => m.id),
-        confirmed: false,
-        manuelleEingabe: !r.ticket_id,
-        override_erledigt: false,
-        skip: false,
-        // Felder für manuelles Ticket-Anlegen
-        neues_ticket_gewerk: 'Hochbau',
-        neues_ticket_eingang: new Date().toISOString().split('T')[0],
-      }));
-
-      setVerifyItems(allVerify);
-      setPhase('verifying');
-      setVerifyIndex(0);
-      setCurrentImage(null);
-
-      if (bereitsErledigt.length > 0) {
-        addLog(0, 'warn', `⚠️ ${bereitsErledigt.length} Ticket${bereitsErledigt.length > 1 ? 's' : ''} bereits erledigt — bitte prüfen`);
-      }
-      if (nichtErkannt.length > 0) {
-        addLog(0, 'warn', `⚠️ ${nichtErkannt.length} Seite${nichtErkannt.length > 1 ? 'n' : ''} nicht erkannt — manuell anlegen`);
-      }
-      addLog(0, 'ok', `Scan fertig — ${erkannt.length} erkannt, ${nichtErkannt.length} manuell, ${bereitsErledigt.length} bereits erledigt`);
-
-    } catch (err: any) {
-      toast.error('Fehler: ' + err.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  }
-
-  async function saveKorrektur(ocrGelesen: string, korrigiertZu: string, typ: 'mitarbeiter' | 'stunden') {
-    if (!ocrGelesen || !korrigiertZu || ocrGelesen.trim() === korrigiertZu.trim()) return;
-    try {
-      const { data: existing } = await supabase
-        .from('ocr_korrekturen')
-        .select('id, haeufigkeit')
-        .eq('ocr_gelesen', ocrGelesen.trim())
-        .eq('korrigiert_zu', korrigiertZu.trim())
-        .eq('typ', typ)
-        .maybeSingle();
-
-      if (existing) {
-        await supabase.from('ocr_korrekturen').update({
-          haeufigkeit: existing.haeufigkeit + 1,
-          updated_at: new Date().toISOString()
-        }).eq('id', existing.id);
-      } else {
-        await supabase.from('ocr_korrekturen').insert({
-          ocr_gelesen: ocrGelesen.trim(),
-          korrigiert_zu: korrigiertZu.trim(),
-          typ
-        });
-      }
-    } catch { /* ignorieren */ }
-  }
-
-  async function importAll() {
-    setImporting(true);
-    let saved = 0, skipped = 0, neuAngelegt = 0;
-
-    for (const item of verifyItems) {
-      // User hat explizit 'Nicht importieren' gewählt
-      if (item.skip) { addLog(item.page, 'info', `Seite ${item.page} — ${item.a_nummer ?? ''} übersprungen (manuell)`); skipped++; continue; }
-
-      // ── Fall 1: Bereits erledigt & kein Override → überspringen ──────────
-      if (item.already_erledigt && !item.override_erledigt) {
-        addLog(item.page, 'info', `Seite ${item.page} — ${item.a_nummer} übersprungen (bereits erledigt)`);
-        skipped++;
-        continue;
-      }
-
-      // ── Fall 2: Nicht in DB → neues Ticket anlegen ───────────────────────
-      if (item.manuelleEingabe && !item.ticket_id) {
-        if (!item.a_nummer) { skipped++; continue; }
-        const stunden = parseFloat(item.stunden_edit.replace(',', '.'));
-        if (isNaN(stunden) || stunden <= 0) { skipped++; continue; }
-        const empIds = item.mitarbeiter_edit.map(m => m.id).filter(Boolean);
-        if (empIds.length === 0) { skipped++; continue; }
-
-        try {
-          // Ticket anlegen
-          const { data: newTicket, error: ticketError } = await supabase.from('tickets').insert({
-            a_nummer: item.a_nummer,
-            eingangsdatum: item.neues_ticket_eingang ?? new Date().toISOString().split('T')[0],
-            gewerk: item.neues_ticket_gewerk ?? 'Hochbau',
-            status: 'erledigt',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }).select('id').single();
-
-          if (ticketError || !newTicket) { skipped++; continue; }
-
-          for (const empId of empIds) {
-            await supabase.from('ticket_worklogs').insert({
-              ticket_id: newTicket.id,
-              employee_id: empId,
-              stunden: roundTo025(stunden),
-              leistungsdatum: item.datum_edit,
-            });
-          }
-          neuAngelegt++;
-          saved++;
-        } catch { skipped++; }
-        continue;
-      }
-
-      // ── Fall 3: Normal (in DB, nicht erledigt oder override) ─────────────
-      if (!item.ticket_id) { skipped++; continue; }
-      const stunden = parseFloat(item.stunden_edit.replace(',', '.'));
-      if (isNaN(stunden) || stunden <= 0) { skipped++; continue; }
-      const empIds = item.mitarbeiter_edit.map(m => m.id).filter(Boolean);
-      if (empIds.length === 0) { skipped++; continue; }
-
-      const stundenOriginal = String(item.stunden_raw ?? '');
-      const stundenKorrigiert = item.stunden_edit;
-      if (stundenOriginal && stundenKorrigiert && stundenOriginal !== stundenKorrigiert) {
-        await saveKorrektur(stundenOriginal, stundenKorrigiert, 'stunden');
-      }
-
-      const originalNamen = item.mitarbeiter_namen ?? [];
-      const korrigiertNamen = item.mitarbeiter_edit.map(m => m.name).filter(Boolean);
-      for (let i = 0; i < originalNamen.length; i++) {
-        const orig = originalNamen[i];
-        const korr = korrigiertNamen[i];
-        if (korr && orig !== korr && orig.length > 5) {
-          await saveKorrektur(orig, korr, 'mitarbeiter');
-        }
-      }
-
+    for (const datei of dateien) {
       try {
-        for (const empId of empIds) {
-          await supabase.from('ticket_worklogs').insert({
-            ticket_id: item.ticket_id,
-            employee_id: empId,
-            stunden: roundTo025(stunden),
-            leistungsdatum: item.datum_edit,
+        const buffer = await datei.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+        const res = await fetch('/api/pdf-parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdfBase64: base64 }),
+        });
+        const data = await res.json();
+        if (!data.success) { toast.error(`${datei.name}: ${data.error}`); continue; }
+
+        for (const parse of data.results as ParseResult[]) {
+          const { id: ticket_id, gefunden: ticket_gefunden } = findTicket(parse.a_nummer);
+          const ma_id = findMA(parse.mitarbeiter);
+          const datumISO = parseDatumToISO(parse.datum);
+          const key = `${parse.a_nummer}-${ma_id}-${datumISO}`;
+          const duplikat = seenKeys.has(key);
+          if (!duplikat) seenKeys.add(key);
+
+          alleZeilen.push({
+            idx: alleZeilen.length,
+            parse,
+            ticket_id,
+            ticket_gefunden,
+            ma_id,
+            ma_gefunden: !!ma_id,
+            duplikat,
+            ausschliessen: duplikat || !ticket_gefunden,
+            datumISO,
           });
         }
-        await supabase.from('tickets').update({ status: 'erledigt', updated_at: new Date().toISOString() }).eq('id', item.ticket_id);
-        saved++;
-      } catch { skipped++; }
+      } catch (err: any) {
+        toast.error(`${datei.name}: ${err.message}`);
+      }
     }
 
-    queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
-    queryClient.invalidateQueries({ queryKey: ['tickets'] });
-    queryClient.invalidateQueries({ queryKey: ['worklogs-analyse'] });
-    queryClient.invalidateQueries({ queryKey: ['verwaltung-alle'] });
-    queryClient.invalidateQueries({ queryKey: ['open-ticket-count'] });
+    setZeilen(alleZeilen);
+    setLaden(false);
+    const bereit = alleZeilen.filter(z => !z.ausschliessen).length;
+    toast.success(`${alleZeilen.length} Seiten analysiert · ${bereit} bereit zum Buchen`);
+  }, [dateien, employees, tickets]);
 
-    const { data: userData } = await supabase.auth.getUser();
-    await logActivity(userData.user?.email, `PDF-Rücklauf importiert: ${saved} Tickets · ${skipped} übersprungen · ${neuAngelegt} neu angelegt`, 'pdf_ruecklauf', undefined, { datei: fileName, importiert: saved, uebersprungen: skipped, neu_angelegt: neuAngelegt });
+  const toggle = (idx: number) => setZeilen(prev => prev.map((z, i) => i === idx ? { ...z, ausschliessen: !z.ausschliessen } : z));
+  const setStunden = (idx: number, h: number) => setZeilen(prev => prev.map((z, i) => i === idx ? { ...z, custom_stunden: Math.round(h * 4) / 4 } : z));
 
-    toast.success(`✅ ${saved} importiert · ${neuAngelegt > 0 ? `${neuAngelegt} neu angelegt · ` : ''}⏭ ${skipped} übersprungen`);
-    setPhase('done');
-    setImporting(false);
-  }
+  const buchen = async () => {
+    const zuBuchen = zeilen.filter(z => !z.ausschliessen && z.ticket_id && z.ma_id && z.datumISO);
+    if (!zuBuchen.length) { toast.error('Nichts zum Buchen'); return; }
+    setBuchend(true);
+    let ok = 0, err = 0;
 
-  const progress = totalPages > 0 ? Math.round((currentPage / totalPages) * 100) : 0;
-  const currentVerify = verifyItems[verifyIndex];
-  const confirmedCount = verifyItems.filter(v => v.confirmed || v.skip).length;
-  const skippedCount   = verifyItems.filter(v => v.skip).length;
-  const problemCount = verifyItems.filter(v => v.needsReview).length;
-  const bereitsErledigtCount = verifyItems.filter(v => v.already_erledigt).length;
-  const nichtInDbCount = verifyItems.filter(v => v.manuelleEingabe && !v.ticket_id).length;
+    for (const z of zuBuchen) {
+      const stunden = z.custom_stunden ?? z.parse.stunden ?? 0;
+      if (stunden <= 0) { err++; continue; }
+      try {
+        // Status auf erledigt setzen
+        await supabase.from('tickets').update({ status: 'erledigt' }).eq('id', z.ticket_id);
+        // Worklog eintragen
+        const { data: empData } = await supabase.from('employees').select('id').eq('id', z.ma_id).single();
+        if (empData) {
+          await supabase.from('ticket_worklogs').insert({
+            ticket_id: z.ticket_id,
+            employee_id: z.ma_id,
+            stunden,
+            leistungsdatum: z.datumISO,
+            notiz: z.parse.bemerkung ?? null,
+          });
+        }
+        ok++;
+      } catch { err++; }
+    }
 
-  function vonBisWarning(item: VerifyItem): string | null {
-    if (!item.vonbis_stunden) return null;
-    const std = parseFloat(item.stunden_edit.replace(',', '.'));
-    if (isNaN(std)) return null;
-    const diff = Math.abs(std - item.vonbis_stunden);
-    if (diff > 0.25) return `Von/Bis ergibt ${item.vonbis_stunden}h`;
-    return null;
-  }
+    setBericht({ ok, err, gesamt: zuBuchen.length });
+    setFertig(true);
+    setBuchend(false);
+    qc.invalidateQueries({ queryKey: ['tickets'] });
+    toast.success(`${ok} Tickets verbucht · ${err} Fehler`);
+  };
+
+  const reset = () => { setDateien([]); setZeilen([]); setFertig(false); setBericht(null); if (fileInputRef.current) fileInputRef.current.value = ''; };
+
+  const bereit = zeilen.filter(z => !z.ausschliessen).length;
+  const probleme = zeilen.filter(z => !z.ausschliessen && (z.parse.fehler.length > 0 || !z.ticket_gefunden || !z.ma_gefunden)).length;
+
+  const statusFarbe = (z: VorschauZeile) => {
+    if (z.ausschliessen) return '#94a3b8';
+    if (!z.ticket_gefunden) return '#ef4444';
+    if (!z.ma_gefunden || z.parse.fehler.length > 0) return '#f59e0b';
+    return '#10b981';
+  };
 
   return (
-    <div className="space-y-5 max-w-6xl">
-      <style>{`
-        @keyframes dotPulse {
-          0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-          40% { transform: scale(1); opacity: 1; }
-        }
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(4px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        .fade-up { animation: fadeUp 0.2s ease forwards; }
-      `}</style>
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 20px', fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <h1 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: '0 0 4px', letterSpacing: '-.03em' }}>
+        PDF-Rücklauf <span style={{ color: '#2563eb' }}>Ticket-Abschluss</span>
+      </h1>
+      <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 24px' }}>
+        Maschinell geschriebene PDFs hochladen — A-Nummer, Mitarbeiter, Stunden und Bemerkung werden automatisch erkannt
+      </p>
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {!fertig && !zeilen.length && (
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">PDF-Rücklauf</h1>
-          <p className="text-sm text-gray-400 mt-0.5">Scan · Prüfung · Import</p>
-        </div>
-        {(phase === 'done' || phase === 'verifying') && (
-          <button onClick={() => { setPages([]); setPhase('idle'); setFileName(''); setLiveLog([]); setVerifyItems([]); }}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
-            <Upload className="h-3.5 w-3.5" /> Neue Datei
-          </button>
-        )}
-      </div>
-
-      {/* IDLE */}
-      {phase === 'idle' && (
-        <div onClick={() => fileInputRef.current?.click()}
-          className="group relative border border-gray-200 rounded-2xl bg-white cursor-pointer hover:border-gray-300 hover:shadow-sm transition-all duration-200 overflow-hidden">
-          <div className="px-8 py-14 text-center">
-            <div className="w-12 h-12 rounded-xl bg-gray-50 group-hover:bg-blue-50 border border-gray-100 mx-auto mb-4 flex items-center justify-center transition-colors">
-              <Upload className="h-5 w-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
-            </div>
-            <p className="text-sm font-semibold text-gray-700 mb-1">PDF hochladen</p>
-            <p className="text-xs text-gray-400">Alle Seiten werden einzeln zur Bestätigung angezeigt</p>
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            style={{ border: '2px dashed #e2e8f0', borderRadius: 16, padding: '40px', textAlign: 'center', cursor: 'pointer', background: '#f8fafc', marginBottom: 16 }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#2563eb'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; }}>
+            <input ref={fileInputRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
+              onChange={e => { setDateien(Array.from(e.target.files ?? [])); }} />
+            <FileText size={32} style={{ color: '#2563eb', margin: '0 auto 12px' }} />
+            <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', margin: '0 0 4px' }}>PDFs hochladen</p>
+            <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Mehrere Dateien möglich · Auch mehrseitige PDFs</p>
           </div>
-          <input ref={fileInputRef} type="file" accept=".pdf" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ''; }} />
-        </div>
-      )}
-
-      {/* SCANNING */}
-      {phase === 'scanning' && (
-        <div className="grid grid-cols-5 gap-4" style={{ height: '500px' }}>
-          <div className="col-span-3 relative bg-gray-950 rounded-2xl overflow-hidden flex items-center justify-center" style={{ height: '500px' }}>
-            {currentImage ? (
-              <div className="relative w-full h-full flex items-center justify-center">
-                <img key={currentPage} src={`data:image/png;base64,${currentImage}`} alt="Ticket" className="object-contain"
-                  style={{ maxWidth: '85%', maxHeight: '460px', opacity: 0.92, display: 'block' }} />
-                {scanField && (
-                  <div className="absolute pointer-events-none" style={{
-                    border: '1.5px solid rgba(96,165,250,0.95)', borderRadius: '3px',
-                    boxShadow: '0 0 0 3px rgba(96,165,250,0.15)', transition: 'all 0.4s cubic-bezier(0.4,0,0.2,1)',
-                    ...(scanField === 'a_nummer'   ? { top: '8%',  left: '10%', width: '35%', height: '5%' } :
-                        scanField === 'mitarbeiter' ? { top: '68%', left: '30%', width: '55%', height: '6%' } :
-                        scanField === 'stunden'     ? { top: '75%', left: '45%', width: '15%', height: '5%' } :
-                        scanField === 'datum'       ? { top: '75%', left: '5%',  width: '25%', height: '5%' } :
-                        { opacity: 0 })
-                  }} />
-                )}
-                {scanField && (
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5">
-                    {[0,1,2].map(i => (
-                      <div key={i} className="w-1.5 h-1.5 rounded-full bg-blue-400"
-                        style={{ animation: `dotPulse 1.2s ease-in-out ${i * 0.2}s infinite` }} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2.5">
-                <RefreshCw className="h-7 w-7 text-blue-400/60 animate-spin" />
-                <p className="text-gray-600 text-xs">Lade Seite...</p>
-              </div>
-            )}
-            <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
-              <div className="flex items-center gap-1.5 bg-black/55 text-white/85 text-xs px-2.5 py-1 rounded-lg font-mono">
-                <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                {scanField ? { a_nummer: 'A-Nummer lesen...', mitarbeiter: 'Mitarbeiter erkennen...', stunden: 'Stunden lesen...', datum: 'Datum lesen...' }[scanField] : 'Analysiere...'}
-              </div>
-              <span className="bg-black/55 text-white/60 text-xs px-2.5 py-1 rounded-lg font-mono">{currentPage} / {totalPages}</span>
-            </div>
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/5">
-              <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
-
-          <div className="col-span-2 flex flex-col gap-3" style={{ height: '500px' }}>
-            <div className="bg-white rounded-2xl border border-gray-100 p-4">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Erkannt</p>
-              <div className="space-y-2.5">
-                {[
-                  { label: 'A-Nummer', value: scanResult.a_nummer, field: 'a_nummer' },
-                  { label: 'Mitarbeiter', value: scanResult.mitarbeiter, field: 'mitarbeiter' },
-                  { label: 'Stunden', value: scanResult.stunden, field: 'stunden' },
-                  { label: 'Datum', value: scanResult.datum, field: 'datum' },
-                ].map(row => (
-                  <div key={row.field} className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400">{row.label}</span>
-                    <span className={`text-xs font-mono font-medium transition-all duration-300
-                      ${scanField === row.field ? 'text-blue-500' : row.value ? 'text-gray-900' : 'text-gray-300'}`}>
-                      {scanField === row.field ? (
-                        <span className="flex gap-0.5">
-                          {[0,1,2].map(i => <span key={i} className="inline-block w-1 h-1 rounded-full bg-blue-400"
-                            style={{ animation: `dotPulse 1s ease-in-out ${i*0.15}s infinite` }} />)}
-                        </span>
-                      ) : (row.value ?? '—')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-gray-100 p-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Fortschritt</span>
-                <span className="text-xs font-mono text-gray-400">{progress}%</span>
-              </div>
-              <div className="bg-gray-100 rounded-full h-1.5 mb-3">
-                <div className="bg-blue-500 h-1.5 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
-              </div>
-              <div className="grid grid-cols-3 text-center gap-0">
-                <div>
-                  <p className="text-lg font-semibold text-emerald-600">{pages.filter(p => p.status === 'ok' && !p.needsReview).length}</p>
-                  <p className="text-[10px] text-gray-400">OK</p>
+          {dateien.length > 0 && (
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+              {dateien.map((f, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#1d4ed8', marginBottom: i < dateien.length - 1 ? 4 : 0 }}>
+                  <FileText size={13} />
+                  <span>{f.name}</span>
+                  <span style={{ color: '#93c5fd', fontSize: 11 }}>({(f.size / 1024).toFixed(0)} KB)</span>
                 </div>
-                <div className="border-x border-gray-100">
-                  <p className="text-lg font-semibold text-amber-500">{pages.filter(p => p.needsReview && p.ticket_id).length}</p>
-                  <p className="text-[10px] text-gray-400">Prüfung</p>
-                </div>
-                <div>
-                  <p className="text-lg font-semibold text-red-400">{pages.filter(p => !p.ticket_id && p.status !== 'pending' && p.status !== 'processing').length}</p>
-                  <p className="text-[10px] text-gray-400">Fehler</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex-1 bg-white rounded-2xl border border-gray-100 overflow-hidden flex flex-col min-h-0">
-              <div className="px-4 py-2.5 border-b border-gray-50 flex-shrink-0">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Verlauf</p>
-              </div>
-              <div className="flex-1 overflow-y-auto p-2.5 flex flex-col-reverse gap-1 min-h-0">
-                {isProcessing && (
-                  <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-blue-400 flex-shrink-0">
-                    <RefreshCw className="h-3 w-3 animate-spin shrink-0" />
-                    <span>Seite {currentPage}...</span>
-                  </div>
-                )}
-                {[...liveLog].map((log, i) => (
-                  <div key={i} className={`flex items-baseline gap-2 px-2.5 py-1.5 rounded-lg text-xs flex-shrink-0
-                    ${log.type === 'ok' ? 'text-emerald-600' : log.type === 'warn' ? 'text-amber-600' : log.type === 'error' ? 'text-red-500' : 'text-gray-400'}`}>
-                    <span className="font-semibold shrink-0">
-                      {log.type === 'ok' ? '✓' : log.type === 'warn' ? '!' : log.type === 'error' ? '✕' : '·'}
-                    </span>
-                    <span>{log.message}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* VERIFYING */}
-      {phase === 'verifying' && currentVerify && (
-        <div className="space-y-4">
-          {/* Progress Header */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-sm font-semibold text-gray-800">
-                  Seite {verifyIndex + 1} von {verifyItems.length} prüfen
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
-                  <span>{confirmedCount} bestätigt</span>
-                  {bereitsErledigtCount > 0 && <span className="text-amber-600 font-medium">· {bereitsErledigtCount} bereits erledigt</span>}
-                  {nichtInDbCount > 0 && <span className="text-red-500 font-medium">· {nichtInDbCount} nicht in DB</span>}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setVerifyIndex(i => Math.max(0, i - 1))} disabled={verifyIndex === 0}
-                  className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors">
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="text-sm font-mono text-gray-400 min-w-[60px] text-center">{verifyIndex + 1} / {verifyItems.length}</span>
-                <button onClick={() => setVerifyIndex(i => Math.min(verifyItems.length - 1, i + 1))} disabled={verifyIndex === verifyItems.length - 1}
-                  className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors">
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            <div className="w-full bg-gray-100 rounded-full h-1.5">
-              <div className="bg-emerald-500 h-1.5 rounded-full transition-all duration-300"
-                style={{ width: `${(confirmedCount / verifyItems.length) * 100}%` }} />
-            </div>
-            <div className="flex gap-1 mt-2 flex-wrap">
-              {verifyItems.map((v, i) => (
-                <button key={i} onClick={() => setVerifyIndex(i)}
-                  className={`w-6 h-6 rounded-md text-xs font-mono transition-colors
-                    ${i === verifyIndex ? 'bg-[#1e3a5f] text-white' :
-                      v.confirmed ? 'bg-emerald-100 text-emerald-700' :
-                      v.skip ? 'bg-red-100 text-red-500 line-through' : v.already_erledigt ? 'bg-amber-100 text-amber-700' :
-                      (v.manuelleEingabe && !v.ticket_id) ? 'bg-red-100 text-red-700' :
-                      v.needsReview ? 'bg-amber-100 text-amber-700' :
-                      'bg-gray-100 text-gray-500'}`}>
-                  {i + 1}
-                </button>
               ))}
             </div>
-          </div>
-
-          {/* Split-View */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden" style={{ minHeight: '580px' }}>
-            <div className="grid grid-cols-2 h-full" style={{ minHeight: '580px' }}>
-              {/* Links: Original */}
-              <div className="bg-gray-950 flex flex-col">
-                <div className="px-4 py-2.5 border-b border-gray-800 flex items-center gap-2">
-                  <span className="text-xs text-gray-400 font-mono">ORIGINAL — Seite {currentVerify.page}</span>
-                  {currentVerify.already_erledigt && (
-                    <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Bereits erledigt</span>
-                  )}
-                  {currentVerify.needsReview && !currentVerify.already_erledigt && (
-                    <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">Prüfung empfohlen</span>
-                  )}
-                </div>
-                <div className="flex-1 flex items-center justify-center p-3">
-                  {currentVerify.imageBase64 ? (
-                    <img key={verifyIndex} src={`data:image/png;base64,${currentVerify.imageBase64}`}
-                      alt={`Seite ${currentVerify.page}`}
-                      className="w-full h-full object-contain fade-up rounded-lg" style={{ maxHeight: '520px' }} />
-                  ) : (
-                    <div className="text-gray-500 text-sm">Kein Bild</div>
-                  )}
-                </div>
-              </div>
-
-              {/* Rechts: Daten */}
-              <div className="flex flex-col overflow-y-auto border-l border-gray-100">
-                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
-
-                  {/* ── BEREITS ERLEDIGT Banner ── */}
-                  {currentVerify.already_erledigt && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                        <div className="flex-1">
-                          <p className="text-sm font-bold text-amber-800">Bereits eingetragen</p>
-                          <p className="text-xs text-amber-700 mt-0.5">
-                            Dieses Ticket wurde bereits als <strong>erledigt</strong> gebucht. Normalerweise muss hier nichts geändert werden.
-                          </p>
-                          <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={currentVerify.override_erledigt ?? false}
-                              onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, override_erledigt: e.target.checked, confirmed: false } : v))}
-                              className="rounded"
-                            />
-                            <span className="text-xs text-amber-800 font-medium">Trotzdem nochmal buchen (Korrektur)</span>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── DUPLIKAT-WARNUNG: Bereits Worklogs vorhanden ── */}
-                  {currentVerify.existing_worklogs && currentVerify.existing_worklogs.length > 0 && !currentVerify.already_erledigt && (
-                    <div style={{ background:'#eff6ff', border:'2px solid #2563eb', borderRadius:14, padding:'12px 14px', marginBottom:12 }}>
-                      <div style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
-                        <div style={{ width:32, height:32, borderRadius:8, background:'#2563eb', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                          <AlertTriangle className="h-4 w-4" style={{ color:'#fff' }} />
-                        </div>
-                        <div style={{ flex:1 }}>
-                          <p style={{ fontSize:13, fontWeight:800, color:'#1e3a5f', margin:'0 0 4px' }}>
-                            Bereits Stunden gebucht!
-                          </p>
-                          <p style={{ fontSize:11, color:'#1e40af', margin:'0 0 8px' }}>Folgende Einträge existieren bereits für dieses Ticket:</p>
-                          <div style={{ background:'#fff', borderRadius:8, padding:'8px 10px', marginBottom:8 }}>
-                            {currentVerify.existing_worklogs.map((w, wi) => (
-                              <div key={wi} style={{ display:'flex', gap:12, fontSize:11, color:'#374151', borderBottom: wi < (currentVerify.existing_worklogs?.length ?? 0)-1 ? '1px solid #f1f5f9' : 'none', padding:'3px 0' }}>
-                                <span style={{ fontWeight:700, color:'#2563eb' }}>{w.kuerzel}</span>
-                                <span>{w.stunden}h</span>
-                                <span style={{ color:'#94a3b8' }}>{w.datum}</span>
-                              </div>
-                            ))}
-                          </div>
-                          <p style={{ fontSize:11, color:'#1e40af', margin:0 }}>Du kannst trotzdem neue Stunden hinzubuchen — oder "Nicht importieren" wählen.</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ── NICHT IN DB Banner ── */}
-                  {currentVerify.manuelleEingabe && !currentVerify.ticket_id && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
-                      <p className="text-sm font-bold text-red-700">Ticket nicht in Datenbank</p>
-                      <p className="text-xs text-red-600 mt-1">
-                        <strong>{currentVerify.a_nummer || 'Unbekannte A-Nummer'}</strong> wurde nicht gefunden. Bitte Daten prüfen und Ticket neu anlegen.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* A-Nummer Header */}
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-[#1e3a5f] text-xl">
-                      {currentVerify.a_nummer || '—'}
-                    </span>
-                    {currentVerify.confirmed && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">✓ Bestätigt</span>}
-                  </div>
-                  {currentVerify.reviewReasons.filter(r => !r.includes('bereits als erledigt')).length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {currentVerify.reviewReasons.filter(r => !r.includes('bereits als erledigt')).map((r, i) => (
-                        <span key={i} className="text-xs bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full">{r}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex-1 p-6 space-y-5">
-
-                  {/* A-Nummer editierbar bei manueller Eingabe */}
-                  {currentVerify.manuelleEingabe && !currentVerify.ticket_id && (
-                    <div>
-                      <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">A-Nummer</Label>
-                      <Input
-                        value={currentVerify.a_nummer ?? ''}
-                        onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, a_nummer: e.target.value, confirmed: false } : v))}
-                        className="h-11 rounded-xl font-mono text-lg font-semibold"
-                        placeholder="z.B. A5999"
-                      />
-                    </div>
-                  )}
-
-                  {/* Gewerk & Eingangsdatum nur bei neuem Ticket */}
-                  {currentVerify.manuelleEingabe && !currentVerify.ticket_id && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Gewerk</Label>
-                        <Select
-                          value={currentVerify.neues_ticket_gewerk ?? 'Hochbau'}
-                          onValueChange={v => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? { ...r, neues_ticket_gewerk: v, confirmed: false } : r))}>
-                          <SelectTrigger className="h-10 rounded-xl text-sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent style={{ background:'#fff', border:'1px solid #e2e8f0', zIndex:9999 }}>
-                            <SelectItem value="Hochbau">Hochbau</SelectItem>
-                            <SelectItem value="Elektro">Elektro</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Eingangsdatum</Label>
-                        <Input
-                          type="date"
-                          value={currentVerify.neues_ticket_eingang ?? ''}
-                          onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, neues_ticket_eingang: e.target.value, confirmed: false } : v))}
-                          className="h-10 rounded-xl text-sm"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Stunden — gesperrt wenn bereits erledigt und kein Override */}
-                  <div>
-                    <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Stunden</Label>
-                    <Input
-                      value={currentVerify.stunden_edit}
-                      onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, stunden_edit: e.target.value, confirmed: false } : v))}
-                      disabled={currentVerify.already_erledigt && !currentVerify.override_erledigt}
-                      className={`h-11 rounded-xl font-mono text-lg font-semibold ${currentVerify.already_erledigt && !currentVerify.override_erledigt ? 'opacity-40' : ''}`}
-                      placeholder="z.B. 1.5"
-                    />
-                    {currentVerify.vonbis_stunden !== null && (
-                      <div className={`flex items-center gap-2 mt-2 text-xs px-3 py-2 rounded-lg
-                        ${vonBisWarning(currentVerify) ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-gray-50 text-gray-500'}`}>
-                        <Info className="h-3.5 w-3.5 shrink-0" />
-                        <span>Von/Bis ({currentVerify.arbeitszeit_von} – {currentVerify.arbeitszeit_bis}) ergibt <strong>{currentVerify.vonbis_stunden}h</strong>
-                          {vonBisWarning(currentVerify) && ' — Abweichung!'}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Datum */}
-                  <div>
-                    <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Leistungsdatum</Label>
-                    <Input
-                      type="date"
-                      value={currentVerify.datum_edit}
-                      onChange={e => setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, datum_edit: e.target.value, confirmed: false } : v))}
-                      disabled={currentVerify.already_erledigt && !currentVerify.override_erledigt}
-                      className={`h-11 rounded-xl ${currentVerify.already_erledigt && !currentVerify.override_erledigt ? 'opacity-40' : ''}`}
-                    />
-                  </div>
-
-                  {/* Mitarbeiter */}
-                  <div>
-                    <Label className="text-xs text-gray-400 uppercase tracking-wider mb-1.5 block">Mitarbeiter</Label>
-                    <div className="space-y-2">
-                      {currentVerify.mitarbeiter_edit.map((m, mIdx) => (
-                        <div key={mIdx} className="flex gap-2">
-                          <Select
-                            value={m.id}
-                            disabled={currentVerify.already_erledigt && !currentVerify.override_erledigt}
-                            onValueChange={v => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
-                              ...r, confirmed: false,
-                              mitarbeiter_edit: r.mitarbeiter_edit.map((me, mi) => mi === mIdx
-                                ? { ...me, id: v, name: (employees as any[]).find((e: any) => e.id === v)?.name ?? '' } : me)
-                            } : r))}>
-                            <SelectTrigger className={`h-10 rounded-xl flex-1 text-sm ${currentVerify.already_erledigt && !currentVerify.override_erledigt ? 'opacity-40' : ''}`}>
-                              <SelectValue placeholder="Mitarbeiter wählen..." />
-                            </SelectTrigger>
-                            <SelectContent style={{ background:'#fff', border:'1px solid #e2e8f0', boxShadow:'0 8px 24px rgba(0,0,0,0.12)', zIndex:9999 }}>
-                              {(employees as any[]).map((e: any) => (
-                                <SelectItem key={e.id} value={e.id} style={{ color:'#0f172a', fontWeight:500 }}>{e.kuerzel} – {e.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <button
-                            disabled={currentVerify.already_erledigt && !currentVerify.override_erledigt}
-                            onClick={() => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
-                              ...r, confirmed: false,
-                              mitarbeiter_edit: r.mitarbeiter_edit.filter((_, mi) => mi !== mIdx)
-                            } : r))}
-                            className="p-2 rounded-xl hover:bg-red-50 text-red-400 transition-colors disabled:opacity-30">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ))}
-                      {(!currentVerify.already_erledigt || currentVerify.override_erledigt) && (
-                        <button onClick={() => setVerifyItems(prev => prev.map((r, i) => i === verifyIndex ? {
-                          ...r, confirmed: false,
-                          mitarbeiter_edit: [...r.mitarbeiter_edit, { id: '', name: '' }]
-                        } : r))} className="flex items-center gap-1.5 text-xs text-[#1e3a5f] hover:text-blue-600 font-medium transition-colors">
-                          <Plus className="h-3.5 w-3.5" /> Mitarbeiter hinzufügen
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Aktionen */}
-                <div className="px-6 pb-6 pt-2 border-t border-gray-100 space-y-2">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, confirmed: true, skip: false } : v));
-                        if (verifyIndex < verifyItems.length - 1) setVerifyIndex(i => i + 1);
-                      }}
-                      className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors
-                        ${currentVerify.skip
-                          ? 'bg-gray-100 text-gray-400 border border-gray-200'
-                          : currentVerify.confirmed
-                            ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
-                            : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}>
-                      <CheckCircle className="h-4 w-4" />
-                      {currentVerify.skip ? 'Übersprungen' : currentVerify.confirmed ? '✓ Bestätigt' : 'Bestätigen & weiter'}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setVerifyItems(prev => prev.map((v, i) => i === verifyIndex ? { ...v, skip: !v.skip, confirmed: false } : v));
-                        if (verifyIndex < verifyItems.length - 1) setVerifyIndex(i => i + 1);
-                      }}
-                      className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-colors border
-                        ${currentVerify.skip
-                          ? 'bg-red-50 text-red-600 border-red-300 hover:bg-red-100'
-                          : 'bg-white text-gray-500 border-gray-200 hover:bg-red-50 hover:text-red-600 hover:border-red-300'}`}
-                      title="Dieses Ticket nicht importieren">
-                      <X className="h-4 w-4" />
-                      {currentVerify.skip ? 'Doch importieren' : 'Nicht importieren'}
-                    </button>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setVerifyIndex(i => Math.max(0, i - 1))} disabled={verifyIndex === 0}
-                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors">
-                      <ChevronLeft className="h-4 w-4" /> Zurück
-                    </button>
-                    <button onClick={() => setVerifyIndex(i => Math.min(verifyItems.length - 1, i + 1))} disabled={verifyIndex === verifyItems.length - 1}
-                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 transition-colors">
-                      Weiter <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Import Button */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-sm font-semibold text-gray-700">{confirmedCount} von {verifyItems.length} bestätigt</p>
-                <p className="text-xs text-gray-400">
-                  {confirmedCount < verifyItems.length
-                    ? `Noch ${verifyItems.length - confirmedCount} offen${skippedCount > 0 ? ` · ${skippedCount} übersprungen` : ''}`
-                    : 'Alle bestätigt — bereit zum Import'}
-                </p>
-              </div>
-              <button
-                onClick={importAll}
-                disabled={importing || confirmedCount === 0}
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold transition-colors
-                  ${confirmedCount === verifyItems.length
-                    ? 'bg-[#1e3a5f] text-white hover:bg-[#162d4a]'
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
-                {importing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-                {importing ? 'Importiert...' : confirmedCount === verifyItems.length
-                  ? `Alle ${confirmedCount} importieren`
-                  : `${confirmedCount} bestätigte importieren`}
-              </button>
-            </div>
-          </div>
+          )}
+          <button onClick={analyseieren} disabled={!dateien.length || laden}
+            style={{ padding: '12px 28px', background: laden ? '#94a3b8' : 'linear-gradient(135deg,#2563eb,#1d4ed8)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: laden ? 'wait' : 'pointer', boxShadow: '0 4px 14px rgba(37,99,235,.25)' }}>
+            {laden ? '⏳ Analysiere PDFs...' : `PDFs analysieren (${dateien.length} Datei${dateien.length !== 1 ? 'en' : ''})`}
+          </button>
         </div>
       )}
 
-      {/* DONE */}
-      {phase === 'done' && (
-        <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-8 text-center">
-          <div className="w-16 h-16 bg-emerald-50 rounded-2xl mx-auto mb-4 flex items-center justify-center">
-            <CheckCircle className="h-8 w-8 text-emerald-600" />
+      {zeilen.length > 0 && !fertig && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'Gefunden', value: zeilen.length, color: '#0f172a', bg: '#f8fafc', border: '#e2e8f0' },
+              { label: 'Bereit', value: bereit, color: '#10b981', bg: '#f0fdf4', border: '#bbf7d0' },
+              { label: 'Probleme', value: probleme, color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+              { label: 'Ausgeschlossen', value: zeilen.filter(z => z.ausschliessen).length, color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
+            ].map(s => (
+              <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: '12px 16px' }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>{s.label}</div>
+              </div>
+            ))}
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-1">Import abgeschlossen</h2>
-          <p className="text-sm text-gray-400 mb-6">Alle Tickets wurden erfolgreich verarbeitet</p>
-          <button onClick={() => { setPages([]); setPhase('idle'); setFileName(''); setLiveLog([]); setVerifyItems([]); }}
-            className="flex items-center gap-2 px-6 py-3 bg-[#1e3a5f] text-white rounded-xl text-sm font-semibold hover:bg-[#162d4a] transition-colors mx-auto">
-            <Upload className="h-4 w-4" /> Neue Datei verarbeiten
+
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '8px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Info size={13} style={{ color: '#2563eb' }} />
+            <span style={{ fontSize: 12, color: '#1d4ed8' }}>Zeile anklicken = aus-/einschließen · Stunden anklicken = bearbeiten · Gleiche A-Nummer doppelt = beide behalten wenn verschiedene MA</span>
+          </div>
+
+          <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f1f5f9', overflow: 'hidden', marginBottom: 20 }}>
+            <div style={{ overflowX: 'auto', maxHeight: 480, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                    {['', 'A-Nummer', 'Mitarbeiter', 'Datum', 'Stunden', 'Bemerkung', 'Status'].map(h => (
+                      <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {zeilen.map((z, i) => {
+                    const farbe = statusFarbe(z);
+                    return (
+                      <tr key={i} onClick={() => toggle(i)}
+                        style={{ borderBottom: '1px solid #f8fafc', cursor: 'pointer', background: z.ausschliessen ? '#f8fafc' : 'transparent', opacity: z.ausschliessen ? 0.45 : 1 }}>
+                        <td style={{ padding: '8px 12px' }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: farbe }} />
+                        </td>
+                        <td style={{ padding: '8px 12px', fontWeight: 700, color: z.ticket_gefunden ? '#0f172a' : '#ef4444', whiteSpace: 'nowrap' }}>
+                          {z.parse.a_nummer ?? <span style={{ color: '#ef4444' }}>Nicht erkannt</span>}
+                          {!z.ticket_gefunden && z.parse.a_nummer && <span style={{ fontSize: 10, color: '#ef4444', marginLeft: 4 }}>nicht in DB</span>}
+                        </td>
+                        <td style={{ padding: '8px 12px', color: z.ma_gefunden ? '#0f172a' : '#f59e0b', whiteSpace: 'nowrap' }}>
+                          {z.parse.mitarbeiter ?? '–'}
+                          {!z.ma_gefunden && z.parse.mitarbeiter && <span style={{ fontSize: 10, color: '#f59e0b', marginLeft: 4 }}>nicht erkannt</span>}
+                        </td>
+                        <td style={{ padding: '8px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{z.parse.datum ?? '–'}</td>
+                        <td style={{ padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
+                          <input
+                            type="number" step="0.25" min="0.25" max="24"
+                            value={z.custom_stunden ?? z.parse.stunden ?? 0}
+                            onChange={e => setStunden(i, parseFloat(e.target.value))}
+                            style={{ width: 60, fontSize: 12, padding: '3px 6px', border: '1px solid #e2e8f0', borderRadius: 6, background: z.ausschliessen ? '#f8fafc' : '#fff', color: '#0f172a' }}
+                          />
+                          <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>h</span>
+                        </td>
+                        <td style={{ padding: '8px 12px', color: '#64748b', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={z.parse.bemerkung ?? ''}>
+                          {z.parse.bemerkung?.slice(0, 60) ?? '–'}
+                        </td>
+                        <td style={{ padding: '8px 12px', fontSize: 11, color: farbe }}>
+                          {z.ausschliessen ? 'Ausgeschlossen' : !z.ticket_gefunden ? 'Ticket fehlt in DB' : !z.ma_gefunden ? 'MA nicht erkannt' : z.parse.fehler.length > 0 ? z.parse.fehler.join(', ') : '✓ Bereit'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button onClick={buchen} disabled={buchend || !bereit}
+              style={{ padding: '12px 28px', background: buchend ? '#94a3b8' : 'linear-gradient(135deg,#2563eb,#1d4ed8)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: buchend ? 'wait' : 'pointer', boxShadow: '0 4px 14px rgba(37,99,235,.25)' }}>
+              {buchend ? '⏳ Buche...' : `✓ ${bereit} Tickets abschließen & Stunden buchen`}
+            </button>
+            <button onClick={reset} style={{ padding: '12px 20px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>Neu starten</button>
+          </div>
+        </>
+      )}
+
+      {fertig && bericht && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 16, padding: '20px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <CheckCircle size={22} style={{ color: '#10b981' }} />
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#065f46' }}>Buchung abgeschlossen</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
+            {[{ label: 'Erfolgreich', value: bericht.ok, color: '#10b981' }, { label: 'Gesamt versucht', value: bericht.gesamt, color: '#6366f1' }, { label: 'Fehler', value: bericht.err, color: bericht.err > 0 ? '#ef4444' : '#94a3b8' }].map(s => (
+              <div key={s.label} style={{ background: '#fff', borderRadius: 10, padding: '12px 16px', border: '1px solid #d1fae5' }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          <button onClick={reset} style={{ padding: '10px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            Neuen Rücklauf starten
           </button>
         </div>
       )}
