@@ -6,7 +6,8 @@ import { useMonth } from '@/contexts/MonthContext';
 import { parseExcelFile, ParsedTicketRow } from '@/lib/excel-parser';
 import { toast } from 'sonner';
 import { logActivity } from '@/lib/activityLog';
-import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, Info, ChevronDown, ChevronUp } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, Info, ChevronDown, ChevronUp, History } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 
 type PruefStatus = 'ok' | 'warnung' | 'duplikat';
 interface PruefZeile extends ParsedTicketRow {
@@ -28,6 +29,18 @@ export default function ExcelImportPage() {
   const [showWarnings, setShowWarnings] = useState(false);
   const [geprueft, setGeprueft] = useState(false);
   const [warnBestaetigt, setWarnBestaetigt] = useState(false);
+  const [showHistorie, setShowHistorie] = useState(false);
+
+  const { data: importHistorie = [], refetch: refetchHistorie } = useQuery({
+    queryKey: ['import-runs-historie'],
+    queryFn: async () => {
+      const { data } = await supabase.from('import_runs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      return data ?? [];
+    },
+  });
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -90,6 +103,13 @@ export default function ExcelImportPage() {
       }
       if (importRun) await supabase.from('import_runs').update({ rows_inserted: inserted, rows_updated: updated, rows_skipped: failed }).eq('id', importRun.id);
       await logActivity(user.id, user.email ?? '', `Import: ${inserted} neu, ${updated} akt., ${failed} Fehler — ${fileName}`);
+      // import_runs aktualisieren
+      if (importRun) {
+        await supabase.from('import_runs').update({
+          inserted, rows_inserted: inserted, rows_updated: updated, rows_skipped: failed,
+        }).eq('id', importRun.id);
+      }
+      refetchHistorie();
       setReport({ inserted, updated, failed });
       setGeprueft(true);
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
@@ -245,6 +265,51 @@ export default function ExcelImportPage() {
           </button>
         </div>
       )}
+      {/* ── Import-Historie ── */}
+      <div style={{ marginTop: 32, border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden' }}>
+        <div
+          onClick={() => setShowHistorie(!showHistorie)}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: '#f8fafc', cursor: 'pointer', userSelect: 'none' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <History size={15} style={{ color: '#64748b' }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Import-Historie</span>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>({(importHistorie as any[]).length} Einträge)</span>
+          </div>
+          {showHistorie ? <ChevronUp size={15} style={{ color: '#94a3b8' }} /> : <ChevronDown size={15} style={{ color: '#94a3b8' }} />}
+        </div>
+        {showHistorie && (
+          <div style={{ overflowX: 'auto' }}>
+            {(importHistorie as any[]).length === 0 ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Noch keine Importe</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                    {['Datum', 'Datei', 'Neu', 'Aktualisiert', 'Fehler', 'Gesamt'].map(h => (
+                      <th key={h} style={{ padding: '8px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(importHistorie as any[]).map((run: any) => (
+                    <tr key={run.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                      <td style={{ padding: '10px 16px', color: '#64748b', whiteSpace: 'nowrap' }}>
+                        {new Date(run.created_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td style={{ padding: '10px 16px', color: '#0f172a', fontWeight: 500 }}>{run.filename ?? '–'}</td>
+                      <td style={{ padding: '10px 16px', color: '#10b981', fontWeight: 700 }}>{run.rows_inserted ?? run.inserted ?? 0}</td>
+                      <td style={{ padding: '10px 16px', color: '#6366f1', fontWeight: 700 }}>{run.rows_updated ?? run.updated ?? 0}</td>
+                      <td style={{ padding: '10px 16px', color: (run.rows_skipped ?? run.failed ?? 0) > 0 ? '#ef4444' : '#94a3b8', fontWeight: 700 }}>{run.rows_skipped ?? run.failed ?? 0}</td>
+                      <td style={{ padding: '10px 16px', color: '#0f172a', fontWeight: 700 }}>{run.rows_total ?? 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
