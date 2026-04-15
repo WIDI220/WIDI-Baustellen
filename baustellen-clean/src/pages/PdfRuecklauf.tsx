@@ -26,6 +26,7 @@ export default function PdfRuecklauf() {
   const [zeilen, setZeilen] = useState<VorschauZeile[]>([]);
   const [buchend, setBuchend] = useState(false);
   const [bericht, setBericht] = useState<any>(null);
+  const [buchungBestaetigt, setBuchungBestaetigt] = useState(false);
 
   const { data: employees = [] } = useQuery({
     queryKey: ['pdf-employees'],
@@ -101,7 +102,7 @@ export default function PdfRuecklauf() {
     setZeilen(prev => prev.map((z, i) => i === idx ? { ...z, custom_stunden: Math.round(h * 4) / 4 } : z));
 
   const buchen = async () => {
-    const zuBuchen = zeilen.filter(z => !z.ausschliessen && z.ticket_id && z.ma_id && z.parse.datumISO);
+    const zuBuchen = zeilen.filter(z => !z.ausschliessen && z.ma_id && z.parse.datumISO);
     if (!zuBuchen.length) { toast.error('Nichts zum Buchen'); return; }
     setBuchend(true);
     let ok = 0, fehler = 0;
@@ -159,7 +160,7 @@ export default function PdfRuecklauf() {
   };
 
   const reset = () => {
-    setDateien([]); setZeilen([]); setBericht(null);
+    setDateien([]); setZeilen([]); setBericht(null); setBuchungBestaetigt(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -175,7 +176,8 @@ export default function PdfRuecklauf() {
   const statusText = (z: VorschauZeile) => {
     if (z.ausschliessen) return 'Ausgeschlossen';
     if (z.duplikat) return 'Duplikat';
-    if (!z.ticket_gefunden) return `⚠ Ticket nicht im System — trotzdem buchbar`;
+    if (!z.ticket_gefunden && z.parse.a_nummer) return `⚠ ${z.parse.a_nummer} wird neu angelegt`;
+    if (!z.ticket_gefunden) return '⚠ A-Nummer nicht erkannt';
     if (!z.ma_gefunden) return `MA "${z.parse.mitarbeiter}" nicht erkannt`;
     if (z.parse.fehler.length > 0) return z.parse.fehler[0];
     return '✓ Bereit';
@@ -265,8 +267,9 @@ export default function PdfRuecklauf() {
                       <td style={{ padding: '8px 12px' }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusFarbe(z) }} />
                       </td>
-                      <td style={{ padding: '8px 12px', fontWeight: 700, color: z.ticket_gefunden ? '#0f172a' : '#ef4444', whiteSpace: 'nowrap' }}>
-                        {z.parse.a_nummer ?? <span style={{ color: '#ef4444' }}>Nicht erkannt</span>}
+                      <td style={{ padding: '8px 12px', fontWeight: 700, color: z.ticket_gefunden ? '#0f172a' : '#f59e0b', whiteSpace: 'nowrap' }}
+                        title={!z.parse.a_nummer ? `Rohtext: ${z.parse.rawText?.slice(0,200)}` : ''}>
+                        {z.parse.a_nummer ?? <span style={{ color: '#ef4444' }}>❌ Nicht erkannt</span>}
                       </td>
                       <td style={{ padding: '8px 12px', color: z.ma_gefunden ? '#0f172a' : '#f59e0b', whiteSpace: 'nowrap' }}>
                         {z.parse.mitarbeiter ?? '–'}
@@ -295,8 +298,34 @@ export default function PdfRuecklauf() {
             </div>
           </div>
 
+          {/* Prüfschritt: Zusammenfassung was gebucht wird */}
+          {bereit > 0 && (
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px 20px', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>Buchungsvorschau — bitte prüfen:</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto', marginBottom: 12 }}>
+                {zeilen.filter(z => !z.ausschliessen && z.ma_id && z.parse.datumISO).map((z, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 12, fontSize: 12, padding: '6px 10px', background: z.ticket_gefunden ? '#f0fdf4' : '#fffbeb', borderRadius: 8, border: `1px solid ${z.ticket_gefunden ? '#bbf7d0' : '#fde68a'}` }}>
+                    <span style={{ fontWeight: 700, color: '#0f172a', minWidth: 100 }}>{z.parse.a_nummer}</span>
+                    <span style={{ color: '#64748b', minWidth: 130 }}>{z.parse.mitarbeiter}</span>
+                    <span style={{ color: '#64748b', minWidth: 80 }}>{z.parse.datum}</span>
+                    <span style={{ fontWeight: 700, color: '#2563eb', minWidth: 50 }}>{z.custom_stunden}h</span>
+                    {!z.ticket_gefunden && <span style={{ color: '#b45309', fontSize: 11 }}>⚠ Ticket wird neu angelegt</span>}
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" id="buchBestaetigt" checked={buchungBestaetigt}
+                  onChange={e => setBuchungBestaetigt(e.target.checked)}
+                  style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                <label htmlFor="buchBestaetigt" style={{ fontSize: 13, color: '#0f172a', fontWeight: 600, cursor: 'pointer' }}>
+                  Ich habe die Buchungsvorschau geprüft und bestätige
+                </label>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={buchen} disabled={buchend || !bereit}
+            <button onClick={buchen} disabled={buchend || !bereit || !buchungBestaetigt}
               style={{ padding: '12px 28px', background: buchend ? '#94a3b8' : 'linear-gradient(135deg,#2563eb,#1d4ed8)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: buchend ? 'wait' : 'pointer', boxShadow: '0 4px 14px rgba(37,99,235,.25)' }}>
               {buchend ? '⏳ Buche Stunden...' : `✓ ${bereit} Tickets abschließen & Stunden buchen`}
             </button>
