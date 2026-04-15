@@ -67,12 +67,12 @@ function normalizeTicketNummer(raw: unknown, refYear: number): string | null {
 function isCSV(buffer: ArrayBuffer): boolean {
   const bytes = new Uint8Array(buffer.slice(0, 3));
   // UTF-8 BOM oder Textstart
-  const text = new TextDecoder('latin-1').decode(new Uint8Array(buffer.slice(0, 200)));
+  const text = new TextDecoder('windows-1252').decode(new Uint8Array(buffer.slice(0, 200)));
   return text.includes(';') && (text.toLowerCase().includes('auftrags') || text.toLowerCase().includes('datum'));
 }
 
 function parseCSV(buffer: ArrayBuffer, refYear: number, refMonth: number): { rows: any[][], headers: string[] } {
-  const text = new TextDecoder('latin-1').decode(new Uint8Array(buffer));
+  const text = new TextDecoder('windows-1252').decode(new Uint8Array(buffer));
   const lines = text.split('\n').filter(l => l.trim());
   const headers = lines[0].split(';').map(h => h.trim().replace(/\r/g, ''));
   const rows = lines.slice(1).map(l => l.split(';').map(c => c.trim().replace(/\r/g, '')));
