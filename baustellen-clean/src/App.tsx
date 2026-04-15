@@ -36,8 +36,7 @@ import EskalationenPage from '@/pages/EskalationenPage';
 import AuftragImportPage from '@/pages/AuftragImportPage';
 import MitarbeiterPage from '@/pages/MitarbeiterPage';
 import ArchivPage from '@/pages/ArchivPage';
-import WochenplanerPage from '@/pages/WochenplanerPage';
-import WochenplanungPage from '@/pages/WochenplanungPage';
+import WochenplanerPage from '@/pages/WochenplanerPage';import WochenplanungPage from '@/pages/WochenplanungPage';
 
 // Tickets
 import TicketsDashboard from '@/pages/TicketsDashboard';
@@ -55,8 +54,7 @@ import InternePage from '@/pages/InternePage';
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
 import AufgabenPage from '@/pages/AufgabenPage';
 
-// Chatbot
-import WidiChatbot from '@/components/WidiChatbot';
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -160,7 +158,6 @@ export default function App() {
         <BrowserRouter>
           <AppRoutes />
           <Toaster position="bottom-right" richColors />
-          <WidiChatbot />
         </BrowserRouter>
       </AuthProvider>
     </QueryClientProvider>
