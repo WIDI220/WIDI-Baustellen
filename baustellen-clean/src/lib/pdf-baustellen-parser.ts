@@ -1,4 +1,3 @@
-// Baustellen-PDF-Parser — läuft im Browser, kein Server, kein KI
 import * as pdfjsLib from 'pdfjs-dist';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -10,12 +9,13 @@ export interface BaustellenParseResult {
   a_nummer: string | null;
   name: string | null;
   kostenstelle: string | null;
-  datum: string | null;      // Datum des Auftragsscheins
-  budget: number | null;     // Bruttobetrag falls vorhanden
+  datum: string | null;
+  budget: number | null;
   gewerk: 'Hochbau' | 'Elektro';
   antragsteller: string | null;
   abteilung: string | null;
   fehler: string[];
+  debug?: string;
 }
 
 export async function parseBaustellenPdf(file: File): Promise<BaustellenParseResult> {
@@ -23,7 +23,6 @@ export async function parseBaustellenPdf(file: File): Promise<BaustellenParseRes
   const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
   const doc = await loadingTask.promise;
 
-  // Alle Seiten Text sammeln
   let fullText = '';
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);
@@ -32,8 +31,8 @@ export async function parseBaustellenPdf(file: File): Promise<BaustellenParseRes
     let pageText = '';
     let lastY = -1;
     for (const item of items) {
-      const y = Math.round(item.transform?.[5] ?? 0);
-      if (lastY !== -1 && Math.abs(y - lastY) > 3) pageText += '\n';
+      const y = Math.round((item.transform?.[5] ?? 0) / 2) * 2;
+      if (lastY !== -1 && Math.abs(y - lastY) > 4) pageText += '\n';
       pageText += item.str;
       lastY = y;
     }
@@ -43,60 +42,106 @@ export async function parseBaustellenPdf(file: File): Promise<BaustellenParseRes
   return parseBaustellenText(fullText);
 }
 
-function parseBaustellenText(text: string): BaustellenParseResult {
+function normText(t: string): string {
+  return t
+    .replace(/\r/g, '')
+    .replace(/([A-Z])\s+(\d)/g, '$1$2')
+    .replace(/(\d)\s*-\s*(\d{4,})/g, '$1-$2')
+    .replace(/[ \t]+/g, ' ');
+}
+
+function parseBaustellenText(rawText: string): BaustellenParseResult {
+  const text = normText(rawText);
   const result: BaustellenParseResult = {
     a_nummer: null, name: null, kostenstelle: null, datum: null,
-    budget: null, gewerk: 'Elektro', antragsteller: null, abteilung: null, fehler: []
+    budget: null, gewerk: 'Elektro', antragsteller: null, abteilung: null,
+    fehler: [], debug: text.slice(0, 500)
   };
 
-  // A-Nummer: "Auftragsnr. A26-03475" oder "A26-03475"
-  const aNrMatch = text.match(/Auftragsnr\.?\s*[:\s]*(A\d{2}-\d{5})/i) ||
-                   text.match(/Auftrags[- ]?Nr\.?\s*[:\s]*(A\d{2}-\d{5})/i) ||
-                   text.match(/\b(A\d{2}-\d{5})\b/);
-  if (aNrMatch) result.a_nummer = aNrMatch[1].toUpperCase();
-  else result.fehler.push('A-Nummer nicht gefunden');
+  // A-Nummer — Auftragsnr. A26-03475 oder im Text
+  const aNrPatterns = [
+    /Auftragsnr\.?\s*[:\s]*(A\d{2}-\d{5})/i,
+    /Auftrags[-\s]?Nr\.?\s*[:\s]*(A\d{2}-\d{5})/i,
+    /\b(A\d{2}-\d{5})\b/,
+  ];
+  for (const pat of aNrPatterns) {
+    const m = text.match(pat);
+    if (m) { result.a_nummer = m[1].toUpperCase(); break; }
+  }
+  if (!result.a_nummer) result.fehler.push('A-Nummer nicht gefunden');
 
   // Kostenstelle
-  const ksMatch = text.match(/Kostenstelle\s+(\d{4,8})/i);
+  const ksMatch = text.match(/Kostenstelle\s*:?\s*(\d{4,8})/i);
   if (ksMatch) result.kostenstelle = ksMatch[1];
 
   // Datum
-  const datumMatch = text.match(/Datum\s+(\d{2}\.\d{2}\.\d{4})/i);
+  const datumMatch = text.match(/Datum\s*:?\s*(\d{2}\.\d{2}\.\d{4})/i);
   if (datumMatch) result.datum = datumMatch[1];
 
-  // Betreff / Name
-  const betreffMatch = text.match(/Betreff[:\s]*\n?([^\n]+)/i);
-  if (betreffMatch && betreffMatch[1].trim().length > 2) {
-    result.name = betreffMatch[1].trim();
-  } else {
-    // Fallback: erste fette/große Zeile nach "Bestellung/Auftrag"
-    const auftragsMatch = text.match(/Bestellung\s*\/?\s*Auftrag[:\s]*\n+([^\n]{5,80})/i);
+  // Betreff — direkt nach "Betreff:" auf gleicher oder nächster Zeile
+  // Zuerst im Original-Text suchen (vor Normalisierung entfernt Zeilenumbrüche nicht)
+  const betreffPatterns = [
+    /Betreff\s*:\s*([^\n]{3,100})/i,
+    /Betreff\s*\n\s*([^\n]{3,100})/i,
+  ];
+  for (const pat of betreffPatterns) {
+    const m = rawText.match(pat);
+    if (m && m[1].trim().length > 2) {
+      result.name = m[1].trim();
+      break;
+    }
+  }
+
+  // Fallback: Zeile direkt nach "Bestellung/ Auftrag:"
+  if (!result.name) {
+    const auftragsMatch = rawText.match(/Bestellung\s*\/?\s*Auftrag\s*:?\s*\n+\s*([^\n]{5,120})/i);
     if (auftragsMatch) result.name = auftragsMatch[1].trim();
   }
+
+  // Fallback 2: Erste fettgedruckte lange Zeile nach dem Header (oft der Betreff)
+  if (!result.name) {
+    const lines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 5);
+    // Suche eine Zeile die wie ein Betreff aussieht (kein Datum, keine Adresse, keine Zahl am Anfang)
+    for (const line of lines) {
+      if (line.length > 10 && line.length < 120 &&
+          !line.match(/^\d/) &&
+          !line.match(/GmbH|Str\.|Straße|Tel\.|Fax|IBAN|BIC|Steuer/) &&
+          !line.match(/\d{2}\.\d{2}\.\d{4}/) &&
+          line !== 'WIDI Gebäudeservice GmbH') {
+        // Nimm die erste plausible Zeile nach der A-Nummer
+        if (result.a_nummer && rawText.indexOf(line) > rawText.indexOf(result.a_nummer)) {
+          result.name = line;
+          break;
+        }
+      }
+    }
+  }
+
   if (!result.name) result.fehler.push('Betreff nicht gefunden — bitte manuell eingeben');
 
-  // Budget: "Angebotsbetrag (brutto) 9.394,65" oder "9.394,65 €"
-  const bruttoMatch = text.match(/Angebotsbetrag.*?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)\s*(?:€|EUR)?/i) ||
-                      text.match(/Brutto.*?(\d{1,3}(?:\.\d{3})*(?:,\d{2})?)\s*(?:€|EUR)?/i);
+  // Budget
+  const bruttoMatch = text.match(/Angebotsbetrag[^0-9]*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))/i) ||
+                      text.match(/Brutto[^0-9]*(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))/i);
   if (bruttoMatch) {
     const numStr = bruttoMatch[1].replace(/\./g, '').replace(',', '.');
-    result.budget = parseFloat(numStr);
+    const parsed = parseFloat(numStr);
+    if (!isNaN(parsed) && parsed > 0) result.budget = parsed;
   }
 
-  // Gewerk aus Werkstatt/Gewerkeschlüssel oder Kontext
-  const textLower = text.toLowerCase();
-  if (textLower.includes('hochbau') || textLower.includes('schreiner') || textLower.includes('maler') || textLower.includes('trockenbau')) {
+  // Gewerk
+  const textLower = rawText.toLowerCase();
+  if (textLower.includes('hochbau') || textLower.includes('schreiner') ||
+      textLower.includes('maler') || textLower.includes('trockenbau') ||
+      textLower.includes('sanitär') || textLower.includes('heizung')) {
     result.gewerk = 'Hochbau';
-  } else {
-    result.gewerk = 'Elektro'; // Standard
   }
 
-  // Antragsteller / Name des Antragstellers
-  const antragMatch = text.match(/Name des Antragstellers[:\s]+([^\n]+)/i);
+  // Antragsteller
+  const antragMatch = rawText.match(/Name des Antragstellers\s*:?\s*([^\n]+)/i);
   if (antragMatch) result.antragsteller = antragMatch[1].trim();
 
   // Abteilung
-  const abtMatch = text.match(/Abt\.?\s*\/?\s*Stat\.?\s*[:\s]+([^\n]+)/i);
+  const abtMatch = rawText.match(/Abt\.?\s*\/?\s*Stat\.?\s*:?\s*([^\n]+)/i);
   if (abtMatch) result.abteilung = abtMatch[1].trim();
 
   return result;
