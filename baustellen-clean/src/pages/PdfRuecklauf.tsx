@@ -48,10 +48,13 @@ export default function PdfRuecklauf() {
     return found?.id ?? null;
   }
 
-  function findTicket(a_nummer: string | null): { id: string | null; gefunden: boolean } {
+  async function findTicket(a_nummer: string | null): Promise<{ id: string | null; gefunden: boolean }> {
     if (!a_nummer) return { id: null, gefunden: false };
-    const t = (tickets as any[]).find(t => t.a_nummer === a_nummer);
-    return { id: t?.id ?? null, gefunden: !!t };
+    const { data } = await supabase.from('tickets')
+      .select('id,a_nummer,status')
+      .eq('a_nummer', a_nummer)
+      .maybeSingle();
+    return { id: data?.id ?? null, gefunden: !!data };
   }
 
   const analyseieren = useCallback(async () => {
@@ -65,7 +68,7 @@ export default function PdfRuecklauf() {
       try {
         const ergebnisse = await parsePdfTickets(datei);
         for (const parse of ergebnisse) {
-          const { id: ticket_id, gefunden: ticket_gefunden } = findTicket(parse.a_nummer);
+          const { id: ticket_id, gefunden: ticket_gefunden } = await findTicket(parse.a_nummer);
           const ma_id = findMA(parse.mitarbeiter);
           const key = `${parse.a_nummer}-${ma_id}-${parse.datumISO}`;
           const duplikat = seenKeys.has(key);
