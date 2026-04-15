@@ -240,7 +240,7 @@ export default function Dashboard() {
   const totalBudget    = bsK.filter(b => b.status !== 'nicht_gestartet').reduce((s, b) => s + b.effektivBudget, 0);
   const totalKosten    = bsK.filter(b => b.status !== 'nicht_gestartet').reduce((s, b) => s + b.gesamtkosten, 0);
   const totalStunden   = sw.reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-  const overBudget     = bsK.filter(b => b.overBudget && b.status !== 'nicht_gestartet').length;
+  const overBudget     = bsK.filter(b => b.overBudget && b.status !== 'nicht_gestartet' && b.status !== 'abgeschlossen' && b.status !== 'abgerechnet').length;
   const budgetPct      = totalBudget > 0 ? Math.round(totalKosten / totalBudget * 100) : 0;
 
   return (
