@@ -167,6 +167,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [onMouseMove, onMouseUp]);
   // ─────────────────────────────────────────────────────────────────────────
 
+  const { data: eskalationCount = 0 } = useQuery({
+    queryKey: ['sidebar-eskalationen'],
+    queryFn: async () => {
+      const { count } = await supabase.from('bs_eskalationen')
+        .select('*', { count: 'exact', head: true })
+        .or('gelesen.is.null,gelesen.eq.false');
+      return count ?? 0;
+    },
+    refetchInterval: 60000, // jede Minute aktualisieren
+  });
+
   const { data: baustellen = [] } = useQuery({
     queryKey: ['sidebar-baustellen'],
     queryFn: async () => {
@@ -304,8 +315,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             return (
               <NavLink key={to} to={to} className={`nav-item ${active ? 'active' : ''}`}
                 style={{ display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 10, padding: sidebarCollapsed ? '10px 0' : '8px 12px', justifyContent: sidebarCollapsed ? 'center' : 'flex-start', borderRadius: 10, textDecoration: 'none', fontSize: 13, fontWeight: 500, color: active ? '#fff' : 'rgba(255,255,255,0.45)', borderLeft: active ? `3px solid ${ACCENT}` : '3px solid transparent', position: 'relative', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-                <Icon size={15} style={{ flexShrink: 0 }} />
-                {!sidebarCollapsed && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>}
+                <div style={{ position: 'relative', flexShrink: 0 }}>
+                  <Icon size={15} />
+                  {to === '/baustellen/eskalationen' && eskalationCount > 0 && sidebarCollapsed && (
+                    <div style={{ position: 'absolute', top: -4, right: -4, width: 8, height: 8, borderRadius: '50%', background: '#ef4444', border: '1px solid #1e293b' }} />
+                  )}
+                </div>
+                {!sidebarCollapsed && (
+                  <>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{label}</span>
+                    {to === '/baustellen/eskalationen' && eskalationCount > 0 && (
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: '#ef4444', color: '#fff', flexShrink: 0, minWidth: 18, textAlign: 'center' }}>
+                        {eskalationCount > 99 ? '99+' : eskalationCount}
+                      </span>
+                    )}
+                  </>
+                )}
                 {sidebarCollapsed && active && (
                   <div style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', width: 3, height: 20, background: ACCENT, borderRadius: '3px 0 0 3px' }} />
                 )}
