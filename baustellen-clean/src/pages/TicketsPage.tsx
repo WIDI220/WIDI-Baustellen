@@ -488,13 +488,16 @@ export default function TicketsPage() {
                 <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Gewerk</th>
                 <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Status</th>
                 <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Eingang</th>
+                <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Melder</th>
+                <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Raum</th>
+                <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Auftrag</th>
                 <th style={{ textAlign:'left', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Mitarbeiter</th>
                 <th style={{ textAlign:'right', padding:'12px 16px', fontSize:11, fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em' }}>Stunden</th>
                 <th style={{ width:40 }}></th>
               </tr>
             </thead>
             <tbody>
-              {isLoading && <tr><td colSpan={8} style={{ padding:'48px', textAlign:'center', color:'#cbd5e1' }}>Lädt...</td></tr>}
+              {isLoading && <tr><td colSpan={11} style={{ padding:'48px', textAlign:'center', color:'#cbd5e1' }}>Lädt...</td></tr>}
               {tickets.map((t: any) => {
                 const wl = t.ticket_worklogs ?? [];
                 const totalH = wl.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
@@ -524,6 +527,9 @@ export default function TicketsPage() {
                       </span>
                     </td>
                     <td style={{ padding:'11px 16px', color:'#64748b', fontSize:12 }}>{t.eingangsdatum ? new Date(t.eingangsdatum).toLocaleDateString('de-DE') : '–'}</td>
+                    <td style={{ padding:'11px 16px', color:'#64748b', fontSize:11, maxWidth:90, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={t.melder ?? ''}>{t.melder || '–'}</td>
+                    <td style={{ padding:'11px 16px', color:'#64748b', fontSize:11, maxWidth:90, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={t.raumnr ?? ''}>{t.raumnr || '–'}</td>
+                    <td style={{ padding:'11px 16px', color:'#64748b', fontSize:11, maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={t.auftragstext ?? ''}>{t.auftragstext ? t.auftragstext.slice(0,50) + (t.auftragstext.length > 50 ? '…' : '') : '–'}</td>
                     <td style={{ padding:'11px 16px' }}>
                       {ma
                         ? <span style={{ fontFamily:'monospace', fontSize:11, fontWeight:700, background:'#f1f5f9', padding:'3px 8px', borderRadius:6, color:'#374151' }}>{ma}</span>
@@ -544,7 +550,7 @@ export default function TicketsPage() {
                 );
               })}
               {tickets.length === 0 && !isLoading && (
-                <tr><td colSpan={8} style={{ padding:'48px', textAlign:'center', color:'#cbd5e1', fontSize:14 }}>Keine Tickets gefunden</td></tr>
+                <tr><td colSpan={11} style={{ padding:'48px', textAlign:'center', color:'#cbd5e1', fontSize:14 }}>Keine Tickets gefunden</td></tr>
               )}
             </tbody>
           </table>
@@ -711,7 +717,15 @@ function TicketDetail({ ticket, onClose, userId }: { ticket: any; onClose: () =>
             <div><span className="text-gray-400">Eingang:</span> <strong className="text-gray-700">{ticket.eingangsdatum ? new Date(ticket.eingangsdatum).toLocaleDateString('de-DE') : '–'}</strong></div>
             <div><span className="text-gray-400">Stunden:</span> <strong className="text-[#1e3a5f]">{totalHours}h</strong></div>
             <div><span className="text-gray-400">Mitarbeiter:</span> <strong className="text-gray-700">{[...new Set((worklogs as any[]).map((w: any) => w.employees?.name).filter(Boolean))].join(', ') || '–'}</strong></div>
+            {ticket.melder && <div><span className="text-gray-400">Melder:</span> <strong className="text-gray-700">{ticket.melder}</strong></div>}
+            {ticket.raumnr && <div><span className="text-gray-400">Raum:</span> <strong className="text-gray-700">{ticket.raumnr}</strong></div>}
           </div>
+          {ticket.auftragstext && (
+            <div className="bg-blue-50 rounded-xl p-4 text-sm">
+              <div className="text-blue-400 text-xs font-semibold uppercase tracking-wide mb-2">Auftragstext</div>
+              <div className="text-gray-700 leading-relaxed">{ticket.auftragstext}</div>
+            </div>
+          )}
           <div>
             <Label className="text-xs text-gray-400 mb-2 block uppercase tracking-wide">Status ändern</Label>
             <div className="flex flex-wrap gap-2">
