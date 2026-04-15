@@ -36,7 +36,7 @@ import EskalationenPage from '@/pages/EskalationenPage';
 import AuftragImportPage from '@/pages/AuftragImportPage';
 import MitarbeiterPage from '@/pages/MitarbeiterPage';
 import ArchivPage from '@/pages/ArchivPage';
-import WochenplanerPage from '@/pages/WochenplanerPage';import WochenplanungPage from '@/pages/WochenplanungPage';
+import WochenplanungPage from '@/pages/WochenplanungPage';
 
 // Tickets
 import TicketsDashboard from '@/pages/TicketsDashboard';
