@@ -4,295 +4,221 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMonth } from '@/contexts/MonthContext';
 import { parseExcelFile, ParsedTicketRow } from '@/lib/excel-parser';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { logActivity } from '@/lib/activityLog';
-import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, Info } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, Info, ChevronDown, ChevronUp } from 'lucide-react';
+
+type PruefStatus = 'ok' | 'warnung' | 'duplikat';
+interface PruefZeile extends ParsedTicketRow {
+  pruefStatus: PruefStatus;
+  pruefHinweis?: string;
+  ausschliessen: boolean;
+}
 
 export default function ExcelImportPage() {
   const { user } = useAuth();
   const { activeMonth } = useMonth();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [parseResult, setParseResult] = useState<{
-    rows: ParsedTicketRow[];
-    errors: string[];
-    warnings: string[];
-  } | null>(null);
+  const [pruefZeilen, setPruefZeilen] = useState<PruefZeile[]>([]);
   const [importing, setImporting] = useState(false);
   const [report, setReport] = useState<any>(null);
   const [fileName, setFileName] = useState('');
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [showWarnings, setShowWarnings] = useState(false);
+  const [geprueft, setGeprueft] = useState(false);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
-    setReport(null);
-    setParseResult(null);
-
+    setReport(null); setPruefZeilen([]); setGeprueft(false);
     try {
       const buffer = await file.arrayBuffer();
       const result = parseExcelFile(buffer, activeMonth);
-      setParseResult(result);
-      const neu = result.rows.filter(r => !r.isDuplicate).length;
-      toast.success(`${neu} neue Tickets erkannt, ${result.rows.filter(r => r.isDuplicate).length} Duplikate`);
-    } catch (err: any) {
-      toast.error(`Parse-Fehler: ${err.message}`);
-    }
+      setWarnings(result.warnings);
+      const { data: existing } = await supabase.from('tickets').select('a_nummer');
+      const existingSet = new Set((existing ?? []).map((t: any) => t.a_nummer));
+      const [refYear, refMonth] = activeMonth.split('-').map(Number);
+      const zeilen: PruefZeile[] = result.rows.map(row => {
+        let pruefStatus: PruefStatus = 'ok';
+        const hinweise: string[] = [];
+        if (existingSet.has(row.a_nummer)) { pruefStatus = 'duplikat'; hinweise.push('Bereits in DB'); }
+        if (row.isDuplicate) { pruefStatus = 'duplikat'; hinweise.push('Doppelt in Datei'); }
+        if (row.eingangsdatum) {
+          const d = row.eingangsdatum;
+          if (d.getFullYear() !== refYear || d.getMonth() + 1 !== refMonth) {
+            if (pruefStatus === 'ok') pruefStatus = 'warnung';
+            hinweise.push(`Datum ${d.toLocaleDateString('de-DE')} außerhalb ${activeMonth}`);
+          }
+        }
+        if (!row.eingangsdatum) { if (pruefStatus === 'ok') pruefStatus = 'warnung'; hinweise.push('Kein Datum'); }
+        return { ...row, pruefStatus, pruefHinweis: hinweise.join(' · '), ausschliessen: row.isDuplicate };
+      });
+      setPruefZeilen(zeilen);
+      const neu = zeilen.filter(z => !z.ausschliessen).length;
+      toast.success(`${neu} Tickets bereit · ${zeilen.filter(z => z.pruefStatus === 'warnung' && !z.ausschliessen).length} Warnungen`);
+    } catch (err: any) { toast.error(`Parse-Fehler: ${err.message}`); }
   };
+
+  const toggleAusschliessen = (idx: number) =>
+    setPruefZeilen(prev => prev.map((z, i) => i === idx ? { ...z, ausschliessen: !z.ausschliessen } : z));
 
   const doImport = async () => {
-    if (!parseResult || !user) return;
+    if (!user) return;
+    const zuImportieren = pruefZeilen.filter(z => !z.ausschliessen);
+    if (!zuImportieren.length) { toast.error('Keine Tickets ausgewählt'); return; }
     setImporting(true);
-    const validRows = parseResult.rows.filter(r => !r.isDuplicate);
-    let inserted = 0, updated = 0, skipped = 0, failed = 0;
-    const andereMonatTickets: { a_nummer: string; datum: string; monat: string }[] = [];
-    const [refYear, refMonth] = activeMonth.split('-').map(Number);
-
+    let inserted = 0, updated = 0, failed = 0;
     try {
-      // Import-Run erstellen
-      const { data: importRun, error: runError } = await supabase
-        .from('import_runs')
-        .insert({
-          typ: 'excel',
-          filename: fileName,
-          rows_total: validRows.length,
-          created_by: user.id,
-        })
-        .select()
-        .single();
-
-      if (runError) {
-        console.error('Import run Fehler:', runError);
-        toast.error('Import-Run konnte nicht erstellt werden: ' + runError.message);
-        setImporting(false);
-        return;
-      }
-
-      // Tickets einzeln einfügen
-      for (const row of validRows) {
+      const { data: importRun } = await supabase.from('import_runs').insert({ typ: 'excel', filename: fileName, rows_total: zuImportieren.length, created_by: user.id }).select().single();
+      for (const row of zuImportieren) {
         try {
           const eingangsdatum = row.eingangsdatum?.toISOString().split('T')[0] ?? null;
-
-          const { data: existing, error: checkError } = await supabase
-            .from('tickets')
-            .select('id, eingangsdatum')
-            .eq('a_nummer', row.a_nummer)
-            .maybeSingle();
-
-          if (checkError) {
-            console.error('Check error:', checkError);
-            failed++;
-            continue;
-          }
-
-          // Prüfen ob Ticket in anderen Monat fällt
-          if (eingangsdatum) {
-            const d = new Date(eingangsdatum);
-            if (d.getFullYear() !== refYear || (d.getMonth() + 1) !== refMonth) {
-              const monatLabel = d.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
-              andereMonatTickets.push({ a_nummer: row.a_nummer, datum: eingangsdatum, monat: monatLabel });
-            }
-          }
-
-          if (existing) {
-            if (eingangsdatum && !existing.eingangsdatum) {
-              await supabase.from('tickets').update({ eingangsdatum }).eq('id', existing.id);
-            }
-            updated++;
+          const { data: ex } = await supabase.from('tickets').select('id,eingangsdatum').eq('a_nummer', row.a_nummer).maybeSingle();
+          if (ex) {
+            if (eingangsdatum && !ex.eingangsdatum) { await supabase.from('tickets').update({ eingangsdatum }).eq('id', ex.id); updated++; }
           } else {
-            const { error: insertError } = await supabase.from('tickets').insert({
-              a_nummer: row.a_nummer,
-              gewerk: row.gewerk,
-              status: 'in_bearbeitung',
-              eingangsdatum,
+            const { error } = await supabase.from('tickets').insert({
+              a_nummer: row.a_nummer, gewerk: row.gewerk, status: 'in_bearbeitung', eingangsdatum,
+              melder: row.melder || null, raumnr: row.raumnr || null, auftragstext: row.auftragstext || null,
             });
-            if (insertError) {
-              console.error('Insert error:', insertError);
-              failed++;
-              continue;
-            }
-            inserted++;
+            if (error) { failed++; } else inserted++;
           }
-        } catch (err) {
-          console.error('Row error:', err);
-          failed++;
-        }
+        } catch { failed++; }
       }
-
-      skipped = parseResult.rows.filter(r => r.isDuplicate).length;
-
-      // Import-Run aktualisieren
-      await supabase.from('import_runs').update({
-        inserted, updated, skipped_duplicates: skipped, failed,
-      }).eq('id', importRun.id);
-
-      setReport({ inserted, updated, skipped, failed, andereMonatTickets, warnings: parseResult.warnings ?? [] });
-      queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
+      if (importRun) await supabase.from('import_runs').update({ rows_inserted: inserted, rows_updated: updated, rows_skipped: failed }).eq('id', importRun.id);
+      await logActivity(user.id, user.email ?? '', `Import: ${inserted} neu, ${updated} akt., ${failed} Fehler — ${fileName}`);
+      setReport({ inserted, updated, failed });
+      setGeprueft(true);
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
-
-      if (inserted > 0) {
-        supabase.auth.getUser().then(({data}) => logActivity(data.user?.email, `Excel-Import: ${inserted} Tickets für ${activeMonth} importiert`, 'excel_import', undefined, { monat: activeMonth, anzahl: inserted }));
-        toast.success(`✅ ${inserted} Tickets für ${activeMonth} importiert!`);
-      } else if (updated > 0) {
-        toast.success(`🔄 ${updated} Tickets aktualisiert`);
-      } else {
-        toast.info('Alle Tickets bereits vorhanden');
-      }
-    } catch (err: any) {
-      console.error('Import Fehler:', err);
-      toast.error('Import fehlgeschlagen: ' + err.message);
-    } finally {
-      setImporting(false);
-    }
+      toast.success(`Import: ${inserted} neu eingetragen`);
+    } catch (err: any) { toast.error(`Import-Fehler: ${err.message}`); }
+    finally { setImporting(false); }
   };
 
-  const [year, month] = activeMonth.split('-');
-  const monthName = new Date(parseInt(year), parseInt(month) - 1, 1)
-    .toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+  const reset = () => { setPruefZeilen([]); setFileName(''); setWarnings([]); setReport(null); setGeprueft(false); if (fileInputRef.current) fileInputRef.current.value = ''; };
+  const statusFarbe = (s: PruefStatus) => s === 'ok' ? '#10b981' : s === 'warnung' ? '#f59e0b' : '#ef4444';
+  const statusIcon = (s: PruefStatus, aus: boolean) => {
+    if (aus) return <XCircle size={14} style={{ color: '#94a3b8' }} />;
+    if (s === 'ok') return <CheckCircle size={14} style={{ color: '#10b981' }} />;
+    if (s === 'warnung') return <AlertTriangle size={14} style={{ color: '#f59e0b' }} />;
+    return <XCircle size={14} style={{ color: '#ef4444' }} />;
+  };
+  const zuImp = pruefZeilen.filter(z => !z.ausschliessen);
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-3xl">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileSpreadsheet className="h-5 w-5" />
-            Excel-Import
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-2 bg-blue-50 text-blue-800 rounded-lg px-4 py-2 text-sm">
-            <Info className="h-4 w-4 shrink-0" />
-            <span>Tickets werden in <strong>{monthName}</strong> importiert (Monat in der Sidebar ändern)</span>
-          </div>
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 20px', fontFamily: "'Inter',system-ui,sans-serif" }}>
+      <h1 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: '0 0 4px', letterSpacing: '-.03em' }}>
+        Ticket-Import <span style={{ color: '#10b981' }}>CSV / Excel</span>
+      </h1>
+      <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 24px' }}>
+        Neues Format: CSV mit auftrags_id, datum, werkstatt, melder, raumnr, auftragstext — oder altes Excel-Format
+      </p>
 
-          {/* Upload */}
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-colors"
-          >
-            <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-            <p className="text-sm text-muted-foreground">Excel-Datei hier ablegen oder klicken</p>
-            {fileName && <p className="text-xs text-primary mt-1">{fileName}</p>}
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
-          </div>
+      {!geprueft && !pruefZeilen.length && (
+        <div onClick={() => fileInputRef.current?.click()}
+          style={{ border: '2px dashed #e2e8f0', borderRadius: 16, padding: '40px', textAlign: 'center', cursor: 'pointer', background: '#f8fafc', marginBottom: 24 }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#10b981'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e2e8f0'; }}>
+          <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={handleFile} />
+          <FileSpreadsheet size={32} style={{ color: '#10b981', margin: '0 auto 12px' }} />
+          <p style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', margin: '0 0 4px' }}>CSV oder Excel hochladen</p>
+          <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Unterstützt: .csv (Semikolon-getrennt), .xlsx, .xls</p>
+        </div>
+      )}
 
-          {/* Vorschau */}
-          {parseResult && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-4 text-sm">
-                <span className="text-green-600 font-medium">
-                  {parseResult.rows.filter(r => !r.isDuplicate).length} neue Tickets
-                </span>
-                <span className="text-muted-foreground">
-                  {parseResult.rows.filter(r => r.isDuplicate).length} Duplikate übersprungen
-                </span>
+      {warnings.length > 0 && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, padding: '10px 16px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setShowWarnings(!showWarnings)}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={14} style={{ color: '#f59e0b' }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#b45309' }}>{warnings.length} Parser-Hinweise</span>
+            </div>
+            {showWarnings ? <ChevronUp size={14} style={{ color: '#b45309' }} /> : <ChevronDown size={14} style={{ color: '#b45309' }} />}
+          </div>
+          {showWarnings && <div style={{ marginTop: 8 }}>{warnings.map((w, i) => <div key={i} style={{ fontSize: 11, color: '#92400e' }}>• {w}</div>)}</div>}
+        </div>
+      )}
+
+      {pruefZeilen.length > 0 && !geprueft && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'Bereit', value: zuImp.length, color: '#0f172a', bg: '#f0fdf4', border: '#bbf7d0' },
+              { label: 'OK', value: zuImp.filter(z => z.pruefStatus === 'ok').length, color: '#10b981', bg: '#f0fdf4', border: '#bbf7d0' },
+              { label: 'Warnungen', value: zuImp.filter(z => z.pruefStatus === 'warnung').length, color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+              { label: 'Ausgeschlossen', value: pruefZeilen.filter(z => z.ausschliessen).length, color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
+            ].map(s => (
+              <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: '12px 16px' }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' }}>{s.label}</div>
               </div>
-
-              {parseResult.warnings.length > 0 && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                  <h4 className="text-xs font-medium text-yellow-800 mb-1 flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" /> {parseResult.warnings.length} Warnungen
-                  </h4>
-                  <div className="text-xs space-y-0.5 max-h-24 overflow-y-auto">
-                    {parseResult.warnings.slice(0, 10).map((w, i) => (
-                      <p key={i} className="text-yellow-700">{w}</p>
+            ))}
+          </div>
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '8px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Info size={13} style={{ color: '#2563eb', flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: '#1d4ed8' }}>Zeile anklicken = vom Import aus- oder einschließen · Rot/Duplikate sind automatisch ausgeschlossen</span>
+          </div>
+          <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f1f5f9', overflow: 'hidden', marginBottom: 20 }}>
+            <div style={{ overflowX: 'auto', maxHeight: 480, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+                    {['', 'A-Nummer', 'Datum', 'Gewerk', 'Melder', 'Raum', 'Auftragstext', 'Hinweis'].map(h => (
+                      <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
-                    {parseResult.warnings.length > 10 && <p className="text-yellow-600">...und {parseResult.warnings.length - 10} weitere</p>}
-                  </div>
-                </div>
-              )}
-
-              {/* Tabelle */}
-              <div className="overflow-x-auto max-h-48 border rounded-lg">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-muted">
-                    <tr>
-                      <th className="py-1.5 px-3 text-left">Zeile</th>
-                      <th className="py-1.5 px-3 text-left">A-Nummer</th>
-                      <th className="py-1.5 px-3 text-left">Gewerk</th>
-                      <th className="py-1.5 px-3 text-left">Datum</th>
-                      <th className="py-1.5 px-3 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pruefZeilen.map((z, i) => (
+                    <tr key={i} onClick={() => toggleAusschliessen(i)}
+                      style={{ borderBottom: '1px solid #f8fafc', cursor: 'pointer', background: z.ausschliessen ? '#f8fafc' : z.pruefStatus === 'warnung' ? 'rgba(245,158,11,0.04)' : 'transparent', opacity: z.ausschliessen ? 0.5 : 1 }}>
+                      <td style={{ padding: '7px 12px' }}>{statusIcon(z.pruefStatus, z.ausschliessen)}</td>
+                      <td style={{ padding: '7px 12px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>{z.a_nummer}</td>
+                      <td style={{ padding: '7px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{z.eingangsdatum?.toLocaleDateString('de-DE') ?? '–'}</td>
+                      <td style={{ padding: '7px 12px' }}>
+                        <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: z.gewerk === 'Elektro' ? '#eff6ff' : '#f0fdf4', color: z.gewerk === 'Elektro' ? '#1d4ed8' : '#15803d' }}>{z.gewerk}</span>
+                      </td>
+                      <td style={{ padding: '7px 12px', color: '#64748b', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{z.melder || '–'}</td>
+                      <td style={{ padding: '7px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{z.raumnr || '–'}</td>
+                      <td style={{ padding: '7px 12px', color: '#64748b', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={z.auftragstext}>{z.auftragstext || '–'}</td>
+                      <td style={{ padding: '7px 12px', fontSize: 11, color: statusFarbe(z.pruefStatus) }}>{z.pruefHinweis || ''}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {parseResult.rows.slice(0, 30).map(r => (
-                      <tr key={r.rowIndex} className={`border-t ${r.isDuplicate ? 'opacity-40 bg-muted/30' : ''}`}>
-                        <td className="py-1 px-3">{r.rowIndex}</td>
-                        <td className="py-1 px-3 font-mono">{r.a_nummer}</td>
-                        <td className="py-1 px-3">{r.gewerk}</td>
-                        <td className="py-1 px-3">{r.eingangsdatum?.toLocaleDateString('de-DE') ?? '–'}</td>
-                        <td className="py-1 px-3">{r.isDuplicate ? '⚠ Duplikat' : '✓ Neu'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={doImport} disabled={importing || !zuImp.length}
+              style={{ padding: '12px 28px', background: importing ? '#94a3b8' : 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: importing ? 'wait' : 'pointer', boxShadow: '0 4px 14px rgba(16,185,129,.25)' }}>
+              {importing ? '⏳ Importiere...' : `✓ ${zuImp.length} Tickets jetzt importieren`}
+            </button>
+            <button onClick={reset} style={{ padding: '12px 20px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>Abbrechen</button>
+          </div>
+        </>
+      )}
+
+      {report && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 16, padding: '20px 24px', marginTop: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <CheckCircle size={22} style={{ color: '#10b981' }} />
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#065f46' }}>Import erfolgreich abgeschlossen</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
+            {[{ label: 'Neu eingetragen', value: report.inserted, color: '#10b981' }, { label: 'Aktualisiert', value: report.updated, color: '#6366f1' }, { label: 'Fehler', value: report.failed, color: report.failed > 0 ? '#ef4444' : '#94a3b8' }].map(s => (
+              <div key={s.label} style={{ background: '#fff', borderRadius: 10, padding: '12px 16px', border: '1px solid #d1fae5' }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{s.label}</div>
               </div>
-
-              <Button
-                onClick={doImport}
-                disabled={importing || parseResult.rows.filter(r => !r.isDuplicate).length === 0}
-                className="w-full"
-                size="lg"
-              >
-                {importing
-                  ? `Importiere... (bitte warten)`
-                  : `${parseResult.rows.filter(r => !r.isDuplicate).length} Tickets in ${monthName} importieren`}
-              </Button>
-            </div>
-          )}
-
-          {/* Bericht */}
-          {report && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-1">
-              <h4 className="font-medium flex items-center gap-2 text-green-800">
-                <CheckCircle className="h-4 w-4" /> Import abgeschlossen
-              </h4>
-              <p className="text-sm text-green-700">✅ {report.inserted} neu importiert</p>
-              {report.updated > 0 && (
-                <p className="text-sm text-blue-600">🔄 {report.updated} bereits vorhanden (aktualisiert)</p>
-              )}
-              {report.skipped > 0 && (
-                <p className="text-sm text-muted-foreground">⏭ {report.skipped} Duplikate in Excel übersprungen</p>
-              )}
-              {report.failed > 0 && (
-                <p className="text-sm text-red-600">❌ {report.failed} fehlgeschlagen</p>
-              )}
-              {report.andereMonatTickets && report.andereMonatTickets.length > 0 && (
-                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm font-semibold text-amber-800 mb-2">
-                    ⚠️ {report.andereMonatTickets.length} Tickets in anderen Monaten:
-                  </p>
-                  <div className="max-h-40 overflow-y-auto">
-                    {Object.entries(
-                      report.andereMonatTickets.reduce((acc: Record<string,number>, t: any) => {
-                        acc[t.monat] = (acc[t.monat] || 0) + 1; return acc;
-                      }, {})
-                    ).sort().map(([monat, anzahl]) => (
-                      <p key={monat} className="text-xs text-amber-700">→ {monat}: {anzahl as number} Ticket{(anzahl as number) > 1 ? 's' : ''}</p>
-                    ))}
-                  </div>
-                  <p className="text-xs text-amber-600 mt-1">Diese wurden trotzdem importiert.</p>
-                </div>
-              )}
-              {report.warnings && report.warnings.length > 0 && (
-                <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                  <p className="text-sm font-semibold text-gray-700 mb-1">ℹ️ {report.warnings.length} Parser-Hinweise</p>
-                  <div className="max-h-32 overflow-y-auto">
-                    {report.warnings.slice(0, 15).map((w: string, i: number) => (
-                      <p key={i} className="text-xs text-gray-600 font-mono">{w}</p>
-                    ))}
-                    {report.warnings.length > 15 && <p className="text-xs text-gray-500">... +{report.warnings.length - 15} weitere</p>}
-                  </div>
-                </div>
-              )}
-              {report.failed > 0 && <p className="text-sm text-red-600">❌ {report.failed} fehlgeschlagen – siehe Browser-Konsole</p>}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            ))}
+          </div>
+          <button onClick={reset} style={{ padding: '10px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            Neuen Import starten
+          </button>
+        </div>
+      )}
     </div>
   );
 }
