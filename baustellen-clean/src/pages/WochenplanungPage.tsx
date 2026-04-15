@@ -44,8 +44,9 @@ const TYP_LABEL: Record<Typ, string> = {
   begehung:  'Begehung',
 };
 
-// px pro Stunde — Grundlage für Blockhöhe und Resize
-const PX_PRO_STUNDE = 24;
+// Breite pro Stunde — Blöcke sind flach, Breite = Stunden * PX_PRO_STUNDE
+// Zelle ist 100% breit, Blöcke füllen proportional
+const MAX_STUNDEN_TAG = 8;
 const MIN_STUNDEN = 0.25;
 
 function getMonday(offset: number): Date {
@@ -129,37 +130,38 @@ function PoolItemRow({ item, onDragStart, onDragEnd }: {
   );
 }
 
-// ── Resize-fähiger Block ───────────────────────────────────────────────────
-function PlanBlockEl({ block, onDelete, onUpdateStunden }: {
+// ── Resize-fähiger Block (horizontal) ────────────────────────────────────
+function PlanBlockEl({ block, onDelete, onUpdateStunden, cellWidthPx }: {
   block: PlanBlock;
   onDelete: () => void;
   onUpdateStunden: (h: number) => void;
+  cellWidthPx: number;
 }) {
   const farbe = TYP_FARBE[block.typ] ?? '#64748b';
-  const hoehe = Math.max(PX_PRO_STUNDE * MIN_STUNDEN, block.stunden * PX_PRO_STUNDE);
-  const resizeRef = useRef<{ startY: number; startH: number } | null>(null);
+  const resizeRef = useRef<{ startX: number; startH: number } | null>(null);
   const [localH, setLocalH] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState('');
 
   const aktuelleH = localH ?? block.stunden;
-  const aktuelleHoehe = Math.max(PX_PRO_STUNDE * MIN_STUNDEN, aktuelleH * PX_PRO_STUNDE);
+  const pct = Math.min(100, Math.max(8, (aktuelleH / MAX_STUNDEN_TAG) * 100));
 
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    resizeRef.current = { startY: e.clientY, startH: block.stunden };
+    resizeRef.current = { startX: e.clientX, startH: block.stunden };
+    const pxPerH = cellWidthPx / MAX_STUNDEN_TAG;
 
     const onMove = (ev: MouseEvent) => {
       if (!resizeRef.current) return;
-      const dy = ev.clientY - resizeRef.current.startY;
-      const newH = roundH(Math.max(MIN_STUNDEN, resizeRef.current.startH + dy / PX_PRO_STUNDE));
+      const dx = ev.clientX - resizeRef.current.startX;
+      const newH = roundH(Math.max(MIN_STUNDEN, Math.min(MAX_STUNDEN_TAG, resizeRef.current.startH + dx / pxPerH)));
       setLocalH(newH);
     };
     const onUp = (ev: MouseEvent) => {
       if (!resizeRef.current) return;
-      const dy = ev.clientY - resizeRef.current.startY;
-      const newH = roundH(Math.max(MIN_STUNDEN, resizeRef.current.startH + dy / PX_PRO_STUNDE));
+      const dx = ev.clientX - resizeRef.current.startX;
+      const newH = roundH(Math.max(MIN_STUNDEN, Math.min(MAX_STUNDEN_TAG, resizeRef.current.startH + dx / pxPerH)));
       resizeRef.current = null;
       setLocalH(null);
       onUpdateStunden(newH);
@@ -172,34 +174,35 @@ function PlanBlockEl({ block, onDelete, onUpdateStunden }: {
 
   return (
     <div
+      className="wp-block"
       style={{
+        width: `${pct}%`,
+        minWidth: 36,
         background: farbe,
-        borderRadius: 7,
-        padding: '5px 7px 10px',
+        borderRadius: 6,
+        padding: '0 20px 0 7px',
         marginBottom: 3,
         position: 'relative',
-        height: aktuelleHoehe,
-        overflow: 'hidden',
+        height: 26,
         boxSizing: 'border-box',
-        transition: localH !== null ? 'none' : 'height .1s',
-        boxShadow: '0 1px 4px rgba(0,0,0,.15)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+        boxShadow: '0 1px 3px rgba(0,0,0,.15)',
+        transition: localH !== null ? 'none' : 'width .08s',
+        overflow: 'hidden',
       }}
-      className="wp-block"
     >
-      {/* Bezeichnung */}
-      <div style={{ fontSize: 10, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 16 }} title={block.bezeichnung}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={block.bezeichnung}>
         {block.bezeichnung}
       </div>
 
-      {/* Stunden — klickbar zum Editieren */}
       {editing ? (
-        <input
-          autoFocus
-          value={editVal}
+        <input autoFocus value={editVal}
           onChange={e => setEditVal(e.target.value)}
           onBlur={() => {
             const v = parseFloat(editVal.replace(',', '.'));
-            if (!isNaN(v) && v > 0) onUpdateStunden(v);
+            if (!isNaN(v) && v > 0) onUpdateStunden(Math.min(MAX_STUNDEN_TAG, v));
             setEditing(false);
           }}
           onKeyDown={e => {
@@ -207,40 +210,39 @@ function PlanBlockEl({ block, onDelete, onUpdateStunden }: {
             if (e.key === 'Escape') setEditing(false);
           }}
           onClick={e => e.stopPropagation()}
-          style={{ width: 40, fontSize: 10, padding: '1px 3px', borderRadius: 3, border: 'none', background: 'rgba(255,255,255,0.3)', color: '#fff', outline: 'none', marginTop: 3 }}
+          style={{ width: 32, fontSize: 9, padding: '1px 3px', borderRadius: 3, border: 'none', background: 'rgba(255,255,255,0.3)', color: '#fff', outline: 'none', flexShrink: 0 }}
         />
       ) : (
-        <div
+        <span
           onClick={e => { e.stopPropagation(); setEditVal(String(aktuelleH)); setEditing(true); }}
-          style={{ fontSize: 10, color: 'rgba(255,255,255,0.9)', marginTop: 2, cursor: 'text', display: 'inline-block', borderBottom: '1px dashed rgba(255,255,255,0.4)' }}
+          style={{ fontSize: 9, color: 'rgba(255,255,255,0.92)', flexShrink: 0, cursor: 'text', background: 'rgba(0,0,0,0.18)', padding: '1px 4px', borderRadius: 3, whiteSpace: 'nowrap' }}
           title="Klicken zum Bearbeiten"
         >
-          {aktuelleH.toFixed(2).replace(/\.?0+$/, '').replace(/(\.\d)0$/, '$1')}h
-        </div>
+          {aktuelleH}h
+        </span>
       )}
 
-      {/* Löschen-Button */}
       <button
         onClick={e => { e.stopPropagation(); onDelete(); }}
         className="wp-del"
-        style={{ position: 'absolute', top: 3, right: 3, width: 15, height: 15, borderRadius: 3, background: 'rgba(0,0,0,0.2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity .15s', padding: 0 }}
+        style={{ position: 'absolute', top: '50%', right: 8, transform: 'translateY(-50%)', width: 12, height: 12, borderRadius: 2, background: 'rgba(0,0,0,0.25)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity .15s', padding: 0 }}
       >
-        <Trash2 size={8} style={{ color: '#fff' }} />
+        <Trash2 size={7} style={{ color: '#fff' }} />
       </button>
 
-      {/* Resize-Griff */}
+      {/* Horizontaler Resize-Griff rechts */}
       <div
         onMouseDown={onResizeStart}
-        title="Ziehen zum Anpassen der Stunden"
+        title="Rechts ziehen = mehr Stunden, links ziehen = weniger"
         style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0, height: 8,
-          cursor: 'ns-resize',
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: 7,
+          cursor: 'ew-resize',
+          background: 'rgba(0,0,0,0.2)',
+          borderRadius: '0 6px 6px 0',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(0,0,0,0.15)',
-          borderRadius: '0 0 7px 7px',
         }}
       >
-        <div style={{ width: 20, height: 2, borderRadius: 1, background: 'rgba(255,255,255,0.6)' }} />
+        <div style={{ width: 1, height: 10, background: 'rgba(255,255,255,0.6)', borderRadius: 1 }} />
       </div>
     </div>
   );
@@ -487,7 +489,6 @@ export default function WochenplanungPage() {
                       const isToday = iso === today;
                       const cellBlocks = (planBlocks as PlanBlock[]).filter(b => b.mitarbeiter_id === ma.id && b.datum === iso);
                       const isDragOver = dragOver === cellKey;
-                      const cellH = cellBlocks.reduce((s, b) => s + Number(b.stunden) * PX_PRO_STUNDE, 0);
                       return (
                         <td key={di}
                           onDragOver={e => { e.preventDefault(); setDragOver(cellKey); }}
@@ -495,8 +496,7 @@ export default function WochenplanungPage() {
                           onDrop={() => handleDrop(ma.id, iso)}
                           style={{
                             padding: '4px', verticalAlign: 'top', borderRight: '1px solid #e2e8f0',
-                            minHeight: 64,
-                            height: Math.max(64, cellH + 12),
+                            minHeight: 40,
                             background: isDragOver ? 'rgba(99,102,241,0.08)' : isToday ? 'rgba(99,102,241,0.02)' : 'transparent',
                             transition: 'background .1s',
                             cursor: dragging ? 'copy' : 'default',
@@ -509,6 +509,7 @@ export default function WochenplanungPage() {
                               block={block}
                               onDelete={() => deleteBlock(block)}
                               onUpdateStunden={h => updateStunden(block, h)}
+                              cellWidthPx={120}
                             />
                           ))}
                         </td>
