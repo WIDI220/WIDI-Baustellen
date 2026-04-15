@@ -628,24 +628,7 @@ export default function MitarbeiterAuswertungPage() {
                   </div>
                 )}
 
-                {/* ── Monatsverlauf ── */}
-                <div style={{ background: '#fff', borderRadius: 18, padding: '20px 24px', border: '1px solid #f1f5f9' }}>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Monatsverlauf — {selectedEmp.name}</p>
-                  <p style={{ fontSize: 11, color: '#94a3b8', margin: '0 0 16px' }}>Letzte 6 Monate · Tickets & Baustellen</p>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={personVerlauf} barGap={3} barCategoryGap="35%">
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                      <XAxis dataKey="monat" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="Tickets"    fill="#3b82f6" radius={[0,0,0,0]} />
-                      <Bar dataKey="Baustellen" fill="#10b981" radius={[0,0,0,0]} />
-                      <Bar dataKey="Begehungen" fill="#f59e0b" radius={[0,0,0,0]} />
-                      <Bar dataKey="Intern"     fill="#8b5cf6" radius={[5,5,0,0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+
 
                 {/* ── Jahreskalender ── */}
                 <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
