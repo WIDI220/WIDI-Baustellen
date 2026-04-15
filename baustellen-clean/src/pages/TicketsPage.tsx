@@ -711,21 +711,66 @@ function TicketDetail({ ticket, onClose, userId }: { ticket: any; onClose: () =>
             <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${st?.bg} ${st?.text}`}>{st?.label}</span>
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-3 bg-gray-50 rounded-xl p-4 text-sm">
-            <div><span className="text-gray-400">Gewerk:</span> <strong className="text-gray-700">{ticket.gewerk}</strong></div>
-            <div><span className="text-gray-400">Eingang:</span> <strong className="text-gray-700">{ticket.eingangsdatum ? new Date(ticket.eingangsdatum).toLocaleDateString('de-DE') : '–'}</strong></div>
-            <div><span className="text-gray-400">Stunden:</span> <strong className="text-[#1e3a5f]">{totalHours}h</strong></div>
-            <div><span className="text-gray-400">Mitarbeiter:</span> <strong className="text-gray-700">{[...new Set((worklogs as any[]).map((w: any) => w.employees?.name).filter(Boolean))].join(', ') || '–'}</strong></div>
-            {ticket.melder && <div><span className="text-gray-400">Melder:</span> <strong className="text-gray-700">{ticket.melder}</strong></div>}
-            {ticket.raumnr && <div><span className="text-gray-400">Raum:</span> <strong className="text-gray-700">{ticket.raumnr}</strong></div>}
-          </div>
-          {ticket.auftragstext && (
-            <div className="bg-blue-50 rounded-xl p-4 text-sm">
-              <div className="text-blue-400 text-xs font-semibold uppercase tracking-wide mb-2">Auftragstext</div>
-              <div className="text-gray-700 leading-relaxed">{ticket.auftragstext}</div>
+        <div className="space-y-4">
+
+          {/* ── EINGANG ── */}
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden' }}>
+            <div style={{ background: '#f8fafc', padding: '8px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#2563eb' }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '.06em' }}>Eingang</span>
+              {ticket.eingangsdatum && <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>{new Date(ticket.eingangsdatum).toLocaleDateString('de-DE')}</span>}
             </div>
-          )}
+            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 13 }}>
+                <div><span style={{ color: '#94a3b8' }}>Gewerk: </span><strong style={{ color: '#0f172a' }}>{ticket.gewerk}</strong></div>
+                {ticket.melder && ticket.melder !== 'NULL' && <div><span style={{ color: '#94a3b8' }}>Melder: </span><strong style={{ color: '#0f172a' }}>{ticket.melder}</strong></div>}
+                {ticket.raumnr && <div><span style={{ color: '#94a3b8' }}>Raum: </span><strong style={{ color: '#0f172a' }}>{ticket.raumnr}</strong></div>}
+              </div>
+              {ticket.auftragstext && (
+                <div style={{ background: '#f8fafc', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#374151', marginTop: 4, lineHeight: 1.5 }}>
+                  {ticket.auftragstext}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── ERLEDIGUNG ── */}
+          <div style={{ border: `1px solid ${totalHours > 0 ? '#bbf7d0' : '#e2e8f0'}`, borderRadius: 14, overflow: 'hidden' }}>
+            <div style={{ background: totalHours > 0 ? '#f0fdf4' : '#f8fafc', padding: '8px 16px', borderBottom: `1px solid ${totalHours > 0 ? '#bbf7d0' : '#e2e8f0'}`, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: totalHours > 0 ? '#10b981' : '#cbd5e1' }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: totalHours > 0 ? '#10b981' : '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+                {totalHours > 0 ? 'Erledigt' : 'Noch offen'}
+              </span>
+              {totalHours > 0 && (() => {
+                const letztesDatum = (worklogs as any[]).map((w: any) => w.leistungsdatum).filter(Boolean).sort().reverse()[0];
+                return letztesDatum ? <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>{new Date(letztesDatum).toLocaleDateString('de-DE')}</span> : null;
+              })()}
+            </div>
+            <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {totalHours > 0 ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 13 }}>
+                    <div><span style={{ color: '#94a3b8' }}>Stunden: </span><strong style={{ color: '#059669' }}>{totalHours}h</strong></div>
+                    <div><span style={{ color: '#94a3b8' }}>Mitarbeiter: </span><strong style={{ color: '#0f172a' }}>{[...new Set((worklogs as any[]).map((w: any) => w.employees?.kuerzel).filter(Boolean))].join(', ') || '–'}</strong></div>
+                  </div>
+                  {(worklogs as any[]).map((w: any) => (
+                    <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, background: '#f0fdf4', borderRadius: 8, padding: '6px 10px' }}>
+                      <span style={{ fontWeight: 600, color: '#374151' }}>{w.employees?.name}</span>
+                      <span style={{ color: '#64748b' }}>{w.stunden}h · {w.leistungsdatum ? new Date(w.leistungsdatum).toLocaleDateString('de-DE') : '–'}</span>
+                    </div>
+                  ))}
+                  {ticket.erledigungsbemerkung && (
+                    <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: '8px 12px', marginTop: 4 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>Erledigungsbemerkung</div>
+                      <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.5 }}>{ticket.erledigungsbemerkung}</div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>Noch keine Stunden eingetragen</div>
+              )}
+            </div>
+          </div>
           <div>
             <Label className="text-xs text-gray-400 mb-2 block uppercase tracking-wide">Status ändern</Label>
             <div className="flex flex-wrap gap-2">
