@@ -140,13 +140,11 @@ export default function PdfRuecklauf() {
           leistungsdatum: z.parse.datumISO,  // ← Erledigungsdatum, nicht Eingangsdatum
         });
 
-        // Bemerkung als Ticket-Notiz speichern falls vorhanden
+        // Erledigungsbemerkung direkt ins Ticket-Feld speichern
         if (z.parse.bemerkung) {
-          await supabase.from('ticket_notes').insert({
-            ticket_id: ticketId,
-            text: z.parse.bemerkung,
-            autor: z.parse.mitarbeiter ?? 'System',
-          }).maybeSingle();
+          await supabase.from('tickets')
+            .update({ erledigungsbemerkung: z.parse.bemerkung })
+            .eq('id', ticketId);
         }
         ok++;
       } catch (e: any) {
