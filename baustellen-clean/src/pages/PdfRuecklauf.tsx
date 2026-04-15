@@ -79,7 +79,7 @@ export default function PdfRuecklauf() {
             ma_id,
             ma_gefunden: !!ma_id,
             duplikat,
-            ausschliessen: duplikat || !ticket_gefunden,
+            ausschliessen: duplikat,  // nur echte Duplikate automatisch ausschließen
             custom_stunden: parse.stunden ?? 0,
           });
         }
@@ -110,13 +110,27 @@ export default function PdfRuecklauf() {
       const stunden = z.custom_stunden;
       if (stunden <= 0) { fehler++; continue; }
       try {
+        let ticketId = z.ticket_id;
+
+        // Ticket nicht in DB -> automatisch anlegen
+        if (!ticketId && z.parse.a_nummer) {
+          const { data: newTicket } = await supabase.from('tickets').insert({
+            a_nummer: z.parse.a_nummer,
+            gewerk: 'Elektro',
+            status: 'erledigt',
+            eingangsdatum: z.parse.datumISO,
+          }).select('id').single();
+          ticketId = newTicket?.id ?? null;
+        }
+
+        if (!ticketId) { fehler++; continue; }
+
         // Ticket auf erledigt setzen
-        await supabase.from('tickets').update({ status: 'erledigt' }).eq('id', z.ticket_id);
+        await supabase.from('tickets').update({ status: 'erledigt' }).eq('id', ticketId);
 
         // Stunden buchen mit LEISTUNGSDATUM (Erledigungsmonat)
-        // Ticket-Eingangsdatum bleibt unverändert
         await supabase.from('ticket_worklogs').insert({
-          ticket_id: z.ticket_id,
+          ticket_id: ticketId,
           employee_id: z.ma_id,
           stunden,
           leistungsdatum: z.parse.datumISO,  // ← Erledigungsdatum, nicht Eingangsdatum
@@ -125,7 +139,7 @@ export default function PdfRuecklauf() {
         // Bemerkung als Ticket-Notiz speichern falls vorhanden
         if (z.parse.bemerkung) {
           await supabase.from('ticket_notes').insert({
-            ticket_id: z.ticket_id,
+            ticket_id: ticketId,
             text: z.parse.bemerkung,
             autor: z.parse.mitarbeiter ?? 'System',
           }).maybeSingle();
@@ -161,7 +175,7 @@ export default function PdfRuecklauf() {
   const statusText = (z: VorschauZeile) => {
     if (z.ausschliessen) return 'Ausgeschlossen';
     if (z.duplikat) return 'Duplikat';
-    if (!z.ticket_gefunden) return `${z.parse.a_nummer} nicht in DB`;
+    if (!z.ticket_gefunden) return `⚠ Ticket nicht im System — trotzdem buchbar`;
     if (!z.ma_gefunden) return `MA "${z.parse.mitarbeiter}" nicht erkannt`;
     if (z.parse.fehler.length > 0) return z.parse.fehler[0];
     return '✓ Bereit';
