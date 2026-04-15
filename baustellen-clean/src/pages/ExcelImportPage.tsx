@@ -27,12 +27,13 @@ export default function ExcelImportPage() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [showWarnings, setShowWarnings] = useState(false);
   const [geprueft, setGeprueft] = useState(false);
+  const [warnBestaetigt, setWarnBestaetigt] = useState(false);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
-    setReport(null); setPruefZeilen([]); setGeprueft(false);
+    setReport(null); setPruefZeilen([]); setGeprueft(false); setWarnBestaetigt(false);
     try {
       const buffer = await file.arrayBuffer();
       const result = parseExcelFile(buffer, activeMonth);
@@ -74,7 +75,7 @@ export default function ExcelImportPage() {
       const { data: importRun } = await supabase.from('import_runs').insert({ typ: 'excel', filename: fileName, rows_total: zuImportieren.length, created_by: user.id }).select().single();
       for (const row of zuImportieren) {
         try {
-          const eingangsdatum = row.eingangsdatum?.toISOString().split('T')[0] ?? null;
+          const d = row.eingangsdatum; const eingangsdatum = d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : null;
           const { data: ex } = await supabase.from('tickets').select('id,eingangsdatum').eq('a_nummer', row.a_nummer).maybeSingle();
           if (ex) {
             if (eingangsdatum && !ex.eingangsdatum) { await supabase.from('tickets').update({ eingangsdatum }).eq('id', ex.id); updated++; }
@@ -97,7 +98,7 @@ export default function ExcelImportPage() {
     finally { setImporting(false); }
   };
 
-  const reset = () => { setPruefZeilen([]); setFileName(''); setWarnings([]); setReport(null); setGeprueft(false); if (fileInputRef.current) fileInputRef.current.value = ''; };
+  const reset = () => { setPruefZeilen([]); setFileName(''); setWarnings([]); setReport(null); setGeprueft(false); setWarnBestaetigt(false); if (fileInputRef.current) fileInputRef.current.value = ''; };
   const statusFarbe = (s: PruefStatus) => s === 'ok' ? '#10b981' : s === 'warnung' ? '#f59e0b' : '#ef4444';
   const statusIcon = (s: PruefStatus, aus: boolean) => {
     if (aus) return <XCircle size={14} style={{ color: '#94a3b8' }} />;
@@ -190,8 +191,33 @@ export default function ExcelImportPage() {
               </table>
             </div>
           </div>
+          {/* Warnungs-Bestätigung */}
+          {zuImp.filter(z => z.pruefStatus === 'warnung').length > 0 && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12, padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <AlertTriangle size={16} style={{ color: '#f59e0b', flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#b45309', marginBottom: 4 }}>
+                  {zuImp.filter(z => z.pruefStatus === 'warnung').length} Tickets mit Warnungen — bitte prüfen:
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {zuImp.filter(z => z.pruefStatus === 'warnung').map((z, i) => (
+                    <div key={i} style={{ fontSize: 12, color: '#92400e' }}>
+                      • {z.a_nummer}: {z.pruefHinweis}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                  <input type='checkbox' id='warnBestaetigt' checked={warnBestaetigt} onChange={e => setWarnBestaetigt(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                  <label htmlFor='warnBestaetigt' style={{ fontSize: 13, color: '#b45309', fontWeight: 600, cursor: 'pointer' }}>
+                    Ich habe alle Warnungen geprüft und bestätige den Import
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={doImport} disabled={importing || !zuImp.length}
+            <button onClick={doImport} disabled={importing || !zuImp.length || (zuImp.filter(z => z.pruefStatus === 'warnung').length > 0 && !warnBestaetigt)}
               style={{ padding: '12px 28px', background: importing ? '#94a3b8' : 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: importing ? 'wait' : 'pointer', boxShadow: '0 4px 14px rgba(16,185,129,.25)' }}>
               {importing ? '⏳ Importiere...' : `✓ ${zuImp.length} Tickets jetzt importieren`}
             </button>
