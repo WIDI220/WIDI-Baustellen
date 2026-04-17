@@ -101,8 +101,8 @@ function PoolItemRow({ item, onDragStart, onDragEnd }: {
 }
 
 // ── Einzelner Block (horizontal resize) ───────────────────────────────────
-function PlanBlockEl({ block, onDelete, onUpdateStunden }: {
-  block: PlanBlock; onDelete: () => void; onUpdateStunden: (h: number) => void;
+function PlanBlockEl({ block, onDelete, onUpdateStunden, cellW }: {
+  block: PlanBlock; onDelete: () => void; onUpdateStunden: (h: number) => void; cellW: number;
 }) {
   const farbe = TYP_FARBE[block.typ] ?? '#64748b';
   const resizeRef = useRef<{ startX: number; startH: number } | null>(null);
@@ -111,8 +111,7 @@ function PlanBlockEl({ block, onDelete, onUpdateStunden }: {
   const [editVal, setEditVal] = useState('');
 
   const h = localH ?? block.stunden;
-  // Breite in px: stunden/MAX_H * verfügbare Breite (COL_TAG - 8px padding)
-  const availW = COL_TAG - 8;
+  const availW = Math.max(COL_TAG - 8, cellW - 8);
   const blockW = Math.max(28, Math.min(availW, (h / MAX_H) * availW));
 
   const onResizeStart = (e: React.MouseEvent) => {
@@ -318,11 +317,11 @@ export default function WochenplanungPage() {
 
         {/* Kalender — scroll-Container */}
         <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: COL_MA + 7 * COL_TAG }}>
+          <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%', minWidth: COL_MA + 7 * COL_TAG }}>
             {/* Feste Spaltenbreiten */}
             <colgroup>
-              <col style={{ width: COL_MA }} />
-              {days.map((_, i) => <col key={i} style={{ width: COL_TAG }} />)}
+              <col style={{ width: COL_MA, minWidth: COL_MA }} />
+              {days.map((_, i) => <col key={i} />)}
             </colgroup>
 
             {/* Header — sticky */}
@@ -336,7 +335,7 @@ export default function WochenplanungPage() {
                   const iso = toISO(d);
                   const isToday = iso === today;
                   return (
-                    <th key={i} style={{ width: COL_TAG, minWidth: COL_TAG, maxWidth: COL_TAG, padding: '10px 6px', textAlign: 'center', background: isToday ? 'rgba(99,102,241,0.06)' : '#fff', borderRight: '1px solid #e2e8f0' }}>
+                    <th key={i} style={{ minWidth: 100, padding: '10px 6px', textAlign: 'center', background: isToday ? 'rgba(99,102,241,0.06)' : '#fff', borderRight: '1px solid #e2e8f0' }}>
                       <div style={{ fontSize: 11, fontWeight: isToday ? 800 : 600, color: isToday ? '#6366f1' : '#64748b' }}>{DAYS_KURZ[i]}</div>
                       <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 500, color: isToday ? '#6366f1' : '#0f172a' }}>{fmtDate(d)}</div>
                       {isToday && <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#6366f1', margin: '2px auto 0' }} />}
@@ -386,7 +385,7 @@ export default function WochenplanungPage() {
                           onDragLeave={() => setDragOver(null)}
                           onDrop={() => handleDrop(ma.id, iso)}
                           style={{
-                            width: COL_TAG, minWidth: COL_TAG, maxWidth: COL_TAG,
+                            minWidth: 100,
                             padding: '4px', verticalAlign: 'top',
                             borderRight: '1px solid #e2e8f0',
                             minHeight: 40,
@@ -400,7 +399,8 @@ export default function WochenplanungPage() {
                           {cellBlocks.map(block => (
                             <PlanBlockEl key={block.id} block={block}
                               onDelete={() => deleteBlock(block)}
-                              onUpdateStunden={h => updateStunden(block, h)} />
+                              onUpdateStunden={h => updateStunden(block, h)}
+                              cellW={COL_TAG} />
                           ))}
                         </td>
                       );
