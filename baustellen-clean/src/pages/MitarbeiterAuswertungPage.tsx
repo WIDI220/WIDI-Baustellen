@@ -76,7 +76,6 @@ export default function MitarbeiterAuswertungPage() {
         label: r.monat.slice(0,7),
         Tickets: Number(r.tickets_h),
         Baustellen: Number(r.baustellen_h),
-        DGUV: Number(r.dguv_h),
         Begehungen: Number(r.begehungen_h),
         Intern: Number(r.intern_h),
         Gesamt: Number(r.gesamt_h),
@@ -427,7 +426,6 @@ export default function MitarbeiterAuswertungPage() {
                   {[
                     { key: 'Tickets',    color: '#3b82f6' },
                     { key: 'Baustellen', color: '#10b981' },
-                    { key: 'DGUV',       color: '#0891b2' },
                     { key: 'Begehungen', color: '#f59e0b' },
                     { key: 'Intern',     color: '#8b5cf6' },
                   ].map(({ key, color }) => (
@@ -448,7 +446,6 @@ export default function MitarbeiterAuswertungPage() {
                 {[
                   { key: 'Tickets',    color: '#3b82f6' },
                   { key: 'Baustellen', color: '#10b981' },
-                  { key: 'DGUV',       color: '#0891b2' },
                   { key: 'Begehungen', color: '#f59e0b' },
                   { key: 'Intern',     color: '#8b5cf6' },
                 ].map(({ key, color }) => (
@@ -465,7 +462,7 @@ export default function MitarbeiterAuswertungPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    {['Monat', 'Tickets', 'Baustellen', 'DGUV', 'Begehungen', 'Intern', 'Gesamt'].map(h => (
+                    {['Monat', 'Tickets', 'Baustellen', 'Begehungen', 'Intern', 'Gesamt'].map(h => (
                       <th key={h} style={{ padding: '6px 12px', textAlign: h === 'Monat' ? 'left' : 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
                     ))}
                   </tr>
@@ -487,11 +484,10 @@ export default function MitarbeiterAuswertungPage() {
                         {[
                           { v: row.Tickets,    c: '#3b82f6' },
                           { v: row.Baustellen, c: '#10b981' },
-                          { v: row.DGUV,       c: '#0891b2' },
                           { v: row.Begehungen, c: '#f59e0b' },
                           { v: row.Intern,     c: '#8b5cf6' },
                         ].map(({ v, c }, ci) => (
-                          <td key={ci} style={{ padding: '8px 12px', textAlign: 'right', color: v > 0 ? c : '#e2e8f0', fontWeight: v > 0 ? 700 : 400 }}>
+                          <td key={ci} style={{ padding: '8px 12px', textAlign: 'right', color: v > 0 ? c : '#94a3b8', fontWeight: v > 0 ? 700 : 400 }}>
                             {v > 0 ? `${fmt(v)}h` : '–'}
                           </td>
                         ))}
