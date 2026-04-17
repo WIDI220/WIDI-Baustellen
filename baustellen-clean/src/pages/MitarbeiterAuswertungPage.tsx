@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts';
@@ -67,6 +67,23 @@ export default function MitarbeiterAuswertungPage() {
   });
 
   // Monatliche Aggregation direkt per SQL — kein Frontend-Filtering, keine Typ-Probleme
+  const { data: gesamtverlauf = [] } = useQuery({
+    queryKey: ['monatsverlauf-gesamt'],
+    queryFn: async () => {
+      const { data } = await supabase.rpc('get_monatsverlauf_gesamt');
+      return (data ?? []).map((r: any) => ({
+        monat: r.monat,
+        label: r.monat.slice(0,7),
+        Tickets: Number(r.tickets_h),
+        Baustellen: Number(r.baustellen_h),
+        DGUV: Number(r.dguv_h),
+        Begehungen: Number(r.begehungen_h),
+        Intern: Number(r.intern_h),
+        Gesamt: Number(r.gesamt_h),
+      }));
+    },
+  });
+
   const { data: verlaufRaw = [] } = useQuery({
     queryKey: ['ausw-verlauf-sql'],
     queryFn: async () => {
@@ -379,6 +396,115 @@ export default function MitarbeiterAuswertungPage() {
       {/* ═══════════════════ TAB: ÜBERSICHT ═══════════════════ */}
       {activeTab === 'Übersicht' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* ── Entwicklung 6 Monate ── */}
+          <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', padding: '20px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-.02em' }}>Stundenentwicklung</h3>
+                <p style={{ fontSize: 11, color: '#94a3b8', margin: '2px 0 0' }}>Letzte 6 Monate · Tickets, Baustellen, DGUV, Begehungen, Intern</p>
+              </div>
+              {/* Gesamt des letzten Monats */}
+              {(gesamtverlauf as any[]).length > 0 && (() => {
+                const letzter = (gesamtverlauf as any[])[(gesamtverlauf as any[]).length - 1];
+                const vorletzter = (gesamtverlauf as any[]).length > 1 ? (gesamtverlauf as any[])[(gesamtverlauf as any[]).length - 2] : null;
+                const diff = vorletzter ? letzter.Gesamt - vorletzter.Gesamt : 0;
+                return (
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a' }}>{fmt(letzter.Gesamt)}h</div>
+                    <div style={{ fontSize: 11, color: diff >= 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                      {diff >= 0 ? '↑' : '↓'} {Math.abs(diff).toFixed(1)}h vs. Vormonat
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Grafik */}
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={gesamtverlauf as any[]} margin={{ top: 10, right: 0, left: -10, bottom: 0 }}>
+                <defs>
+                  {[
+                    { key: 'Tickets',    color: '#3b82f6' },
+                    { key: 'Baustellen', color: '#10b981' },
+                    { key: 'DGUV',       color: '#0891b2' },
+                    { key: 'Begehungen', color: '#f59e0b' },
+                    { key: 'Intern',     color: '#8b5cf6' },
+                  ].map(({ key, color }) => (
+                    <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={color} stopOpacity={0.03} />
+                    </linearGradient>
+                  ))}
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
+                <Tooltip
+                  contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 12 }}
+                  formatter={(v: any, name: string) => [`${Number(v).toFixed(1)}h`, name]}
+                />
+                <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                {[
+                  { key: 'Tickets',    color: '#3b82f6' },
+                  { key: 'Baustellen', color: '#10b981' },
+                  { key: 'DGUV',       color: '#0891b2' },
+                  { key: 'Begehungen', color: '#f59e0b' },
+                  { key: 'Intern',     color: '#8b5cf6' },
+                ].map(({ key, color }) => (
+                  <Area key={key} type="monotone" dataKey={key} stackId="1"
+                    stroke={color} strokeWidth={1.5}
+                    fill={`url(#grad-${key})`}
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+
+            {/* Zahlentabelle */}
+            <div style={{ overflowX: 'auto', marginTop: 16 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    {['Monat', 'Tickets', 'Baustellen', 'DGUV', 'Begehungen', 'Intern', 'Gesamt'].map(h => (
+                      <th key={h} style={{ padding: '6px 12px', textAlign: h === 'Monat' ? 'left' : 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(gesamtverlauf as any[]).map((row: any, i: number) => {
+                    const prev = i > 0 ? (gesamtverlauf as any[])[i - 1] : null;
+                    const trend = prev ? row.Gesamt - prev.Gesamt : null;
+                    return (
+                      <tr key={row.monat} style={{ borderBottom: '1px solid #f8fafc', background: i === (gesamtverlauf as any[]).length - 1 ? 'rgba(99,102,241,0.03)' : 'transparent' }}>
+                        <td style={{ padding: '8px 12px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                          {row.monat}
+                          {trend !== null && (
+                            <span style={{ marginLeft: 6, fontSize: 10, color: trend >= 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                              {trend >= 0 ? '↑' : '↓'}{Math.abs(trend).toFixed(0)}h
+                            </span>
+                          )}
+                        </td>
+                        {[
+                          { v: row.Tickets,    c: '#3b82f6' },
+                          { v: row.Baustellen, c: '#10b981' },
+                          { v: row.DGUV,       c: '#0891b2' },
+                          { v: row.Begehungen, c: '#f59e0b' },
+                          { v: row.Intern,     c: '#8b5cf6' },
+                        ].map(({ v, c }, ci) => (
+                          <td key={ci} style={{ padding: '8px 12px', textAlign: 'right', color: v > 0 ? c : '#e2e8f0', fontWeight: v > 0 ? 700 : 400 }}>
+                            {v > 0 ? `${fmt(v)}h` : '–'}
+                          </td>
+                        ))}
+                        <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>
+                          {fmt(row.Gesamt)}h
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {/* KPIs */}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
