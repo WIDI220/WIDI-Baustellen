@@ -16,6 +16,7 @@ interface VorschauZeile {
   duplikat: boolean;
   ausschliessen: boolean;
   custom_stunden: number;
+  gewerk: 'Elektro' | 'Hochbau';
 }
 
 export default function PdfRuecklauf() {
@@ -60,13 +61,13 @@ export default function PdfRuecklauf() {
     return found?.id ?? null;
   }
 
-  async function findTicket(a_nummer: string | null): Promise<{ id: string | null; gefunden: boolean }> {
-    if (!a_nummer) return { id: null, gefunden: false };
+  async function findTicket(a_nummer: string | null): Promise<{ id: string | null; gefunden: boolean; gewerk: 'Elektro' | 'Hochbau' }> {
+    if (!a_nummer) return { id: null, gefunden: false, gewerk: 'Elektro' };
     const { data } = await supabase.from('tickets')
-      .select('id,a_nummer,status')
+      .select('id,a_nummer,status,gewerk')
       .eq('a_nummer', a_nummer)
       .maybeSingle();
-    return { id: data?.id ?? null, gefunden: !!data };
+    return { id: data?.id ?? null, gefunden: !!data, gewerk: (data?.gewerk as 'Elektro' | 'Hochbau') ?? 'Elektro' };
   }
 
   const analyseieren = useCallback(async () => {
@@ -80,7 +81,7 @@ export default function PdfRuecklauf() {
       try {
         const ergebnisse = await parsePdfTickets(datei);
         for (const parse of ergebnisse) {
-          const { id: ticket_id, gefunden: ticket_gefunden } = await findTicket(parse.a_nummer);
+          const { id: ticket_id, gefunden: ticket_gefunden, gewerk: ticket_gewerk } = await findTicket(parse.a_nummer);
           const ma_id = findMA(parse.mitarbeiter);
           const key = `${parse.a_nummer}-${ma_id}-${parse.datumISO}`;
           const duplikat = seenKeys.has(key);
@@ -95,8 +96,9 @@ export default function PdfRuecklauf() {
             ma_id,
             ma_gefunden: !!ma_id,
             duplikat,
-            ausschliessen: duplikat,  // nur echte Duplikate automatisch ausschließen
+            ausschliessen: duplikat,
             custom_stunden: parse.stunden ?? 0,
+            gewerk: ticket_gewerk,
           });
         }
       } catch (err: any) {
@@ -115,6 +117,9 @@ export default function PdfRuecklauf() {
 
   const setStunden = (idx: number, h: number) =>
     setZeilen(prev => prev.map((z, i) => i === idx ? { ...z, custom_stunden: Math.round(h * 4) / 4 } : z));
+
+  const setGewerk = (idx: number, g: 'Elektro' | 'Hochbau') =>
+    setZeilen(prev => prev.map((z, i) => i === idx ? { ...z, gewerk: g } : z));
 
   const buchen = async () => {
     const zuBuchen = zeilen.filter(z => !z.ausschliessen && z.ma_id && z.parse.datumISO);
@@ -141,8 +146,8 @@ export default function PdfRuecklauf() {
 
         if (!ticketId) { fehler++; continue; }
 
-        // Ticket auf erledigt setzen
-        await supabase.from('tickets').update({ status: 'erledigt' }).eq('id', ticketId);
+        // Ticket auf erledigt setzen + Gewerk korrigieren
+        await supabase.from('tickets').update({ status: 'erledigt', gewerk: z.gewerk }).eq('id', ticketId);
 
         // Stunden buchen mit LEISTUNGSDATUM (Erledigungsmonat)
         await supabase.from('ticket_worklogs').insert({
@@ -282,7 +287,7 @@ export default function PdfRuecklauf() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                    {['', 'A-Nummer', 'Mitarbeiter', 'Erledigungsdatum', 'Stunden', 'Bemerkung', 'Status'].map(h => (
+                    {['', 'A-Nummer', 'Gewerk', 'Mitarbeiter', 'Erledigungsdatum', 'Stunden', 'Bemerkung', 'Status'].map(h => (
                       <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
@@ -297,6 +302,13 @@ export default function PdfRuecklauf() {
                       <td style={{ padding: '8px 12px', fontWeight: 700, color: z.ticket_gefunden ? '#0f172a' : '#f59e0b', whiteSpace: 'nowrap' }}
                         title={!z.parse.a_nummer ? `Rohtext: ${z.parse.rawText?.slice(0,200)}` : ''}>
                         {z.parse.a_nummer ?? <span style={{ color: '#ef4444' }}>❌ Nicht erkannt</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
+                        <select value={z.gewerk} onChange={e => setGewerk(i, e.target.value as 'Elektro' | 'Hochbau')}
+                          style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: `1px solid ${z.gewerk === 'Elektro' ? '#bfdbfe' : '#bbf7d0'}`, background: z.gewerk === 'Elektro' ? '#eff6ff' : '#f0fdf4', color: z.gewerk === 'Elektro' ? '#1d4ed8' : '#15803d', fontWeight: 600, cursor: 'pointer' }}>
+                          <option value="Elektro">Elektro</option>
+                          <option value="Hochbau">Hochbau</option>
+                        </select>
                       </td>
                       <td style={{ padding: '8px 12px', color: z.ma_gefunden ? '#0f172a' : '#f59e0b', whiteSpace: 'nowrap' }}>
                         {z.parse.mitarbeiter ?? '–'}
