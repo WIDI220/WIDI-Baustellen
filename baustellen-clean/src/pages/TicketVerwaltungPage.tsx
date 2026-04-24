@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -477,7 +477,7 @@ function exportVerwaltungPDF(
 
 // ─── Hauptseite ───────────────────────────────────────────────────────────────
 export default function TicketVerwaltungPage() {
-  const { user } = useAuth();
+  const user = getLocalSession();
   const qc = useQueryClient();
   const [globalSearch, setGlobalSearch] = useState('');
   const [gewerkFilter, setGewerkFilter] = useState('all');
@@ -528,7 +528,7 @@ export default function TicketVerwaltungPage() {
         await supabase.from('ticket_notes').insert({
           ticket_id: ticketId,
           note: note.trim(),
-          created_by: user?.id,
+          created_by: user?.email,
         });
       }
     },
