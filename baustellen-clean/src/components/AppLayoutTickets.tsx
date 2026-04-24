@@ -3,7 +3,7 @@ import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useMonth } from '@/contexts/MonthContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home, ClipboardList, Timer } from 'lucide-react';
 import { useEffect } from 'react';
 import { logPageVisit } from '@/lib/activityLog';
@@ -86,7 +86,7 @@ function NavItem({ to, icon: Icon, children, badge }: { to: string; icon: any; c
 }
 
 export default function AppLayoutTickets({ children }: { children: ReactNode }) {
-  const { signOut } = useAuth();
+  const signOut = () => { clearLocalSession(); window.location.href = '/'; };
   const navigate = useNavigate();
 
   const { data: openCount = 0 } = useQuery({
