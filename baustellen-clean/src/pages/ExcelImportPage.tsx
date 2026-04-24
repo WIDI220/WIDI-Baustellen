@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { useMonth } from '@/contexts/MonthContext';
 import { parseExcelFile, ParsedTicketRow } from '@/lib/excel-parser';
 import { toast } from 'sonner';
@@ -17,7 +17,7 @@ interface PruefZeile extends ParsedTicketRow {
 }
 
 export default function ExcelImportPage() {
-  const { user } = useAuth();
+  const user = getLocalSession();
   const { activeMonth } = useMonth();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -85,7 +85,7 @@ export default function ExcelImportPage() {
     setImporting(true);
     let inserted = 0, updated = 0, failed = 0;
     try {
-      const { data: importRun } = await supabase.from('import_runs').insert({ typ: 'excel', filename: fileName, rows_total: zuImportieren.length, created_by: user.id }).select().single();
+      const { data: importRun } = await supabase.from('import_runs').insert({ typ: 'excel', filename: fileName, rows_total: zuImportieren.length, created_by: user?.email }).select().single();
       for (const row of zuImportieren) {
         try {
           const d = row.eingangsdatum; const eingangsdatum = d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : null;
@@ -102,7 +102,7 @@ export default function ExcelImportPage() {
         } catch { failed++; }
       }
       if (importRun) await supabase.from('import_runs').update({ rows_inserted: inserted, rows_updated: updated, rows_skipped: failed }).eq('id', importRun.id);
-      await logActivity(user.id, user.email ?? '', `Import: ${inserted} neu, ${updated} akt., ${failed} Fehler — ${fileName}`);
+      await logActivity(user?.email, user.email ?? '', `Import: ${inserted} neu, ${updated} akt., ${failed} Fehler — ${fileName}`);
       // import_runs aktualisieren
       if (importRun) {
         await supabase.from('import_runs').update({
