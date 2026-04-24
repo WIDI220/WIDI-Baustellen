@@ -2,7 +2,7 @@ import { useState } from 'react';
 import emailjs from '@emailjs/browser';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { useMonth } from '@/contexts/MonthContext';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -31,7 +31,7 @@ const EMAILJS_TEMPLATE = 'template_s043jzj';
 const EMAILJS_KEY = 'y7g5YcPgorv_NmH0y';
 
 export default function TicketsPage() {
-  const { user } = useAuth();
+  const user = getLocalSession();
   const { activeMonth } = useMonth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -641,7 +641,7 @@ export default function TicketsPage() {
         <TicketDetail
           ticket={selectedTicket}
           onClose={() => { setSelectedTicket(null); queryClient.invalidateQueries({ queryKey: ['tickets-list'] }); }}
-          userId={user?.id}
+          userId={user?.email}
         />
       )}
     </div>
