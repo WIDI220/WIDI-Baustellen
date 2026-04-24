@@ -722,7 +722,19 @@ function TicketDetail({ ticket, onClose, userId }: { ticket: any; onClose: () =>
             </div>
             <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 13 }}>
-                <div><span style={{ color: '#94a3b8' }}>Gewerk: </span><strong style={{ color: '#0f172a' }}>{ticket.gewerk}</strong></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: '#94a3b8' }}>Gewerk: </span>
+                  <select
+                    defaultValue={ticket.gewerk}
+                    onChange={async e => {
+                      await supabase.from('tickets').update({ gewerk: e.target.value }).eq('id', ticket.id);
+                      queryClient.invalidateQueries({ queryKey: ['tickets-list'] });
+                    }}
+                    style={{ fontSize: 12, padding: '2px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: ticket.gewerk === 'Elektro' ? '#eff6ff' : '#f0fdf4', color: ticket.gewerk === 'Elektro' ? '#1d4ed8' : '#15803d', fontWeight: 700, cursor: 'pointer' }}>
+                    <option value="Elektro">Elektro</option>
+                    <option value="Hochbau">Hochbau</option>
+                  </select>
+                </div>
                 {ticket.melder && ticket.melder !== 'NULL' && <div><span style={{ color: '#94a3b8' }}>Melder: </span><strong style={{ color: '#0f172a' }}>{ticket.melder}</strong></div>}
                 {ticket.raumnr && <div><span style={{ color: '#94a3b8' }}>Raum: </span><strong style={{ color: '#0f172a' }}>{ticket.raumnr}</strong></div>}
               </div>
