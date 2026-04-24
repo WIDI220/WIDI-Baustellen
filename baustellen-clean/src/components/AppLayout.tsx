@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { logPageVisit } from '@/lib/activityLog';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { clearLocalSession } from '@/pages/AuthPage';
 import { useQuery } from '@tanstack/react-query';
 import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, ChevronDown, FileUp, Users, Home, Archive, Zap, Building2, CalendarDays } from 'lucide-react';
 
@@ -107,7 +107,7 @@ function GewerkSection({ label, icon, accentColor, accentBg, items, collapsed, s
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { signOut } = useAuth();
+  const signOut = () => { clearLocalSession(); window.location.href = '/'; };
   const navigate    = useNavigate();
   const location    = useLocation();
 
