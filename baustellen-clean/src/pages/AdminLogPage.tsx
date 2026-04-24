@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Shield, RefreshCw, ChevronLeft, Monitor, MousePointer, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 
 const ADMIN_EMAIL = 'j.paredis@widi-hellersen.de';
 
@@ -18,7 +18,7 @@ const TYPE_CFG: Record<string, { bg: string; color: string; label: string; icon:
 
 export default function AdminLogPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const user = getLocalSession();
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [showPageVisits, setShowPageVisits] = useState(false);
 
