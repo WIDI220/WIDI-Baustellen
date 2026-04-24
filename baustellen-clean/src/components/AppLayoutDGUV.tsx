@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { Shield, BarChart2, Calendar, LogOut, Home, Upload, RefreshCw, CheckCircle, Users, FileUp } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -113,7 +113,7 @@ function SidebarGesamtliste() {
 }
 
 export default function AppLayoutDGUV({ children }: { children: React.ReactNode }) {
-  const { signOut } = useAuth();
+  const signOut = () => { clearLocalSession(); window.location.href = '/'; };
   const location = useLocation();
   const navigate = useNavigate();
 
