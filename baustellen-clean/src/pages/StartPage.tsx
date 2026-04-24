@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/contexts/AuthContext';
+import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield, CalendarDays } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -8,7 +8,8 @@ const ADMIN_EMAIL = 'j.paredis@widi-hellersen.de';
 
 export default function StartPage() {
   const navigate = useNavigate();
-  const { signOut, user } = useAuth();
+  const signOut = () => { clearLocalSession(); window.location.href = '/'; };
+  const user = getLocalSession();
   const isAdmin = user?.email === ADMIN_EMAIL;
 
   const { data: tickets = [] } = useQuery({ queryKey: ['start-tickets'], queryFn: async () => { const { data } = await supabase.from('tickets').select('status'); return data ?? []; } });
