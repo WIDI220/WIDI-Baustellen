@@ -2,7 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { logPageVisit } from '@/lib/activityLog';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { TrendingUp, Users, BarChart2, Calendar, LogOut, Home } from 'lucide-react';
 
 const NAV = [
@@ -15,7 +15,7 @@ const ACCENT = '#8b5cf6';
 const ACCENT_LIGHT = 'rgba(139,92,246,0.15)';
 
 export default function AppLayoutAuswertung({ children }: { children: React.ReactNode }) {
-  const { signOut } = useAuth();
+  const signOut = () => { clearLocalSession(); window.location.href = '/'; };
   const location = useLocation();
   const navigate = useNavigate();
 
