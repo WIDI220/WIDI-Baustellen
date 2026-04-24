@@ -1,7 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
-import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { useState, useEffect } from 'react';
+import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { MonthProvider } from '@/contexts/MonthContext';
 
 // Layouts
@@ -63,17 +64,17 @@ const queryClient = new QueryClient({
 });
 
 function AppRoutes() {
-  const { user, loading } = useAuth();
+  const [loggedIn, setLoggedIn] = useState<boolean>(() => !!getLocalSession());
 
-  if (loading) return (
-    <div className="min-h-screen bg-[#1a3356] flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-    </div>
-  );
+  useEffect(() => {
+    const check = () => setLoggedIn(!!getLocalSession());
+    window.addEventListener('storage', check);
+    return () => window.removeEventListener('storage', check);
+  }, []);
 
-  if (!user) return (
+  if (!loggedIn) return (
     <Routes>
-      <Route path="*" element={<AuthPage />} />
+      <Route path="*" element={<AuthPage onLogin={() => setLoggedIn(true)} />} />
     </Routes>
   );
 
@@ -154,12 +155,12 @@ function AppRoutes() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
+      <>
         <BrowserRouter>
           <AppRoutes />
           <Toaster position="bottom-right" richColors />
         </BrowserRouter>
-      </AuthProvider>
+      </>
     </QueryClientProvider>
   );
 }
