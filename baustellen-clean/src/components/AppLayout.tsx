@@ -2,9 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { logPageVisit } from '@/lib/activityLog';
 import { supabase } from '@/integrations/supabase/client';
-import { clearLocalSession, getLocalSession } from '@/pages/AuthPage';
+import { clearLocalSession } from '@/pages/AuthPage';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, ChevronDown, FileUp, Users, Home, Archive, Zap, Building2, CalendarDays, Settings } from 'lucide-react';
+import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, ChevronDown, FileUp, Users, Home, Archive, Zap, Building2, CalendarDays } from 'lucide-react';
 
 const NAV = [
   { to: '/baustellen/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
@@ -108,7 +108,6 @@ function GewerkSection({ label, icon, accentColor, accentBg, items, collapsed, s
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const signOut = () => { clearLocalSession(); window.location.href = '/'; };
-  const currentUser = getLocalSession();
   const navigate    = useNavigate();
   const location    = useLocation();
 
@@ -346,21 +345,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             style={{ display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 8, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', width: '100%', padding: sidebarCollapsed ? '10px 0' : '8px 12px', background: 'none', border: 'none', borderRadius: 10, color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden' }}>
             {sidebarCollapsed ? <ChevronRight size={14} /> : <><ChevronLeft size={14} /><span style={{ marginLeft: 8 }}>Einklappen</span></>}
           </button>
-          {currentUser?.is_admin && (
-            <NavLink to="/admin" style={({ isActive }) => ({
-              display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 8,
-              justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-              padding: sidebarCollapsed ? '10px 0' : '8px 12px',
-              borderRadius: 10, textDecoration: 'none', fontSize: 12, fontWeight: 600,
-              color: isActive ? '#fff' : 'rgba(255,255,255,0.5)',
-              background: isActive ? 'rgba(99,102,241,0.25)' : 'transparent',
-              border: '1px solid', borderColor: isActive ? 'rgba(99,102,241,0.4)' : 'transparent',
-              marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden',
-            })}>
-              <Settings size={14} style={{ flexShrink: 0 }} />
-              {!sidebarCollapsed && <span style={{ marginLeft: 8 }}>Admin</span>}
-            </NavLink>
-          )}
           <button onClick={signOut} className="collapse-btn"
             style={{ display: 'flex', alignItems: 'center', gap: sidebarCollapsed ? 0 : 8, justifyContent: sidebarCollapsed ? 'center' : 'flex-start', width: '100%', padding: sidebarCollapsed ? '10px 0' : '8px 12px', background: 'none', border: 'none', borderRadius: 10, color: 'rgba(255,255,255,0.3)', fontSize: 12, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden' }}
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#fca5a5'; }}
