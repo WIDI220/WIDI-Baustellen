@@ -251,7 +251,7 @@ export default function StartPage() {
                   <p style={{ color:'#94a3b8', fontSize:11, margin:0 }}>Nur für dich sichtbar</p>
                 </div>
               </div>
-              <button onClick={() => navigate('/admin/log')}
+              <button onClick={() => navigate('/admin')}
                 style={{ padding:'7px 18px', borderRadius:10, border:'none', background:'linear-gradient(135deg,#8b5cf6,#7c3aed)', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 12px rgba(139,92,246,0.3)', transition:'all .2s' }}
                 onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform='translateY(-1px)';(e.currentTarget as HTMLElement).style.boxShadow='0 8px 20px rgba(139,92,246,0.4)';}}
                 onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform='translateY(0)';(e.currentTarget as HTMLElement).style.boxShadow='0 4px 12px rgba(139,92,246,0.3)';}}>
