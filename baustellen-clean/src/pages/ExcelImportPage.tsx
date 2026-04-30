@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { logActivity } from '@/lib/activityLog';
 import { Upload, FileSpreadsheet, CheckCircle, AlertTriangle, XCircle, Info, ChevronDown, ChevronUp, History } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+import { usePermissions } from '@/hooks/usePermissions';
 
 type PruefStatus = 'ok' | 'warnung' | 'duplikat';
 interface PruefZeile extends ParsedTicketRow {
@@ -20,6 +21,7 @@ export default function ExcelImportPage() {
   const user = getLocalSession();
   const { activeMonth } = useMonth();
   const queryClient = useQueryClient();
+  const { canEdit } = usePermissions();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pruefZeilen, setPruefZeilen] = useState<PruefZeile[]>([]);
   const [importing, setImporting] = useState(false);
@@ -237,7 +239,7 @@ export default function ExcelImportPage() {
           )}
 
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={doImport} disabled={importing || !zuImp.length || (zuImp.filter(z => z.pruefStatus === 'warnung').length > 0 && !warnBestaetigt)}
+            <button onClick={doImport} disabled={importing || !zuImp.length || (zuImp.filter(z => z.pruefStatus === 'warnung').length > 0 && !warnBestaetigt) || !canEdit('excel_import')}
               style={{ padding: '12px 28px', background: importing ? '#94a3b8' : 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: importing ? 'wait' : 'pointer', boxShadow: '0 4px 14px rgba(16,185,129,.25)' }}>
               {importing ? '⏳ Importiere...' : `✓ ${zuImp.length} Tickets jetzt importieren`}
             </button>
