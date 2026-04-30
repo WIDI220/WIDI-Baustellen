@@ -55,6 +55,7 @@ import InternePage from '@/pages/InternePage';
 // Auswertung
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
 import AufgabenPage from '@/pages/AufgabenPage';
+import StundenAnfragenPage from '@/pages/StundenAnfragenPage';
 
 
 
@@ -83,6 +84,7 @@ function AppRoutes() {
     <Routes>
       {/* ── Startseite ─────────────────────────────────── */}
       <Route path="/" element={<StartPage />} />
+      <Route path="/stunden-anfragen" element={<StundenAnfragenPage />} />
       <Route path="/admin/log" element={<AdminLogPage />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/planung" element={<WochenplanungPage />} />
