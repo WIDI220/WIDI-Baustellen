@@ -7,6 +7,7 @@ import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home, ClipboardList, Timer } from 'lucide-react';
 import { useEffect } from 'react';
 import { logPageVisit } from '@/lib/activityLog';
+import { usePermissions } from '@/hooks/usePermissions';
 
 function MonthStepper() {
   const { activeMonth, setActiveMonth } = useMonth();
@@ -44,15 +45,15 @@ function MonthStepper() {
 }
 
 const NAV_ITEMS = [
-  { to: '/tickets/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/tickets/verwaltung',    icon: ClipboardList,   label: 'Verwaltung' },
-  { to: '/tickets/liste',         icon: Ticket,          label: 'Tickets' },
-  { to: '/tickets/import',        icon: FileSpreadsheet, label: 'Excel-Import' },
-  { to: '/tickets/pdf-ruecklauf', icon: FileText,        label: 'PDF-Rücklauf' },
-  { to: '/tickets/mitarbeiter',   icon: Users,           label: 'Mitarbeiter' },
-  { to: '/tickets/analyse',       icon: TrendingUp,      label: 'Analyse' },
-  { to: '/tickets/aufgaben',      icon: ClipboardCheck,  label: 'Begehungen' },
-  { to: '/tickets/intern',        icon: Timer,           label: 'Interne Std.' },
+  { to: '/tickets/dashboard',     icon: LayoutDashboard, label: 'Dashboard',     bereich: 'dashboard'    },
+  { to: '/tickets/verwaltung',    icon: ClipboardList,   label: 'Verwaltung',    bereich: 'tickets'      },
+  { to: '/tickets/liste',         icon: Ticket,          label: 'Tickets',       bereich: 'tickets'      },
+  { to: '/tickets/import',        icon: FileSpreadsheet, label: 'Excel-Import',  bereich: 'excel_import' },
+  { to: '/tickets/pdf-ruecklauf', icon: FileText,        label: 'PDF-Rücklauf',  bereich: 'pdf_ruecklauf'},
+  { to: '/tickets/mitarbeiter',   icon: Users,           label: 'Mitarbeiter',   bereich: 'mitarbeiter'  },
+  { to: '/tickets/analyse',       icon: TrendingUp,      label: 'Analyse',       bereich: 'auswertung'   },
+  { to: '/tickets/aufgaben',      icon: ClipboardCheck,  label: 'Begehungen',    bereich: 'begehungen'   },
+  { to: '/tickets/intern',        icon: Timer,           label: 'Interne Std.',  bereich: 'interne_std'  },
 ];
 
 const ACCENT = '#10b981';
@@ -88,6 +89,7 @@ function NavItem({ to, icon: Icon, children, badge }: { to: string; icon: any; c
 export default function AppLayoutTickets({ children }: { children: ReactNode }) {
   const signOut = () => { clearLocalSession(); window.location.href = '/'; };
   const navigate = useNavigate();
+  const { canSee } = usePermissions();
 
   const { data: openCount = 0 } = useQuery({
     queryKey: ['open-ticket-count'],
@@ -167,7 +169,7 @@ export default function AppLayoutTickets({ children }: { children: ReactNode }) 
         {/* Nav */}
         <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,0.2)', fontWeight: 600, padding: '6px 16px 4px', margin: 0 }}>Navigation</p>
         <nav style={{ flex: 1, padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
-          {NAV_ITEMS.map(({ to, icon, label }) => (
+          {NAV_ITEMS.filter(item => canSee(item.bereich)).map(({ to, icon, label }) => (
             <NavItem key={to} to={to} icon={icon} badge={label === 'Verwaltung' ? openCount : undefined}>{label}</NavItem>
           ))}
         </nav>
