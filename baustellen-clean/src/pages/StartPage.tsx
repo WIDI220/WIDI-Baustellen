@@ -1,345 +1,666 @@
-import { useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
-import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield, CalendarDays, Clock, X } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+// ============================================================
+// HANDWERKER ZEITERFASSUNG v2
+// - Mitarbeiter & Baustellen live aus Controlling (readonly)
+// - Vorher/Nachher Fotos
+// - Genehmigen → Verbuchen (2-Stufen-Schutz)
+// ============================================================
 
-// ── Handwerker-App: offene Anfragen zählen (nur lesend) ──────────────────────
-const APP_URL = 'https://syhjjuewkjjihxwiexmz.supabase.co';
-const APP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5aGpqdWV3a2pqaWh4d2lleG16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MTk2NDYsImV4cCI6MjA5MzA5NTY0Nn0.9A-GrkU72IZ3uxkypX5GttN4EXNv46aX4uOY4wUmfaE';
+import { useState, useEffect, useCallback } from "react";
 
-async function fetchOffeneAnfragenCount(): Promise<number> {
-  try {
-    const res = await fetch(`${APP_URL}/rest/v1/zeiteintraege?status=eq.offen&select=id`, {
-      headers: { apikey: APP_KEY, Authorization: `Bearer ${APP_KEY}`, Prefer: 'count=exact' },
-    });
-    const count = res.headers.get('content-range');
-    if (count) return parseInt(count.split('/')[1] || '0', 10);
-    const data = await res.json();
-    return Array.isArray(data) ? data.length : 0;
-  } catch { return 0; }
-}
+// ── Neue App (Handwerker-Daten, Einträge, Fotos) ─────────────
+const APP_URL  = "https://syhjjuewkjjihxwiexmz.supabase.co";
+const APP_KEY  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5aGpqdWV3a2pqaWh4d2lleG16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MTk2NDYsImV4cCI6MjA5MzA5NTY0Nn0.9A-GrkU72IZ3uxkypX5GttN4EXNv46aX4uOY4wUmfaE";
 
-const ADMIN_EMAIL = 'j.paredis@widi-hellersen.de';
+// ── Controlling (NUR LESEN: employees, baustellen | SCHREIBEN: nur nach Bestätigung) ──
+const CTRL_URL = "https://uclsqnpqvphdbeutzzuu.supabase.co";
+const CTRL_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjbHNxbnBxdnBoZGJldXR6enV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxODUzNjQsImV4cCI6MjA4Nzc2MTM2NH0.qpWW_Bx4Lddkf3YEPeVwv0yRU_leRwakojcdfGBELs4";
 
-export default function StartPage() {
-  const navigate = useNavigate();
-  const signOut = () => { clearLocalSession(); window.location.href = '/'; };
-  const user = getLocalSession();
-  const isAdmin = user?.email === ADMIN_EMAIL;
-
-  const { data: tickets = [] } = useQuery({ queryKey: ['start-tickets'], queryFn: async () => { const { data } = await supabase.from('tickets').select('status'); return data ?? []; } });
-  const { data: baustellen = [] } = useQuery({ queryKey: ['start-baustellen'], queryFn: async () => { const { data } = await supabase.from('baustellen').select('status'); return data ?? []; } });
-  const { data: employees = [] } = useQuery({ queryKey: ['start-employees'], queryFn: async () => { const { data } = await supabase.from('employees').select('id').eq('aktiv', true); return data ?? []; } });
-  const { data: recentLogs = [] } = useQuery({ queryKey: ['start-admin-logs'], enabled: isAdmin, queryFn: async () => { const { data } = await supabase.from('activity_log').select('*').order('created_at', { ascending: false }).limit(5); return data ?? []; } });
-
-  // Wochenplanung: Anzahl Einträge diese Woche
-  const now = new Date();
-  const dayOfWeek = now.getDay() || 7;
-  const monday = new Date(now); monday.setDate(now.getDate() - dayOfWeek + 1); monday.setHours(0,0,0,0);
-  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
-  const vonW = `${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,'0')}-${String(monday.getDate()).padStart(2,'0')}`;
-  const bisW = `${sunday.getFullYear()}-${String(sunday.getMonth()+1).padStart(2,'0')}-${String(sunday.getDate()).padStart(2,'0')}`;
-  const dt = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-  const dn = dt.getUTCDay() || 7; dt.setUTCDate(dt.getUTCDate() + 4 - dn);
-  const ys = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
-  const kw = Math.ceil((((dt.getTime() - ys.getTime()) / 86400000) + 1) / 7);
-  const { data: wpEintraege = [] } = useQuery({ queryKey: ['start-wp', vonW], queryFn: async () => { const { data } = await supabase.from('wochenplanung').select('mitarbeiter_id,stunden').gte('datum', vonW).lte('datum', bisW); return data ?? []; } });
-
-  const t = tickets as any[];
-  const b = baustellen as any[];
-  const wp = wpEintraege as any[];
-  const wpMaCount = new Set(wp.map((e:any) => e.mitarbeiter_id)).size;
-  const wpStunden = wp.reduce((s:number, e:any) => s + Number(e.stunden ?? 0), 0);
-
-  // ── Offene Stunden-Anfragen aus Handwerker-App ───────────────────────────
-  const { data: offeneAnfragenCount = 0 } = useQuery({
-    queryKey: ['offene-anfragen-count'],
-    queryFn: fetchOffeneAnfragenCount,
-    refetchInterval: 30000,
+const appApi = async (path, options = {}) => {
+  const res = await fetch(`${APP_URL}/rest/v1/${path}`, {
+    headers: { apikey: APP_KEY, Authorization: `Bearer ${APP_KEY}`, "Content-Type": "application/json", Prefer: options.prefer || "return=representation", ...options.headers },
+    ...options,
   });
-  const [modalGeschlossen, setModalGeschlossen] = useState(false);
-  const zeigeModal = offeneAnfragenCount > 0 && !modalGeschlossen;
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || "Fehler"); }
+  if (res.status === 204) return null;
+  return res.json();
+};
 
-  const BEREICHE = [
-    { path: '/baustellen/dashboard', color: '#2563eb', colorRgb: '37,99,235', icon: HardHat, titel: 'Baustellen', sub: 'Controlling & Management', stat: b.filter(x => x.status !== 'abgerechnet').length, statLabel: 'aktive Projekte', punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'] },
-    { path: '/tickets/dashboard', color: '#10b981', colorRgb: '16,185,129', icon: Ticket, titel: 'Ticketsystem', sub: 'WIDI Controlling', stat: t.filter(x => x.status === 'in_bearbeitung').length, statLabel: 'Tickets offen', punkte: ['Tickets erfassen', 'PDF-Rücklauf OCR', 'Excel-Import', 'Monatsanalyse'] },
-    { path: '/auswertung', color: '#8b5cf6', colorRgb: '139,92,246', icon: TrendingUp, titel: 'MA-Auswertung', sub: 'Mitarbeiter & Statistik', stat: (employees as any[]).length, statLabel: 'Mitarbeiter', punkte: ['Stunden & Kosten', 'Einzelperson', 'Monatsabschluss'] },
-    { path: '/dguv', color: '#f59e0b', colorRgb: '245,158,11', icon: Shield, titel: 'DGUV Prüfung', sub: 'Geräteprüfung & Roadmap', stat: 23352, statLabel: 'Prüflinge gesamt', punkte: ['Rohdaten verarbeiten', 'Roadmap 2025/2026', 'Prüfer-Auswertung', 'Neue Prüflinge'] },
-    { path: '/planung', color: '#6366f1', colorRgb: '99,102,241', icon: CalendarDays, titel: 'Wochenplanung', sub: `KW ${kw} · Personalplanung`, stat: wpMaCount, statLabel: 'MA eingeplant', punkte: ['Baustellen planen', 'Tickets & DGUV', 'Begehungen', 'Interne Stunden'] },
-  ];
+const ctrlRead = async (path) => {
+  const res = await fetch(`${CTRL_URL}/rest/v1/${path}`, {
+    headers: { apikey: CTRL_KEY, Authorization: `Bearer ${CTRL_KEY}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error("Controlling Lesefehler");
+  return res.json();
+};
+
+const ctrlWrite = async (path, body, options = {}) => {
+  const res = await fetch(`${CTRL_URL}/rest/v1/${path}`, {
+    method: options.method || "POST",
+    headers: { apikey: CTRL_KEY, Authorization: `Bearer ${CTRL_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || "Controlling Schreibfehler"); }
+  return res.status === 204 ? null : res.json();
+};
+
+const uploadFoto = async (file, mitarbeiterId) => {
+  const ext = file.name.split(".").pop();
+  const path = `${mitarbeiterId}/${Date.now()}.${ext}`;
+  const res = await fetch(`${APP_URL}/storage/v1/object/fotos/${path}`, {
+    method: "POST",
+    headers: { apikey: APP_KEY, Authorization: `Bearer ${APP_KEY}`, "Content-Type": file.type },
+    body: file,
+  });
+  if (!res.ok) throw new Error("Foto Upload fehlgeschlagen");
+  return `${APP_URL}/storage/v1/object/public/fotos/${path}`;
+};
+
+// ── Konstanten ────────────────────────────────────────────────
+const TYP = {
+  baustelle: { label: "Baustelle",  icon: "🏗️", color: "#e67e22" },
+  ticket:    { label: "Ticket",     icon: "🎫", color: "#3498db" },
+  dguv:      { label: "DGUV",       icon: "🦺", color: "#27ae60" },
+  sonstiges: { label: "Sonstiges",  icon: "📋", color: "#8e44ad" },
+};
+const ST = {
+  offen:      { label: "Offen",      bg: "#fff3cd", color: "#856404" },
+  genehmigt:  { label: "Genehmigt",  bg: "#d1eddb", color: "#0f5132" },
+  abgelehnt:  { label: "Abgelehnt",  bg: "#f8d7da", color: "#842029" },
+  verbucht:   { label: "Verbucht ✓", bg: "#cfe2ff", color: "#084298" },
+};
+
+const inp = { width: "100%", padding: "12px 14px", border: "1.5px solid #e8e6e0", borderRadius: "10px", fontSize: "15px", background: "#fff", color: "#1a1a1a", boxSizing: "border-box", fontFamily: "inherit", outline: "none", marginTop: "6px" };
+const lbl = { fontSize: "13px", fontWeight: "600", color: "#444", display: "block", textTransform: "uppercase", letterSpacing: "0.4px" };
+
+// ── Login ─────────────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    // Lese Mitarbeiter live aus Controlling (nur lesend!)
+    ctrlRead("employees?aktiv=eq.true&order=name.asc&select=id,name,gewerk,kuerzel")
+      .then(data => {
+        // Admin wird separat hinzugefügt – kein Controlling-Mitarbeiter als Admin
+        setList(data);
+      })
+      .catch(() => setError("Mitarbeiter konnten nicht geladen werden"))
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f0f4ff', fontFamily: "'DM Sans', 'Inter', system-ui, sans-serif", display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-
-      {/* ── Stunden-Anfragen Modal ──────────────────────────────────────────── */}
-      {zeigeModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ background: '#fff', borderRadius: 24, padding: 36, maxWidth: 440, width: '100%', boxShadow: '0 30px 80px rgba(0,0,0,0.25)', position: 'relative', animation: 'floatUp 0.4s cubic-bezier(0.16,1,0.3,1) forwards' }}>
-            <button onClick={() => setModalGeschlossen(true)}
-              style={{ position: 'absolute', top: 16, right: 16, background: '#f1f5f9', border: 'none', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
-              <X size={16} />
-            </button>
-            <div style={{ width: 56, height: 56, borderRadius: 16, background: 'linear-gradient(135deg,#f59e0b,#d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: '0 8px 20px rgba(245,158,11,0.35)' }}>
-              <Clock size={26} style={{ color: '#fff' }} />
-            </div>
-            <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 900, color: '#0f172a', letterSpacing: '-0.04em' }}>
-              {offeneAnfragenCount} neue Stunden-{offeneAnfragenCount === 1 ? 'Anfrage' : 'Anfragen'}
-            </h2>
-            <p style={{ margin: '0 0 28px', color: '#64748b', fontSize: 15, lineHeight: 1.6 }}>
-              Deine Handwerker haben Stunden eingereicht die auf deine Genehmigung warten.
-            </p>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => setModalGeschlossen(true)}
-                style={{ flex: 1, padding: '12px', background: '#f1f5f9', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#475569', fontFamily: 'inherit' }}>
-                Später
-              </button>
-              <button onClick={() => { setModalGeschlossen(true); navigate('/stunden-anfragen'); }}
-                style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg,#f59e0b,#d97706)', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', color: '#fff', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(245,158,11,0.4)' }}>
-                <Clock size={15} /> Jetzt prüfen →
-              </button>
-            </div>
-          </div>
+    <div style={{ minHeight: "100vh", background: "#f5f4f0", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", fontFamily: "'DM Sans', sans-serif" }}>
+      <div style={{ width: "100%", maxWidth: "420px" }}>
+        <div style={{ textAlign: "center", marginBottom: "36px" }}>
+          <div style={{ fontSize: "44px", marginBottom: "10px" }}>⚒️</div>
+          <h1 style={{ margin: 0, fontSize: "26px", fontWeight: "700", color: "#1a1a1a", letterSpacing: "-0.5px" }}>Zeiterfassung</h1>
+          <p style={{ margin: "8px 0 0", color: "#666", fontSize: "15px" }}>Wähle deinen Namen</p>
         </div>
-      )}
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;900&family=DM+Mono:wght@400;500&display=swap');
 
-        @keyframes gradientShift {
-          0%,100% { background-position: 0% 50%; }
-          50%      { background-position: 100% 50%; }
-        }
-        @keyframes floatUp {
-          from { opacity:0; transform:translateY(24px); }
-          to   { opacity:1; transform:translateY(0); }
-        }
-        @keyframes fadeIn { from{opacity:0} to{opacity:1} }
-        @keyframes orb1 {
-          0%,100% { transform:translate(0,0) scale(1); }
-          33%     { transform:translate(60px,-40px) scale(1.1); }
-          66%     { transform:translate(-30px,50px) scale(0.95); }
-        }
-        @keyframes orb2 {
-          0%,100% { transform:translate(0,0) scale(1); }
-          33%     { transform:translate(-50px,60px) scale(1.08); }
-          66%     { transform:translate(40px,-30px) scale(1.02); }
-        }
-        @keyframes orb3 {
-          0%,100% { transform:translate(0,0) scale(1); }
-          50%     { transform:translate(30px,40px) scale(1.06); }
-        }
-        @keyframes cardEntrance {
-          from { opacity:0; transform:translateY(32px) scale(0.97); }
-          to   { opacity:1; transform:translateY(0) scale(1); }
-        }
-        @keyframes shimLine {
-          from { transform:translateX(-100%); }
-          to   { transform:translateX(400%); }
-        }
-        @keyframes countUp {
-          from { opacity:0; transform:translateY(8px); }
-          to   { opacity:1; transform:translateY(0); }
-        }
+        {error && <div style={{ background: "#f8d7da", color: "#842029", padding: "12px", borderRadius: "10px", marginBottom: "16px", fontSize: "14px" }}>⚠️ {error}</div>}
 
-        .s-nav { animation: fadeIn 0.4s ease forwards; }
-        .s-hero { animation: floatUp 0.6s cubic-bezier(0.16,1,0.3,1) 0.1s forwards; opacity:0; }
-        .s-chips { animation: floatUp 0.6s cubic-bezier(0.16,1,0.3,1) 0.25s forwards; opacity:0; }
+        {loading ? <p style={{ textAlign: "center", color: "#999" }}>Lade Mitarbeiter...</p> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {/* Admin Login zuerst */}
+            <button onClick={() => onLogin({ id: "admin", name: "Chef / Admin", rolle: "admin" })}
+              style={{ padding: "14px 18px", background: "#1a1a1a", border: "2px solid #1a1a1a", borderRadius: "12px", cursor: "pointer", display: "flex", alignItems: "center", gap: "12px", fontSize: "15px", fontWeight: "600", color: "#fff", fontFamily: "inherit" }}>
+              <span style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#d4612a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "700", flexShrink: 0 }}>A</span>
+              Chef / Admin
+              <span style={{ marginLeft: "auto", fontSize: "11px", background: "#d4612a", padding: "3px 8px", borderRadius: "20px" }}>Admin</span>
+            </button>
 
-        .s-card { opacity:0; animation: cardEntrance 0.7s cubic-bezier(0.16,1,0.3,1) forwards; }
-        .s-card:nth-child(1) { animation-delay: 0.3s; }
-        .s-card:nth-child(2) { animation-delay: 0.42s; }
-        .s-card:nth-child(3) { animation-delay: 0.54s; }
+            <div style={{ height: "1px", background: "#e8e6e0", margin: "6px 0" }} />
 
-        .s-card:hover { transform: translateY(-8px) scale(1.01) !important; }
-        .s-card:hover .card-arrow { transform: translateX(5px); opacity:1 !important; }
-        .s-card:hover .card-bar { width: 100% !important; }
-        .s-card:hover .card-shine { animation: shimLine 0.6s ease forwards; }
+            {list.map(m => (
+              <button key={m.id} onClick={() => onLogin({ ...m, rolle: "handwerker" })}
+                style={{ padding: "14px 18px", background: "#fff", border: "2px solid #e8e6e0", borderRadius: "12px", cursor: "pointer", display: "flex", alignItems: "center", gap: "12px", fontSize: "15px", fontWeight: "500", color: "#1a1a1a", fontFamily: "inherit", transition: "border-color 0.15s" }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = "#d4612a"}
+                onMouseLeave={e => e.currentTarget.style.borderColor = "#e8e6e0"}>
+                <span style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#d4612a22", color: "#d4612a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", fontWeight: "700", flexShrink: 0 }}>
+                  {m.name.charAt(0)}
+                </span>
+                <span style={{ flex: 1, textAlign: "left" }}>{m.name}</span>
+                <span style={{ fontSize: "12px", color: "#999" }}>{m.gewerk}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-        .card-arrow { transition: transform 0.25s ease, opacity 0.25s ease; }
-        .card-bar   { transition: width 0.5s cubic-bezier(0.16,1,0.3,1); }
-        .s-card     { transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), box-shadow 0.3s ease; }
+// ── Neuer Eintrag ─────────────────────────────────────────────
+function NeuerEintrag({ mitarbeiter, onSuccess, onCancel }) {
+  const [baustellen, setBaustellen] = useState([]);
+  const [form, setForm] = useState({ datum: new Date().toISOString().split("T")[0], typ: "", baustelle_id: "", beschreibung: "", stunden: "", material: "", material_kosten: "" });
+  const [fotos, setFotos] = useState({ vorher: null, nachher: null });
+  const [previews, setPreviews] = useState({ vorher: null, nachher: null });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-        .admin-section { animation: floatUp 0.6s cubic-bezier(0.16,1,0.3,1) 0.65s forwards; opacity:0; }
+  useEffect(() => {
+    // Lese Baustellen live aus Controlling – alle aktiven
+    ctrlRead("baustellen?status=not.eq.abgeschlossen&status=not.eq.abgerechnet&order=name.asc&select=id,name,adresse,status")
+      .then(setBaustellen)
+      .catch(() => setBaustellen([]));
+  }, []);
 
-        .chip { transition: all 0.2s ease; }
-        .chip:hover { transform: translateY(-2px); }
-      `}</style>
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-      {/* Animated background orbs */}
-      <div style={{ position:'fixed', inset:0, pointerEvents:'none', zIndex:0 }}>
-        <div style={{ position:'absolute', top:'-10%', left:'-5%', width:600, height:600, borderRadius:'50%', background:'radial-gradient(circle, rgba(37,99,235,0.12) 0%, transparent 70%)', animation:'orb1 18s ease-in-out infinite' }} />
-        <div style={{ position:'absolute', bottom:'-15%', right:'-8%', width:700, height:700, borderRadius:'50%', background:'radial-gradient(circle, rgba(16,185,129,0.10) 0%, transparent 70%)', animation:'orb2 22s ease-in-out infinite' }} />
-        <div style={{ position:'absolute', top:'40%', left:'40%', width:500, height:500, borderRadius:'50%', background:'radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%)', animation:'orb3 15s ease-in-out infinite' }} />
-        {/* Subtle grid */}
-        <div style={{ position:'absolute', inset:0, backgroundImage:'linear-gradient(rgba(37,99,235,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(37,99,235,0.04) 1px, transparent 1px)', backgroundSize:'48px 48px' }} />
+  const handleFoto = (typ, file) => {
+    if (!file) return;
+    setFotos(f => ({ ...f, [typ]: file }));
+    setPreviews(p => ({ ...p, [typ]: URL.createObjectURL(file) }));
+  };
+
+  const handleSubmit = async () => {
+    if (!form.typ) return setError("Bitte Typ wählen");
+    if (!form.stunden || isNaN(form.stunden) || Number(form.stunden) <= 0) return setError("Bitte gültige Stunden eingeben");
+    if (form.typ === "baustelle" && !form.baustelle_id) return setError("Bitte Baustelle wählen");
+    setSaving(true); setError("");
+    try {
+      let foto_vorher = null, foto_nachher = null;
+      if (fotos.vorher) foto_vorher = await uploadFoto(fotos.vorher, mitarbeiter.id);
+      if (fotos.nachher) foto_nachher = await uploadFoto(fotos.nachher, mitarbeiter.id);
+
+      await appApi("zeiteintraege", {
+        method: "POST",
+        body: JSON.stringify({
+          // Wir speichern controlling_employee_id damit wir später verknüpfen können
+          controlling_employee_id: mitarbeiter.id,
+          mitarbeiter_name: mitarbeiter.name,
+          datum: form.datum,
+          typ: form.typ,
+          controlling_baustelle_id: form.baustelle_id || null,
+          beschreibung: form.beschreibung || null,
+          stunden: Number(form.stunden),
+          material: form.material || null,
+          material_kosten: form.material_kosten ? Number(form.material_kosten) : null,
+          foto_vorher,
+          foto_nachher,
+          status: "offen",
+        }),
+      });
+      onSuccess();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ paddingBottom: "80px", fontFamily: "'DM Sans', sans-serif" }}>
+      <div style={{ padding: "18px 20px", borderBottom: "1px solid #e8e6e0", display: "flex", alignItems: "center", gap: "12px", background: "#fff" }}>
+        <button onClick={onCancel} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "22px", color: "#666", padding: 0 }}>←</button>
+        <h2 style={{ margin: 0, fontSize: "18px", fontWeight: "700", color: "#1a1a1a" }}>Neuer Eintrag</h2>
       </div>
 
-      {/* Nav */}
-      <nav className="s-nav" style={{ position:'relative', zIndex:10, display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 48px', height:64, background:'rgba(255,255,255,0.7)', backdropFilter:'blur(20px)', borderBottom:'1px solid rgba(255,255,255,0.8)' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ width:36, height:36, borderRadius:11, background:'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 4px 12px rgba(37,99,235,0.35)' }}>
-            <HardHat size={18} style={{ color:'#fff' }} />
-          </div>
-          <div>
-            <p style={{ color:'#0f172a', fontWeight:900, fontSize:15, margin:0, letterSpacing:'-.02em' }}>WIDI Controlling</p>
-            <p style={{ color:'#94a3b8', fontSize:10, margin:0, fontWeight:500 }}>WIDI Hellersen GmbH</p>
-          </div>
-        </div>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:6, background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:20, padding:'4px 12px' }}>
-            <div style={{ width:7, height:7, borderRadius:'50%', background:'#10b981', boxShadow:'0 0 6px #10b981' }} />
-            <span style={{ fontSize:11, color:'#065f46', fontWeight:700 }}>System aktiv</span>
-          </div>
-          {isAdmin && (
-            <div style={{ display:'flex', alignItems:'center', gap:5, background:'#faf5ff', border:'1px solid #ddd6fe', borderRadius:20, padding:'4px 12px' }}>
-              <Shield size={11} style={{ color:'#8b5cf6' }} />
-              <span style={{ fontSize:11, color:'#6d28d9', fontWeight:700 }}>Admin</span>
-            </div>
-          )}
-          <span style={{ fontSize:12, color:'#94a3b8' }}>{user?.email}</span>
-          <button onClick={() => signOut()}
-            style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 16px', background:'rgba(255,255,255,0.9)', border:'1px solid #e2e8f0', borderRadius:10, color:'#64748b', fontSize:12, fontWeight:600, cursor:'pointer', transition:'all .2s', backdropFilter:'blur(10px)' }}
-            onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#fef2f2';(e.currentTarget as HTMLElement).style.color='#dc2626';(e.currentTarget as HTMLElement).style.borderColor='#fecaca';}}
-            onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='rgba(255,255,255,0.9)';(e.currentTarget as HTMLElement).style.color='#64748b';(e.currentTarget as HTMLElement).style.borderColor='#e2e8f0';}}>
-            <LogOut size={13} /> Abmelden
-          </button>
-        </div>
-      </nav>
-
-      {/* Main Content */}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'48px 48px 40px', position:'relative', zIndex:1 }}>
-
-        {/* Hero */}
-        <div className="s-hero" style={{ textAlign:'center', marginBottom:40, maxWidth:640 }}>
-          <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(37,99,235,0.08)', border:'1px solid rgba(37,99,235,0.15)', borderRadius:100, padding:'6px 18px', marginBottom:20 }}>
-            <div style={{ width:6, height:6, borderRadius:'50%', background:'#2563eb', boxShadow:'0 0 8px rgba(37,99,235,0.6)' }} />
-            <span style={{ fontSize:12, color:'#2563eb', fontWeight:700, letterSpacing:'.04em' }}>
-              {new Date().toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long' })}
-            </span>
-          </div>
-          <h1 style={{ fontSize:54, fontWeight:900, margin:'0 0 14px', letterSpacing:'-.05em', lineHeight:1, color:'#0f172a' }}>
-            Guten Tag
-            <span style={{ display:'block', background:'linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #10b981 100%)', backgroundSize:'200% 200%', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', animation:'gradientShift 4s ease infinite' }}>
-              {user?.email?.split('@')[0].split('.')[0].charAt(0).toUpperCase()}{user?.email?.split('@')[0].split('.')[0].slice(1)} 👋
-            </span>
-          </h1>
-          <p style={{ color:'#64748b', fontSize:16, margin:0, lineHeight:1.6, fontWeight:400 }}>
-            Wähle einen Bereich und starte in den Tag.
-          </p>
-        </div>
-
-        {/* Stats chips */}
-        <div className="s-chips" style={{ display:'flex', gap:10, marginBottom:44, flexWrap:'wrap', justifyContent:'center' }}>
-          {[
-            { icon:Ticket, value:t.filter(x=>x.status==='in_bearbeitung').length, label:'Offen', color:'#2563eb', bg:'rgba(37,99,235,0.08)', border:'rgba(37,99,235,0.2)' },
-            { icon:CheckCircle, value:t.filter(x=>['erledigt','abgerechnet'].includes(x.status)).length, label:'Erledigt', color:'#10b981', bg:'rgba(16,185,129,0.08)', border:'rgba(16,185,129,0.2)' },
-            { icon:AlertCircle, value:b.filter(x=>x.status!=='abgerechnet').length, label:'Baustellen aktiv', color:'#f59e0b', bg:'rgba(245,158,11,0.08)', border:'rgba(245,158,11,0.2)' },
-          ].map((s,i) => (
-            <div key={i} className="chip" style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 20px', background:s.bg, border:`1px solid ${s.border}`, borderRadius:14, backdropFilter:'blur(10px)' }}>
-              <s.icon size={15} style={{ color:s.color }} />
-              <span style={{ color:s.color, fontSize:20, fontWeight:900, letterSpacing:'-.03em' }}>{s.value}</span>
-              <span style={{ color:'#64748b', fontSize:12, fontWeight:600 }}>{s.label}</span>
-            </div>
-          ))}
-          {/* Stunden-Anfragen Chip */}
-          <div className="chip" onClick={() => navigate('/stunden-anfragen')}
-            style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 20px', background: offeneAnfragenCount > 0 ? 'rgba(245,158,11,0.12)' : 'rgba(148,163,184,0.08)', border:`1px solid ${offeneAnfragenCount > 0 ? 'rgba(245,158,11,0.35)' : 'rgba(148,163,184,0.2)'}`, borderRadius:14, backdropFilter:'blur(10px)', cursor:'pointer', position:'relative' }}>
-            <Clock size={15} style={{ color: offeneAnfragenCount > 0 ? '#d97706' : '#94a3b8' }} />
-            <span style={{ color: offeneAnfragenCount > 0 ? '#d97706' : '#94a3b8', fontSize:20, fontWeight:900, letterSpacing:'-.03em' }}>{offeneAnfragenCount}</span>
-            <span style={{ color:'#64748b', fontSize:12, fontWeight:600 }}>Stunden-Anfragen</span>
-            {offeneAnfragenCount > 0 && <div style={{ position:'absolute', top:6, right:8, width:8, height:8, borderRadius:'50%', background:'#d97706', boxShadow:'0 0 6px #d97706' }} />}
-          </div>
-        </div>
-
-        {/* Cards */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:16, width:'100%', maxWidth:1400, marginBottom: isAdmin ? 24 : 0 }}>
-          {BEREICHE.map((bereich, i) => (
-            <div key={i} className="s-card"
-              onClick={() => navigate(bereich.path)}
-              style={{ background:'rgba(255,255,255,0.85)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.9)', borderRadius:24, padding:'28px 26px', cursor:'pointer', position:'relative', overflow:'hidden', boxShadow:'0 4px 24px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)' }}
-              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.boxShadow=`0 20px 60px rgba(${bereich.colorRgb},0.2), 0 4px 20px rgba(0,0,0,0.08)`;(e.currentTarget as HTMLElement).style.borderColor=`rgba(${bereich.colorRgb},0.3)`;}}
-              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.boxShadow='0 4px 24px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)';(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,0.9)';}}>
-
-              {/* Shine effect on hover */}
-              <div className="card-shine" style={{ position:'absolute', top:0, left:0, width:'30%', height:'100%', background:'linear-gradient(90deg,transparent,rgba(255,255,255,0.4),transparent)', pointerEvents:'none', transform:'translateX(-100%)' }} />
-
-              {/* Top gradient line */}
-              <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:`linear-gradient(90deg, ${bereich.color}, ${bereich.color}44)`, borderRadius:'24px 24px 0 0' }} />
-
-              {/* Icon + Stat */}
-              <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:20 }}>
-                <div style={{ width:52, height:52, borderRadius:16, background:`rgba(${bereich.colorRgb},0.1)`, border:`1.5px solid rgba(${bereich.colorRgb},0.2)`, display:'flex', alignItems:'center', justifyContent:'center', transition:'transform 0.3s ease' }}>
-                  <bereich.icon size={24} style={{ color:bereich.color }} />
-                </div>
-                <div style={{ textAlign:'right' }}>
-                  <p style={{ color:bereich.color, fontSize:34, fontWeight:900, margin:0, letterSpacing:'-.05em', lineHeight:1, animation:'countUp 0.5s ease forwards' }}>{bereich.stat}</p>
-                  <p style={{ color:'#94a3b8', fontSize:10, margin:'3px 0 0', fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em' }}>{bereich.statLabel}</p>
-                </div>
-              </div>
-
-              <h2 style={{ color:'#0f172a', fontSize:20, fontWeight:900, margin:'0 0 3px', letterSpacing:'-.03em' }}>{bereich.titel}</h2>
-              <p style={{ color:'#94a3b8', fontSize:12, margin:'0 0 18px', fontWeight:500 }}>{bereich.sub}</p>
-
-              <div style={{ display:'flex', flexDirection:'column', gap:7, marginBottom:22 }}>
-                {bereich.punkte.map(p => (
-                  <div key={p} style={{ display:'flex', alignItems:'center', gap:9 }}>
-                    <div style={{ width:5, height:5, borderRadius:'50%', background:bereich.color, flexShrink:0, opacity:0.6 }} />
-                    <span style={{ fontSize:12, color:'#64748b', fontWeight:500 }}>{p}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Progress bar */}
-              <div style={{ height:2, background:'rgba(0,0,0,0.06)', borderRadius:99, marginBottom:16, overflow:'hidden' }}>
-                <div className="card-bar" style={{ height:'100%', width:'20%', background:`linear-gradient(90deg,${bereich.color},${bereich.color}88)`, borderRadius:99 }} />
-              </div>
-
-              <div style={{ display:'flex', alignItems:'center', gap:6, color:bereich.color, fontSize:13, fontWeight:700 }}>
-                Öffnen
-                <ArrowRight size={14} className="card-arrow" style={{ opacity:0.7 }} />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Admin-Bereich */}
-        {isAdmin && (
-          <div className="admin-section" style={{ width:'100%', maxWidth:1020, background:'rgba(255,255,255,0.85)', backdropFilter:'blur(20px)', borderRadius:20, border:'1px solid rgba(139,92,246,0.2)', padding:'18px 24px', boxShadow:'0 4px 20px rgba(139,92,246,0.08)' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: (recentLogs as any[]).length > 0 ? 14 : 0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <div style={{ width:30, height:30, borderRadius:9, background:'#faf5ff', border:'1px solid #ddd6fe', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  <Shield size={14} style={{ color:'#8b5cf6' }} />
-                </div>
-                <div>
-                  <p style={{ color:'#0f172a', fontWeight:700, fontSize:13, margin:0 }}>Admin — Letzte Aktivitäten</p>
-                  <p style={{ color:'#94a3b8', fontSize:11, margin:0 }}>Nur für dich sichtbar</p>
-                </div>
-              </div>
-              <button onClick={() => navigate('/admin')}
-                style={{ padding:'7px 18px', borderRadius:10, border:'none', background:'linear-gradient(135deg,#8b5cf6,#7c3aed)', color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer', boxShadow:'0 4px 12px rgba(139,92,246,0.3)', transition:'all .2s' }}
-                onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.transform='translateY(-1px)';(e.currentTarget as HTMLElement).style.boxShadow='0 8px 20px rgba(139,92,246,0.4)';}}
-                onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.transform='translateY(0)';(e.currentTarget as HTMLElement).style.boxShadow='0 4px 12px rgba(139,92,246,0.3)';}}>
-                Alle anzeigen →
+      <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "18px" }}>
+        {/* Typ */}
+        <div>
+          <label style={lbl}>Was hast du gemacht?</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "8px" }}>
+            {Object.entries(TYP).map(([key, cfg]) => (
+              <button key={key} onClick={() => set("typ", key)} style={{
+                padding: "14px 10px", border: `2px solid ${form.typ === key ? cfg.color : "#e8e6e0"}`,
+                borderRadius: "12px", background: form.typ === key ? cfg.color + "18" : "#fff",
+                cursor: "pointer", display: "flex", alignItems: "center", gap: "8px",
+                fontSize: "14px", fontWeight: form.typ === key ? "600" : "400",
+                color: form.typ === key ? cfg.color : "#555", fontFamily: "inherit",
+              }}>
+                <span style={{ fontSize: "20px" }}>{cfg.icon}</span>{cfg.label}
               </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Datum */}
+        <div><label style={lbl}>Datum</label><input type="date" value={form.datum} onChange={e => set("datum", e.target.value)} style={inp} /></div>
+
+        {/* Baustelle */}
+        {form.typ === "baustelle" && (
+          <div>
+            <label style={lbl}>Baustelle</label>
+            <select value={form.baustelle_id} onChange={e => set("baustelle_id", e.target.value)} style={inp}>
+              <option value="">-- Baustelle wählen --</option>
+              {baustellen.map(b => <option key={b.id} value={b.id}>{b.name}{b.adresse ? ` · ${b.adresse}` : ""}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* Beschreibung */}
+        <div>
+          <label style={lbl}>Beschreibung <span style={{ color: "#999", fontWeight: 400 }}>(optional)</span></label>
+          <textarea value={form.beschreibung} onChange={e => set("beschreibung", e.target.value)} placeholder="Was genau wurde gemacht?" rows={3} style={{ ...inp, resize: "vertical" }} />
+        </div>
+
+        {/* Stunden */}
+        <div><label style={lbl}>Stunden</label><input type="number" value={form.stunden} onChange={e => set("stunden", e.target.value)} placeholder="z.B. 3.5" step="0.25" min="0.25" max="24" style={inp} /></div>
+
+        {/* Material */}
+        <div>
+          <label style={lbl}>Material <span style={{ color: "#999", fontWeight: 400 }}>(optional)</span></label>
+          <input type="text" value={form.material} onChange={e => set("material", e.target.value)} placeholder="z.B. Kabel 10m, Schrauben..." style={inp} />
+        </div>
+        {form.material && (
+          <div><label style={lbl}>Materialkosten (€)</label><input type="number" value={form.material_kosten} onChange={e => set("material_kosten", e.target.value)} placeholder="z.B. 45.00" step="0.01" style={inp} /></div>
+        )}
+
+        {/* Vorher/Nachher Fotos (nur bei Baustelle) */}
+        {form.typ === "baustelle" && (
+          <div>
+            <label style={lbl}>Dokumentation Fotos</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "8px" }}>
+              {["vorher", "nachher"].map(typ => (
+                <div key={typ}>
+                  <label style={{
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
+                    padding: "14px 10px", border: `2px dashed ${previews[typ] ? "#27ae60" : "#d0cec8"}`,
+                    borderRadius: "12px", cursor: "pointer", color: "#666", fontSize: "13px",
+                    background: previews[typ] ? "#f0faf4" : "#fafaf8", textAlign: "center",
+                  }}>
+                    <span style={{ fontSize: "24px" }}>{typ === "vorher" ? "📷" : "✅"}</span>
+                    <span style={{ fontWeight: "600", textTransform: "capitalize" }}>{typ === "vorher" ? "Vorher" : "Nachher"}</span>
+                    {previews[typ] ? <span style={{ color: "#27ae60", fontSize: "12px" }}>Foto ✓</span> : <span style={{ fontSize: "11px", color: "#aaa" }}>Foto hochladen</span>}
+                    <input type="file" accept="image/*" capture="environment" onChange={e => handleFoto(typ, e.target.files[0])} style={{ display: "none" }} />
+                  </label>
+                  {previews[typ] && <img src={previews[typ]} alt={typ} style={{ width: "100%", borderRadius: "8px", marginTop: "6px", height: "100px", objectFit: "cover" }} />}
+                </div>
+              ))}
             </div>
-            {(recentLogs as any[]).length > 0 && (
-              <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-                {(recentLogs as any[]).map((log: any) => (
-                  <div key={log.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'7px 12px', background:'rgba(139,92,246,0.04)', borderRadius:10, fontSize:12 }}>
-                    <div style={{ width:5, height:5, borderRadius:'50%', background:'#8b5cf6', flexShrink:0 }} />
-                    <span style={{ color:'#6d28d9', fontWeight:700, flexShrink:0, minWidth:80 }}>{log.user_email?.split('@')[0].replace('.',' ')}</span>
-                    <span style={{ color:'#64748b', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{log.action}</span>
-                    <span style={{ color:'#94a3b8', fontFamily:'DM Mono, monospace', fontSize:11, flexShrink:0 }}>
-                      {new Date(log.created_at).toLocaleString('de-DE',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
-                    </span>
-                  </div>
-                ))}
+          </div>
+        )}
+
+        {/* Sonstiges Foto */}
+        {form.typ !== "baustelle" && (
+          <div>
+            <label style={lbl}>Foto / Beleg <span style={{ color: "#999", fontWeight: 400 }}>(optional)</span></label>
+            <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", border: "2px dashed #d0cec8", borderRadius: "12px", cursor: "pointer", color: "#666", fontSize: "14px", marginTop: "6px", background: "#fafaf8" }}>
+              <span style={{ fontSize: "20px" }}>📷</span>
+              {previews.vorher ? "Foto ausgewählt ✓" : "Foto hochladen"}
+              <input type="file" accept="image/*" capture="environment" onChange={e => handleFoto("vorher", e.target.files[0])} style={{ display: "none" }} />
+            </label>
+            {previews.vorher && <img src={previews.vorher} alt="Beleg" style={{ width: "100%", borderRadius: "8px", marginTop: "8px", maxHeight: "180px", objectFit: "cover" }} />}
+          </div>
+        )}
+
+        {error && <div style={{ background: "#f8d7da", color: "#842029", padding: "12px 16px", borderRadius: "10px", fontSize: "14px" }}>⚠️ {error}</div>}
+
+        <button onClick={handleSubmit} disabled={saving} style={{ padding: "16px", background: saving ? "#ccc" : "#d4612a", color: "#fff", border: "none", borderRadius: "12px", fontSize: "16px", fontWeight: "700", cursor: saving ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+          {saving ? "Wird gespeichert..." : "Eintrag einreichen ✓"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Mitarbeiter Dashboard ─────────────────────────────────────
+function MitarbeiterDashboard({ user }) {
+  const [view, setView] = useState("list");
+  const [eintraege, setEintraege] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    appApi(`zeiteintraege?controlling_employee_id=eq.${user.id}&order=erstellt_am.desc&limit=60`)
+      .then(setEintraege).finally(() => setLoading(false));
+  }, [user.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (view === "neu") return <NeuerEintrag mitarbeiter={user} onSuccess={() => { load(); setView("list"); }} onCancel={() => setView("list")} />;
+
+  const offene = eintraege.filter(e => e.status === "offen").length;
+  return (
+    <div style={{ paddingBottom: "80px", fontFamily: "'DM Sans', sans-serif" }}>
+      <div style={{ padding: "20px", background: "#1a1a1a", color: "#fff" }}>
+        <p style={{ margin: 0, fontSize: "13px", opacity: 0.6 }}>Eingeloggt als</p>
+        <h2 style={{ margin: "4px 0 0", fontSize: "20px", fontWeight: "700" }}>{user.name}</h2>
+        {offene > 0 && <p style={{ margin: "6px 0 0", fontSize: "13px", opacity: 0.7 }}>{offene} Eintrag{offene > 1 ? "träge" : ""} wartet auf Genehmigung</p>}
+      </div>
+      <div style={{ padding: "16px 20px" }}>
+        <button onClick={() => setView("neu")} style={{ width: "100%", padding: "16px", background: "#d4612a", color: "#fff", border: "none", borderRadius: "12px", fontSize: "16px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+          <span style={{ fontSize: "20px" }}>+</span> Neuen Eintrag erstellen
+        </button>
+      </div>
+      <div style={{ padding: "0 20px" }}>
+        <h3 style={{ margin: "0 0 12px", fontSize: "13px", fontWeight: "600", color: "#999", textTransform: "uppercase", letterSpacing: "0.5px" }}>Meine Einträge</h3>
+        {loading ? <p style={{ color: "#999", textAlign: "center", padding: "40px 0" }}>Laden...</p> :
+         eintraege.length === 0 ? <p style={{ color: "#999", textAlign: "center", padding: "40px 0" }}>Noch keine Einträge</p> :
+         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+           {eintraege.map(e => <EintragCard key={e.id} e={e} onReload={load} />)}
+         </div>}
+      </div>
+    </div>
+  );
+}
+
+// ── Admin Dashboard ───────────────────────────────────────────
+function AdminDashboard() {
+  const [eintraege, setEintraege] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("offen");
+  const [kommentar, setKommentar] = useState({});
+  const [verbuchenId, setVerbuchenId] = useState(null);
+  const [verbuchenLoading, setVerbuchenLoading] = useState(false);
+  const [verbuchenError, setVerbuchenError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setEintraege(await appApi("zeiteintraege?order=erstellt_am.desc&limit=300")); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleAction = async (id, status) => {
+    await appApi(`zeiteintraege?id=eq.${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, admin_kommentar: kommentar[id] || null, bearbeitet_am: new Date().toISOString() }),
+    });
+    setKommentar(k => { const n = { ...k }; delete n[id]; return n; });
+    load();
+  };
+
+  // ── VERBUCHEN: schreibt ins Controlling (nur nach expliziter Bestätigung) ──
+  const handleVerbuchen = async (eintrag) => {
+    setVerbuchenLoading(true);
+    setVerbuchenError("");
+    try {
+      if (eintrag.typ === "baustelle" && eintrag.controlling_baustelle_id) {
+        // → bs_stundeneintraege
+        await ctrlWrite("bs_stundeneintraege", {
+          baustelle_id: eintrag.controlling_baustelle_id,
+          mitarbeiter_id: eintrag.controlling_employee_id,
+          datum: eintrag.datum,
+          stunden: eintrag.stunden,
+          beschreibung: eintrag.beschreibung || `App-Eintrag: ${eintrag.mitarbeiter_name}`,
+        });
+        // → bs_fotos wenn vorhanden
+        if (eintrag.foto_vorher) {
+          await ctrlWrite("bs_fotos", { baustelle_id: eintrag.controlling_baustelle_id, url: eintrag.foto_vorher, kategorie: "vorher", datum: eintrag.datum, hochgeladen_von: eintrag.controlling_employee_id, beschreibung: `Vorher – ${eintrag.mitarbeiter_name}` });
+        }
+        if (eintrag.foto_nachher) {
+          await ctrlWrite("bs_fotos", { baustelle_id: eintrag.controlling_baustelle_id, url: eintrag.foto_nachher, kategorie: "nachher", datum: eintrag.datum, hochgeladen_von: eintrag.controlling_employee_id, beschreibung: `Nachher – ${eintrag.mitarbeiter_name}` });
+        }
+      } else if (eintrag.typ === "dguv") {
+        // → interne_stunden
+        await ctrlWrite("interne_stunden", { employee_id: eintrag.controlling_employee_id, datum: eintrag.datum, stunden: eintrag.stunden, beschreibung: `DGUV – ${eintrag.beschreibung || ""}` });
+      } else if (eintrag.typ === "sonstiges") {
+        // → interne_stunden
+        await ctrlWrite("interne_stunden", { employee_id: eintrag.controlling_employee_id, datum: eintrag.datum, stunden: eintrag.stunden, beschreibung: eintrag.beschreibung || "Sonstiges" });
+      } else if (eintrag.typ === "ticket") {
+        // → ticket_worklogs (ohne ticket_id, da wir keine haben – Beschreibung als Hinweis)
+        await ctrlWrite("interne_stunden", { employee_id: eintrag.controlling_employee_id, datum: eintrag.datum, stunden: eintrag.stunden, beschreibung: `Ticket – ${eintrag.beschreibung || ""}` });
+      }
+      // Status auf verbucht setzen
+      await appApi(`zeiteintraege?id=eq.${eintrag.id}`, { method: "PATCH", body: JSON.stringify({ status: "verbucht", bearbeitet_am: new Date().toISOString() }) });
+      setVerbuchenId(null);
+      load();
+    } catch (e) { setVerbuchenError(e.message); }
+    finally { setVerbuchenLoading(false); }
+  };
+
+  const gefiltert = eintraege.filter(e => e.status === filter);
+  const counts = { offen: eintraege.filter(e => e.status === "offen").length, genehmigt: eintraege.filter(e => e.status === "genehmigt").length };
+
+  return (
+    <div style={{ paddingBottom: "80px", fontFamily: "'DM Sans', sans-serif" }}>
+      {/* Verbuchen Bestätigungs-Modal */}
+      {verbuchenId && (() => {
+        const e = eintraege.find(x => x.id === verbuchenId);
+        if (!e) return null;
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+            <div style={{ background: "#fff", borderRadius: "20px 20px 0 0", padding: "28px 24px 40px", width: "100%", maxWidth: "480px" }}>
+              <h3 style={{ margin: "0 0 8px", fontSize: "18px", fontWeight: "700", color: "#1a1a1a" }}>⚠️ Ins Controlling verbuchen?</h3>
+              <p style={{ margin: "0 0 16px", color: "#555", fontSize: "14px", lineHeight: "1.5" }}>
+                Dieser Eintrag wird <strong>dauerhaft</strong> in dein Controlling-System geschrieben. Das kann nicht rückgängig gemacht werden.
+              </p>
+              <div style={{ background: "#f5f4f0", borderRadius: "10px", padding: "14px", marginBottom: "20px", fontSize: "14px", color: "#333" }}>
+                <div><strong>{e.mitarbeiter_name}</strong> · {e.datum}</div>
+                <div>{TYP[e.typ]?.label} · {e.stunden}h</div>
+                {e.beschreibung && <div style={{ color: "#666", marginTop: "4px" }}>{e.beschreibung}</div>}
+              </div>
+              {verbuchenError && <div style={{ background: "#f8d7da", color: "#842029", padding: "10px", borderRadius: "8px", marginBottom: "14px", fontSize: "13px" }}>❌ {verbuchenError}</div>}
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button onClick={() => { setVerbuchenId(null); setVerbuchenError(""); }} style={{ flex: 1, padding: "14px", background: "#f5f4f0", border: "none", borderRadius: "12px", fontSize: "15px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>Abbrechen</button>
+                <button onClick={() => handleVerbuchen(e)} disabled={verbuchenLoading} style={{ flex: 1, padding: "14px", background: verbuchenLoading ? "#ccc" : "#084298", color: "#fff", border: "none", borderRadius: "12px", fontSize: "15px", fontWeight: "700", cursor: verbuchenLoading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>
+                  {verbuchenLoading ? "Wird verbucht..." : "Jetzt verbuchen ✓"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      <div style={{ padding: "20px", background: "#1a1a1a", color: "#fff" }}>
+        <p style={{ margin: 0, fontSize: "13px", opacity: 0.6 }}>Admin</p>
+        <h2 style={{ margin: "4px 0 0", fontSize: "20px", fontWeight: "700" }}>Genehmigungen</h2>
+        <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+          {counts.offen > 0 && <span style={{ background: "#d4612a", padding: "3px 12px", borderRadius: "20px", fontSize: "13px", fontWeight: "600" }}>{counts.offen} offen</span>}
+          {counts.genehmigt > 0 && <span style={{ background: "#0f5132", padding: "3px 12px", borderRadius: "20px", fontSize: "13px", fontWeight: "600" }}>{counts.genehmigt} zu verbuchen</span>}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", borderBottom: "1px solid #e8e6e0", background: "#fff", overflowX: "auto" }}>
+        {["offen", "genehmigt", "verbucht", "abgelehnt"].map(s => (
+          <button key={s} onClick={() => setFilter(s)} style={{
+            padding: "12px 16px", border: "none", background: "none", cursor: "pointer", whiteSpace: "nowrap",
+            fontSize: "14px", fontWeight: filter === s ? "600" : "400",
+            color: filter === s ? "#d4612a" : "#666",
+            borderBottom: filter === s ? "2px solid #d4612a" : "2px solid transparent",
+            fontFamily: "inherit",
+          }}>
+            {ST[s]?.label || s}
+            {(s === "offen" && counts.offen > 0) && <span style={{ marginLeft: "6px", background: "#d4612a", color: "#fff", borderRadius: "10px", padding: "1px 7px", fontSize: "11px" }}>{counts.offen}</span>}
+            {(s === "genehmigt" && counts.genehmigt > 0) && <span style={{ marginLeft: "6px", background: "#0f5132", color: "#fff", borderRadius: "10px", padding: "1px 7px", fontSize: "11px" }}>{counts.genehmigt}</span>}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: "14px" }}>
+        {loading ? <p style={{ color: "#999", textAlign: "center", padding: "40px 0" }}>Laden...</p> :
+         gefiltert.length === 0 ? <p style={{ color: "#999", textAlign: "center", padding: "40px 0" }}>Keine Einträge</p> :
+         gefiltert.map(e => (
+          <div key={e.id} style={{ background: "#fff", border: "1px solid #e8e6e0", borderRadius: "14px", overflow: "hidden" }}>
+            <div style={{ padding: "14px 16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+                <span style={{ fontSize: "22px" }}>{TYP[e.typ]?.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: "600", fontSize: "15px", color: "#1a1a1a" }}>{e.mitarbeiter_name}</div>
+                  <div style={{ fontSize: "13px", color: "#666" }}>{new Date(e.datum).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}</div>
+                </div>
+                <span style={{ fontSize: "15px", fontWeight: "700", color: TYP[e.typ]?.color }}>{e.stunden}h</span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                <Pill color={TYP[e.typ]?.color}>{TYP[e.typ]?.label}</Pill>
+                <Pill color={e.status === "verbucht" ? "#084298" : e.status === "genehmigt" ? "#0f5132" : "#666"}>{ST[e.status]?.label}</Pill>
+              </div>
+              {e.beschreibung && <p style={{ margin: "6px 0", fontSize: "14px", color: "#444" }}>{e.beschreibung}</p>}
+              {e.material && <p style={{ margin: "4px 0", fontSize: "13px", color: "#666" }}>📦 {e.material}{e.material_kosten ? ` — ${e.material_kosten}€` : ""}</p>}
+              {/* Vorher/Nachher Fotos */}
+              {(e.foto_vorher || e.foto_nachher) && (
+                <div style={{ display: "grid", gridTemplateColumns: e.foto_vorher && e.foto_nachher ? "1fr 1fr" : "1fr", gap: "8px", marginTop: "10px" }}>
+                  {e.foto_vorher && (
+                    <div>
+                      <div style={{ fontSize: "11px", fontWeight: "600", color: "#666", marginBottom: "4px" }}>VORHER</div>
+                      <img src={e.foto_vorher} alt="Vorher" style={{ width: "100%", borderRadius: "8px", height: "120px", objectFit: "cover" }} />
+                    </div>
+                  )}
+                  {e.foto_nachher && (
+                    <div>
+                      <div style={{ fontSize: "11px", fontWeight: "600", color: "#27ae60", marginBottom: "4px" }}>NACHHER</div>
+                      <img src={e.foto_nachher} alt="Nachher" style={{ width: "100%", borderRadius: "8px", height: "120px", objectFit: "cover" }} />
+                    </div>
+                  )}
+                </div>
+              )}
+              {e.admin_kommentar && <p style={{ margin: "8px 0 0", fontSize: "13px", color: "#666", fontStyle: "italic" }}>💬 {e.admin_kommentar}</p>}
+            </div>
+
+            {/* Aktionen: offen → genehmigen/ablehnen */}
+            {e.status === "offen" && (
+              <div style={{ padding: "12px 16px", background: "#fafaf8", borderTop: "1px solid #f0ede8" }}>
+                <input placeholder="Kommentar (optional)..." value={kommentar[e.id] || ""} onChange={ev => setKommentar(k => ({ ...k, [e.id]: ev.target.value }))} style={{ ...inp, marginBottom: "10px", fontSize: "13px", padding: "8px 12px" }} />
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button onClick={() => handleAction(e.id, "genehmigt")} style={{ flex: 1, padding: "12px", background: "#27ae60", color: "#fff", border: "none", borderRadius: "10px", fontSize: "14px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>✓ Genehmigen</button>
+                  <button onClick={() => handleAction(e.id, "abgelehnt")} style={{ flex: 1, padding: "12px", background: "#e74c3c", color: "#fff", border: "none", borderRadius: "10px", fontSize: "14px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>✗ Ablehnen</button>
+                </div>
+              </div>
+            )}
+
+            {/* Aktionen: genehmigt → verbuchen (explizite Bestätigung!) */}
+            {e.status === "genehmigt" && (
+              <div style={{ padding: "12px 16px", background: "#f0faf4", borderTop: "1px solid #d1eddb" }}>
+                <button onClick={() => setVerbuchenId(e.id)} style={{ width: "100%", padding: "12px", background: "#084298", color: "#fff", border: "none", borderRadius: "10px", fontSize: "14px", fontWeight: "700", cursor: "pointer", fontFamily: "inherit" }}>
+                  📤 Ins Controlling verbuchen
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Shared ────────────────────────────────────────────────────
+function EintragCard({ e, onReload }) {
+  const cfg = TYP[e.typ] || {}; const st = ST[e.status] || {};
+  const [uploading, setUploading] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [done, setDone] = useState(false);
+
+  const kannNachherFoto = e.typ === "baustelle" && !e.foto_nachher && e.status !== "verbucht";
+
+  const handleNachherFoto = async (file) => {
+    if (!file) return;
+    setPreview(URL.createObjectURL(file));
+    setUploading(true);
+    try {
+      const url = await uploadFoto(file, e.controlling_employee_id);
+      await appApi(`zeiteintraege?id=eq.${e.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ foto_nachher: url }),
+      });
+      setDone(true);
+      if (onReload) onReload();
+    } catch (err) {
+      alert("Fehler beim Hochladen: " + err.message);
+      setPreview(null);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #e8e6e0", borderRadius: "12px", overflow: "hidden" }}>
+      <div style={{ padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <span style={{ fontSize: "22px" }}>{cfg.icon}</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontWeight: "600", fontSize: "14px", color: cfg.color }}>{cfg.label}</span>
+            </div>
+            <div style={{ fontSize: "13px", color: "#999", marginTop: "2px" }}>{new Date(e.datum).toLocaleDateString("de-DE")} · {e.stunden}h</div>
+          </div>
+          <span style={{ fontSize: "12px", padding: "4px 10px", borderRadius: "20px", background: st.bg, color: st.color, fontWeight: "500", whiteSpace: "nowrap" }}>{st.label}</span>
+        </div>
+        {e.beschreibung && <p style={{ margin: "8px 0 0", fontSize: "13px", color: "#555" }}>{e.beschreibung}</p>}
+        {e.admin_kommentar && <p style={{ margin: "6px 0 0", fontSize: "13px", color: "#888", fontStyle: "italic" }}>💬 {e.admin_kommentar}</p>}
+
+        {/* Vorhandene Fotos anzeigen */}
+        {(e.foto_vorher || e.foto_nachher) && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "10px" }}>
+            {e.foto_vorher && (
+              <div>
+                <div style={{ fontSize: "10px", fontWeight: "700", color: "#666", marginBottom: "3px" }}>VORHER</div>
+                <img src={e.foto_vorher} alt="Vorher" style={{ width: "100%", borderRadius: "6px", height: "80px", objectFit: "cover" }} />
+              </div>
+            )}
+            {e.foto_nachher && (
+              <div>
+                <div style={{ fontSize: "10px", fontWeight: "700", color: "#27ae60", marginBottom: "3px" }}>NACHHER</div>
+                <img src={e.foto_nachher} alt="Nachher" style={{ width: "100%", borderRadius: "6px", height: "80px", objectFit: "cover" }} />
               </div>
             )}
           </div>
         )}
       </div>
+
+      {/* Nachher-Foto nachträglich hinzufügen */}
+      {kannNachherFoto && !done && (
+        <div style={{ padding: "10px 16px 14px", borderTop: "1px solid #f0ede8", background: "#fafaf8" }}>
+          {preview ? (
+            <div>
+              <div style={{ fontSize: "11px", fontWeight: "700", color: "#27ae60", marginBottom: "4px" }}>NACHHER VORSCHAU</div>
+              <img src={preview} alt="Vorschau" style={{ width: "100%", borderRadius: "8px", maxHeight: "140px", objectFit: "cover" }} />
+              {uploading && <p style={{ margin: "6px 0 0", fontSize: "12px", color: "#999", textAlign: "center" }}>Wird hochgeladen...</p>}
+            </div>
+          ) : (
+            <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", border: "2px dashed #d0cec8", borderRadius: "10px", cursor: "pointer", background: "#fff" }}>
+              <span style={{ fontSize: "18px" }}>✅</span>
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: "600", color: "#444" }}>Nachher-Foto hinzufügen</div>
+                <div style={{ fontSize: "11px", color: "#aaa" }}>Arbeit abgeschlossen? Foto machen</div>
+              </div>
+              <input type="file" accept="image/*" capture="environment" onChange={ev => handleNachherFoto(ev.target.files[0])} style={{ display: "none" }} />
+            </label>
+          )}
+        </div>
+      )}
+
+      {/* Erfolgsmeldung */}
+      {done && (
+        <div style={{ padding: "10px 16px", background: "#f0faf4", borderTop: "1px solid #d1eddb", fontSize: "13px", color: "#0f5132", fontWeight: "600" }}>
+          ✓ Nachher-Foto wurde hinzugefügt
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Pill({ children, color }) {
+  return <span style={{ fontSize: "12px", padding: "3px 10px", borderRadius: "20px", background: color + "18", color, fontWeight: "500" }}>{children}</span>;
+}
+
+function BottomNav({ user, view, setView, onLogout }) {
+  return (
+    <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#fff", borderTop: "1px solid #e8e6e0", display: "flex", padding: "8px 16px 12px", gap: "4px", maxWidth: "480px", margin: "0 auto" }}>
+      {user.rolle === "admin"
+        ? <NavBtn active={view === "admin"} onClick={() => setView("admin")} icon="📋" label="Genehmigungen" />
+        : <NavBtn active={view === "dashboard"} onClick={() => setView("dashboard")} icon="🏠" label="Meine Einträge" />}
+      <NavBtn active={false} onClick={onLogout} icon="👤" label="Abmelden" />
+    </div>
+  );
+}
+
+function NavBtn({ active, onClick, icon, label }) {
+  return (
+    <button onClick={onClick} style={{ flex: 1, padding: "8px 4px", background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: "3px", fontFamily: "inherit", color: active ? "#d4612a" : "#888" }}>
+      <span style={{ fontSize: "22px" }}>{icon}</span>
+      <span style={{ fontSize: "11px", fontWeight: active ? "600" : "400" }}>{label}</span>
+    </button>
+  );
+}
+
+// ── App Root ──────────────────────────────────────────────────
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [view, setView] = useState(null);
+
+  const handleLogin = (m) => { setUser(m); setView(m.rolle === "admin" ? "admin" : "dashboard"); };
+  const handleLogout = () => { setUser(null); setView(null); };
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  return (
+    <div style={{ minHeight: "100vh", background: "#f5f4f0", fontFamily: "'DM Sans', sans-serif", maxWidth: "480px", margin: "0 auto", position: "relative" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      {view === "dashboard" && <MitarbeiterDashboard user={user} />}
+      {view === "admin" && <AdminDashboard />}
+      <BottomNav user={user} view={view} setView={setView} onLogout={handleLogout} />
     </div>
   );
 }
