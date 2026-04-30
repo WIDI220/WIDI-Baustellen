@@ -3,11 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Clock, Trash2, Plus } from 'lucide-react';
+import { usePermissions } from '@/hooks/usePermissions';
 
 const EMPTY = { ticket_id: '', employee_id: '', stunden: '', leistungsdatum: new Date().toISOString().split('T')[0] };
 
 export default function TicketZeiterfassungPage() {
   const qc = useQueryClient();
+  const { canEdit } = usePermissions();
   const [form, setForm] = useState(EMPTY);
   const [editItem, setEditItem] = useState<any>(null);
   const [filterMA, setFilterMA] = useState('all');
@@ -98,7 +100,7 @@ export default function TicketZeiterfassungPage() {
             <input type="date" value={form.leistungsdatum} onChange={e => sel('leistungsdatum', e.target.value)} style={inputStyle} />
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => save.mutate()} disabled={save.isPending}
+            <button onClick={() => save.mutate()} disabled={save.isPending || !canEdit('tickets')}
               style={{ padding: '9px 18px', background: '#107A57', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Plus size={15} />{editItem ? 'Speichern' : 'Eintragen'}
             </button>
