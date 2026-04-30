@@ -1,21 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { logPageVisit } from '@/lib/activityLog';
+import { usePermissions } from '@/hooks/usePermissions';
 import { supabase } from '@/integrations/supabase/client';
 import { clearLocalSession } from '@/pages/AuthPage';
 import { useQuery } from '@tanstack/react-query';
 import { LayoutDashboard, HardHat, Clock, Package, FileText, Camera, AlertTriangle, LogOut, ChevronLeft, ChevronRight, ChevronDown, FileUp, Users, Home, Archive, Zap, Building2, CalendarDays } from 'lucide-react';
 
 const NAV = [
-  { to: '/baustellen/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/baustellen/zeiterfassung', icon: Clock,           label: 'Zeiterfassung' },
-  { to: '/baustellen/material',      icon: Package,         label: 'Material' },
-  { to: '/baustellen/nachtraege',    icon: FileText,        label: 'Nachträge' },
-  { to: '/baustellen/fotos',         icon: Camera,          label: 'Fotos' },
-  { to: '/baustellen/eskalationen',  icon: AlertTriangle,   label: 'Eskalationen' },
-  { to: '/baustellen/mitarbeiter',   icon: Users,           label: 'Mitarbeiter' },
-  { to: '/baustellen/import',        icon: FileUp,          label: 'Auftrag importieren' },
-  { to: '/baustellen/archiv',        icon: Archive,         label: 'Archiv' },
+  { to: '/baustellen/dashboard',     icon: LayoutDashboard, label: 'Dashboard',            bereich: 'dashboard'    },
+  { to: '/baustellen/zeiterfassung', icon: Clock,           label: 'Zeiterfassung',        bereich: 'zeiterfassung'},
+  { to: '/baustellen/material',      icon: Package,         label: 'Material',             bereich: 'material'     },
+  { to: '/baustellen/nachtraege',    icon: FileText,        label: 'Nachträge',            bereich: 'nachtraege'   },
+  { to: '/baustellen/fotos',         icon: Camera,          label: 'Fotos',                bereich: 'fotos'        },
+  { to: '/baustellen/eskalationen',  icon: AlertTriangle,   label: 'Eskalationen',         bereich: 'eskalationen' },
+  { to: '/baustellen/mitarbeiter',   icon: Users,           label: 'Mitarbeiter',          bereich: 'mitarbeiter'  },
+  { to: '/baustellen/import',        icon: FileUp,          label: 'Auftrag importieren',  bereich: 'baustellen'   },
+  { to: '/baustellen/archiv',        icon: Archive,         label: 'Archiv',               bereich: 'baustellen'   },
 ];
 
 const ACCENT       = '#2563eb';
@@ -109,6 +110,7 @@ function GewerkSection({ label, icon, accentColor, accentBg, items, collapsed, s
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const signOut = () => { clearLocalSession(); window.location.href = '/'; };
   const navigate    = useNavigate();
+  const { canSee }  = usePermissions();
   const location    = useLocation();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -310,7 +312,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {!sidebarCollapsed && (
             <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,0.2)', fontWeight: 600, padding: '8px 8px 4px', margin: '4px 0 0', whiteSpace: 'nowrap' }}>Werkzeuge</p>
           )}
-          {NAV.slice(1).map(({ to, icon: Icon, label }) => {
+          {NAV.slice(1).filter(item => canSee(item.bereich)).map(({ to, icon: Icon, label }) => {
             const active = location.pathname === to || location.pathname.startsWith(to + '/');
             return (
               <NavLink key={to} to={to} className={`nav-item ${active ? 'active' : ''}`}
