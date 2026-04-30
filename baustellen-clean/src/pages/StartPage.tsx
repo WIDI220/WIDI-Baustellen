@@ -25,15 +25,18 @@ export default function StartPage() {
   const navigate = useNavigate();
   const signOut = () => { clearLocalSession(); window.location.href = '/'; };
   const user = getLocalSession();
-  const { data: appUser } = useQuery({
+  // Fallback: j.paredis ist immer Admin, rest aus DB
+  const ADMIN_FALLBACK = 'j.paredis@widi-hellersen.de';
+  const { data: appUser, isLoading: adminLoading } = useQuery({
     queryKey: ['app-user-me', user?.email],
     enabled: !!user?.email,
+    staleTime: 30000,
     queryFn: async () => {
       const { data } = await supabase.from('app_users').select('is_admin').eq('email', user!.email).maybeSingle();
       return data;
     },
   });
-  const isAdmin = appUser?.is_admin === true;
+  const isAdmin = user?.email === ADMIN_FALLBACK || appUser?.is_admin === true;
 
   const { data: tickets = [] } = useQuery({ queryKey: ['start-tickets'], queryFn: async () => { const { data } = await supabase.from('tickets').select('status'); return data ?? []; } });
   const { data: baustellen = [] } = useQuery({ queryKey: ['start-baustellen'], queryFn: async () => { const { data } = await supabase.from('baustellen').select('status'); return data ?? []; } });
@@ -198,9 +201,15 @@ export default function StartPage() {
             <span style={{ fontSize:11, color:'#065f46', fontWeight:700 }}>System aktiv</span>
           </div>
           {isAdmin && (
-            <div style={{ display:'flex', alignItems:'center', gap:5, background:'#faf5ff', border:'1px solid #ddd6fe', borderRadius:20, padding:'4px 12px' }}>
-              <Shield size={11} style={{ color:'#8b5cf6' }} />
-              <span style={{ fontSize:11, color:'#6d28d9', fontWeight:700 }}>Admin</span>
+            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5, background:'#faf5ff', border:'1px solid #ddd6fe', borderRadius:20, padding:'4px 12px' }}>
+                <Shield size={11} style={{ color:'#8b5cf6' }} />
+                <span style={{ fontSize:11, color:'#6d28d9', fontWeight:700 }}>Admin</span>
+              </div>
+              <button onClick={() => navigate('/admin')}
+                style={{ display:'flex', alignItems:'center', gap:5, background:'linear-gradient(135deg,#8b5cf6,#7c3aed)', border:'none', borderRadius:20, padding:'5px 14px', cursor:'pointer', color:'#fff', fontSize:11, fontWeight:700 }}>
+                <Shield size={11} /> Verwaltung
+              </button>
             </div>
           )}
           <span style={{ fontSize:12, color:'#94a3b8' }}>{user?.email}</span>
