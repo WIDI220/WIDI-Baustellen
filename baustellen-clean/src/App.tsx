@@ -14,6 +14,7 @@ import AppLayoutDGUV from '@/components/AppLayoutDGUV';
 // Startseite & Auth
 import StartPage from '@/pages/StartPage';
 import AdminLogPage from '@/pages/AdminLogPage';
+import AdminPage from '@/pages/admin/AdminPage';
 import AuthPage from '@/pages/AuthPage';
 
 // DGUV
@@ -83,6 +84,7 @@ function AppRoutes() {
       {/* ── Startseite ─────────────────────────────────── */}
       <Route path="/" element={<StartPage />} />
       <Route path="/admin/log" element={<AdminLogPage />} />
+      <Route path="/admin" element={<AdminPage />} />
       <Route path="/planung" element={<WochenplanungPage />} />
 
       {/* ── DGUV-Bereich ───────────────────────────────── */}
