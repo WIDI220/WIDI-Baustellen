@@ -10,11 +10,13 @@ import { toast } from 'sonner';
 import { Plus, Clock, Pencil, Trash2, Users, Euro } from 'lucide-react';
 import { fmtEur, fmtDate } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { usePermissions } from '@/hooks/usePermissions';
 
 const EMPTY = { baustelle_id:'', mitarbeiter_id:'', datum:new Date().toISOString().split('T')[0], stunden:'', beschreibung:'' };
 
 export default function ZeiterfassungPage() {
   const queryClient = useQueryClient();
+  const { canEdit } = usePermissions();
   const [dialog, setDialog] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [form, setForm] = useState<any>(EMPTY);
@@ -85,7 +87,7 @@ export default function ZeiterfassungPage() {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Zeiterfassung</h1>
           <p className="text-sm text-gray-500 mt-0.5">{Math.round(totalH*10)/10}h · {fmtEur(totalK)} · {filtered.length} Einträge</p>
         </div>
-        <Button onClick={() => { setForm(EMPTY); setEditItem(null); setDialog(true); }}>
+        <Button onClick={() => { setForm(EMPTY); setEditItem(null); setDialog(true); }} disabled={!canEdit('zeiterfassung')}>
           <Plus className="h-4 w-4 mr-1" />Stunden erfassen
         </Button>
       </div>
