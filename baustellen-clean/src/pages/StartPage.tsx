@@ -210,6 +210,10 @@ export default function StartPage() {
                 style={{ display:'flex', alignItems:'center', gap:5, background:'linear-gradient(135deg,#8b5cf6,#7c3aed)', border:'none', borderRadius:20, padding:'5px 14px', cursor:'pointer', color:'#fff', fontSize:11, fontWeight:700 }}>
                 <Shield size={11} /> Verwaltung
               </button>
+              <button onClick={() => navigate('/handwerker-verwaltung')}
+                style={{ display:'flex', alignItems:'center', gap:5, background:'linear-gradient(135deg,#d4612a,#e67e22)', border:'none', borderRadius:20, padding:'5px 14px', cursor:'pointer', color:'#fff', fontSize:11, fontWeight:700 }}>
+                <HardHat size={11} /> App-Logins
+              </button>
             </div>
           )}
           <span style={{ fontSize:12, color:'#94a3b8' }}>{user?.email}</span>
