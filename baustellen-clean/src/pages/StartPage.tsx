@@ -1,8 +1,25 @@
 import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
-import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield, CalendarDays } from 'lucide-react';
+import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield, CalendarDays, Clock, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+
+// ── Handwerker-App: offene Anfragen zählen (nur lesend) ──────────────────────
+const APP_URL = 'https://syhjjuewkjjihxwiexmz.supabase.co';
+const APP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5aGpqdWV3a2pqaWh4d2lleG16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MTk2NDYsImV4cCI6MjA5MzA5NTY0Nn0.9A-GrkU72IZ3uxkypX5GttN4EXNv46aX4uOY4wUmfaE';
+
+async function fetchOffeneAnfragenCount(): Promise<number> {
+  try {
+    const res = await fetch(`${APP_URL}/rest/v1/zeiteintraege?status=eq.offen&select=id`, {
+      headers: { apikey: APP_KEY, Authorization: `Bearer ${APP_KEY}`, Prefer: 'count=exact' },
+    });
+    const count = res.headers.get('content-range');
+    if (count) return parseInt(count.split('/')[1] || '0', 10);
+    const data = await res.json();
+    return Array.isArray(data) ? data.length : 0;
+  } catch { return 0; }
+}
 
 const ADMIN_EMAIL = 'j.paredis@widi-hellersen.de';
 
@@ -36,6 +53,15 @@ export default function StartPage() {
   const wpMaCount = new Set(wp.map((e:any) => e.mitarbeiter_id)).size;
   const wpStunden = wp.reduce((s:number, e:any) => s + Number(e.stunden ?? 0), 0);
 
+  // ── Offene Stunden-Anfragen aus Handwerker-App ───────────────────────────
+  const { data: offeneAnfragenCount = 0 } = useQuery({
+    queryKey: ['offene-anfragen-count'],
+    queryFn: fetchOffeneAnfragenCount,
+    refetchInterval: 30000,
+  });
+  const [modalGeschlossen, setModalGeschlossen] = useState(false);
+  const zeigeModal = offeneAnfragenCount > 0 && !modalGeschlossen;
+
   const BEREICHE = [
     { path: '/baustellen/dashboard', color: '#2563eb', colorRgb: '37,99,235', icon: HardHat, titel: 'Baustellen', sub: 'Controlling & Management', stat: b.filter(x => x.status !== 'abgerechnet').length, statLabel: 'aktive Projekte', punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'] },
     { path: '/tickets/dashboard', color: '#10b981', colorRgb: '16,185,129', icon: Ticket, titel: 'Ticketsystem', sub: 'WIDI Controlling', stat: t.filter(x => x.status === 'in_bearbeitung').length, statLabel: 'Tickets offen', punkte: ['Tickets erfassen', 'PDF-Rücklauf OCR', 'Excel-Import', 'Monatsanalyse'] },
@@ -46,6 +72,37 @@ export default function StartPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f0f4ff', fontFamily: "'DM Sans', 'Inter', system-ui, sans-serif", display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+
+      {/* ── Stunden-Anfragen Modal ──────────────────────────────────────────── */}
+      {zeigeModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ background: '#fff', borderRadius: 24, padding: 36, maxWidth: 440, width: '100%', boxShadow: '0 30px 80px rgba(0,0,0,0.25)', position: 'relative', animation: 'floatUp 0.4s cubic-bezier(0.16,1,0.3,1) forwards' }}>
+            <button onClick={() => setModalGeschlossen(true)}
+              style={{ position: 'absolute', top: 16, right: 16, background: '#f1f5f9', border: 'none', borderRadius: 8, width: 32, height: 32, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+              <X size={16} />
+            </button>
+            <div style={{ width: 56, height: 56, borderRadius: 16, background: 'linear-gradient(135deg,#f59e0b,#d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, boxShadow: '0 8px 20px rgba(245,158,11,0.35)' }}>
+              <Clock size={26} style={{ color: '#fff' }} />
+            </div>
+            <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 900, color: '#0f172a', letterSpacing: '-0.04em' }}>
+              {offeneAnfragenCount} neue Stunden-{offeneAnfragenCount === 1 ? 'Anfrage' : 'Anfragen'}
+            </h2>
+            <p style={{ margin: '0 0 28px', color: '#64748b', fontSize: 15, lineHeight: 1.6 }}>
+              Deine Handwerker haben Stunden eingereicht die auf deine Genehmigung warten.
+            </p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setModalGeschlossen(true)}
+                style={{ flex: 1, padding: '12px', background: '#f1f5f9', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#475569', fontFamily: 'inherit' }}>
+                Später
+              </button>
+              <button onClick={() => { setModalGeschlossen(true); navigate('/stunden-anfragen'); }}
+                style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg,#f59e0b,#d97706)', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', color: '#fff', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(245,158,11,0.4)' }}>
+                <Clock size={15} /> Jetzt prüfen →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;900&family=DM+Mono:wght@400;500&display=swap');
 
@@ -185,6 +242,14 @@ export default function StartPage() {
               <span style={{ color:'#64748b', fontSize:12, fontWeight:600 }}>{s.label}</span>
             </div>
           ))}
+          {/* Stunden-Anfragen Chip */}
+          <div className="chip" onClick={() => navigate('/stunden-anfragen')}
+            style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 20px', background: offeneAnfragenCount > 0 ? 'rgba(245,158,11,0.12)' : 'rgba(148,163,184,0.08)', border:`1px solid ${offeneAnfragenCount > 0 ? 'rgba(245,158,11,0.35)' : 'rgba(148,163,184,0.2)'}`, borderRadius:14, backdropFilter:'blur(10px)', cursor:'pointer', position:'relative' }}>
+            <Clock size={15} style={{ color: offeneAnfragenCount > 0 ? '#d97706' : '#94a3b8' }} />
+            <span style={{ color: offeneAnfragenCount > 0 ? '#d97706' : '#94a3b8', fontSize:20, fontWeight:900, letterSpacing:'-.03em' }}>{offeneAnfragenCount}</span>
+            <span style={{ color:'#64748b', fontSize:12, fontWeight:600 }}>Stunden-Anfragen</span>
+            {offeneAnfragenCount > 0 && <div style={{ position:'absolute', top:6, right:8, width:8, height:8, borderRadius:'50%', background:'#d97706', boxShadow:'0 0 6px #d97706' }} />}
+          </div>
         </div>
 
         {/* Cards */}
