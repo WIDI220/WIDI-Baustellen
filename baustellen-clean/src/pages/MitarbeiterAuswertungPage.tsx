@@ -38,6 +38,15 @@ function CustomTooltip({ active, payload, label }: any) {
 export default function MitarbeiterAuswertungPage() {
   const now = new Date();
   const [activeTab, setActiveTab] = useState<Tab>('Übersicht');
+
+  // Wenn Einzelperson-Tab geöffnet wird und noch kein MA ausgewählt ist, ersten MA setzen
+  // damit die Abwesenheiten-Query sofort mit der richtigen ID feuert
+  function switchTab(t: Tab) {
+    if (t === 'Einzelperson' && !selectedMA && maStats.length > 0) {
+      setSelectedMA(maStats[0].id);
+    }
+    setActiveTab(t);
+  }
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedMA, setSelectedMA] = useState<string | null>(null);
@@ -423,7 +432,7 @@ export default function MitarbeiterAuswertungPage() {
       {/* Tabs */}
       <div style={{ display:'flex', gap:3, background:'#f1f5f9', borderRadius:14, padding:4, width:'fit-content' }}>
         {TABS.map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} style={{
+          <button key={t} onClick={() => switchTab(t)} style={{
             padding:'8px 22px', borderRadius:11, border:'none', cursor:'pointer', fontSize:13, fontWeight:600, transition:'all .15s',
             background: activeTab === t ? '#fff' : 'transparent',
             color: activeTab === t ? '#0f172a' : '#94a3b8',
@@ -674,34 +683,38 @@ export default function MitarbeiterAuswertungPage() {
             const gesamtMitAbw = selectedEmp.gesamt + urlaubH + krankH;
 
             // Balken-Prozente
-            const pT   = gesamtMitAbw > 0 ? (selectedEmp.tH   / gesamtMitAbw * 100) : 0;
-            const pB   = gesamtMitAbw > 0 ? (selectedEmp.bH   / gesamtMitAbw * 100) : 0;
-            const pBeg = gesamtMitAbw > 0 ? ((selectedEmp.begH||0) / gesamtMitAbw * 100) : 0;
-            const pInt = gesamtMitAbw > 0 ? ((selectedEmp.intH||0) / gesamtMitAbw * 100) : 0;
-            const pU   = gesamtMitAbw > 0 ? (urlaubH / gesamtMitAbw * 100) : 0;
-            const pK   = gesamtMitAbw > 0 ? (krankH  / gesamtMitAbw * 100) : 0;
+            const pT    = gesamtMitAbw > 0 ? (selectedEmp.tH          / gesamtMitAbw * 100) : 0;
+            const pB    = gesamtMitAbw > 0 ? (selectedEmp.bH          / gesamtMitAbw * 100) : 0;
+            const pBeg  = gesamtMitAbw > 0 ? ((selectedEmp.begH||0)   / gesamtMitAbw * 100) : 0;
+            const pInt  = gesamtMitAbw > 0 ? ((selectedEmp.intH||0)   / gesamtMitAbw * 100) : 0;
+            const pDguv = gesamtMitAbw > 0 ? ((selectedEmp.dguvH||0)  / gesamtMitAbw * 100) : 0;
+            const pU    = gesamtMitAbw > 0 ? (urlaubH / gesamtMitAbw * 100) : 0;
+            const pK    = gesamtMitAbw > 0 ? (krankH  / gesamtMitAbw * 100) : 0;
 
             // Monatsverlauf (6 Monate) inkl. Urlaub/Krank
             const personVerlauf = verlauf6.map(mv => {
               const v = `${mv.ym}-01`;
               const lastD = new Date(parseInt(mv.ym.slice(0,4)), parseInt(mv.ym.slice(5,7)), 0).getDate();
               const b = `${mv.ym}-${String(lastD).padStart(2,'0')}`;
-              const tH2   = (ticketAll as any[]).filter(w => w.employee_id === selectedEmp.id && String(w.leistungsdatum ?? '') >= v && String(w.leistungsdatum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
-              const bH2   = (bauAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && String(w.datum ?? '') >= v && String(w.datum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
-              const begH2 = (begehungenAll as any[]).filter(w => String(w.datum_von ?? '') >= v && String(w.datum_von ?? '') <= b && matchBegehung(w.mitarbeiter, selectedEmp)).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
-              const intH2 = (interneAll as any[]).filter(w => w.employee_id === selectedEmp.id && String(w.datum ?? '') >= v && String(w.datum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const tH2    = (ticketAll as any[]).filter(w => w.employee_id === selectedEmp.id && String(w.leistungsdatum ?? '') >= v && String(w.leistungsdatum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const bH2    = (bauAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && String(w.datum ?? '') >= v && String(w.datum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const begH2  = (begehungenAll as any[]).filter(w => String(w.datum_von ?? '') >= v && String(w.datum_von ?? '') <= b && matchBegehung(w.mitarbeiter, selectedEmp)).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const intH2  = (interneAll as any[]).filter(w => w.employee_id === selectedEmp.id && String(w.datum ?? '') >= v && String(w.datum ?? '') <= b).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
+              const dguvH2 = (dguvAll as any[]).filter(w => w.mitarbeiter_id === selectedEmp.id && w.monat === mv.ym).reduce((s:number, w:any) => s + Number(w.stunden??0), 0);
               return {
                 monat: mv.monat,
-                Tickets:    Math.round(tH2 * 4) / 4,
-                Baustellen: Math.round(bH2 * 4) / 4,
-                Begehungen: Math.round(begH2 * 4) / 4,
-                Intern:     Math.round(intH2 * 4) / 4,
+                Tickets:    Math.round(tH2    * 4) / 4,
+                Baustellen: Math.round(bH2    * 4) / 4,
+                Begehungen: Math.round(begH2  * 4) / 4,
+                Intern:     Math.round(intH2  * 4) / 4,
+                DGUV:       Math.round(dguvH2 * 4) / 4,
               };
             });
 
             const STUNDEN_FELDER = [
               { label: 'Tickets',     h: selectedEmp.tH,          color: '#3b82f6', bg: '#eff6ff' },
               { label: 'Baustellen',  h: selectedEmp.bH,          color: '#10b981', bg: '#f0fdf4' },
+              { label: 'DGUV',        h: selectedEmp.dguvH||0,    color: '#0891b2', bg: '#ecfeff' },
               { label: 'Begehungen',  h: selectedEmp.begH||0,     color: '#f59e0b', bg: '#fffbeb' },
               { label: 'Intern',      h: selectedEmp.intH||0,     color: '#8b5cf6', bg: '#f5f3ff' },
               { label: 'Urlaub',      h: urlaubH,                  color: '#10b981', bg: '#dcfce7' },
@@ -735,12 +748,13 @@ export default function MitarbeiterAuswertungPage() {
                   {/* Gestapelter Fortschrittsbalken */}
                   <div style={{ height: 14, borderRadius: 99, overflow: 'hidden', display: 'flex', marginBottom: 20, background: '#f1f5f9' }}>
                     {[
-                      { pct: pT,   color: '#3b82f6' },
-                      { pct: pB,   color: '#10b981' },
-                      { pct: pBeg, color: '#f59e0b' },
-                      { pct: pInt, color: '#8b5cf6' },
-                      { pct: pU,   color: '#86efac' },
-                      { pct: pK,   color: '#fca5a5' },
+                      { pct: pT,    color: '#3b82f6' },
+                      { pct: pB,    color: '#10b981' },
+                      { pct: pDguv, color: '#0891b2' },
+                      { pct: pBeg,  color: '#f59e0b' },
+                      { pct: pInt,  color: '#8b5cf6' },
+                      { pct: pU,    color: '#86efac' },
+                      { pct: pK,    color: '#fca5a5' },
                     ].filter(s => s.pct > 0).map((s, i) => (
                       <div key={i} style={{ width: `${s.pct}%`, background: s.color, transition: 'width .6s cubic-bezier(.16,1,.3,1)' }} />
                     ))}
