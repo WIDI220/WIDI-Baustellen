@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Shield, RefreshCw, ChevronLeft, Monitor, MousePointer, FileText } from 'lucide-react';
+import { Shield, RefreshCw, ChevronLeft, Monitor, MousePointer, FileText, AlertTriangle, CheckCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 
@@ -21,6 +21,8 @@ export default function AdminLogPage() {
   const user = getLocalSession();
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [showPageVisits, setShowPageVisits] = useState(false);
+  const [activeSection, setActiveSection] = useState<'aktivitaet' | 'fehler'>('aktivitaet');
+  const queryClient = useQueryClient();
 
   if (user?.email !== ADMIN_EMAIL) {
     return (
@@ -47,6 +49,29 @@ export default function AdminLogPage() {
   });
 
   const allLogs = logs as any[];
+
+  // Fehlerprotokoll
+  const { data: errorLogs = [], refetch: refetchErrors } = useQuery({
+    queryKey: ['error-logs'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('error_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      return data ?? [];
+    },
+    refetchInterval: 15000, // alle 15 Sekunden aktualisieren
+  });
+
+  const markAllRead = useMutation({
+    mutationFn: async () => {
+      await supabase.from('error_logs').update({ gelesen: true }).eq('gelesen', false);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['error-logs'] }),
+  });
+
+  const ungeleseneErrors = (errorLogs as any[]).filter((e: any) => !e.gelesen).length;
 
   // Unique Users
   const users = [...new Set(allLogs.map(l => l.user_email))];
@@ -80,17 +105,31 @@ export default function AdminLogPage() {
             <Shield size={15} style={{ color:'#8b5cf6' }} />
           </div>
           <div>
-            <p style={{ color:'#0f172a', fontWeight:800, fontSize:14, margin:0 }}>Admin — Nutzeraktivität</p>
-            <p style={{ color:'#94a3b8', fontSize:11, margin:0 }}>{allLogs.length} Einträge · {users.length} Nutzer</p>
+            <p style={{ color:'#0f172a', fontWeight:800, fontSize:14, margin:0 }}>Admin — Controlling</p>
+            <p style={{ color:'#94a3b8', fontSize:11, margin:0 }}>{allLogs.length} Aktivitäten · {ungeleseneErrors > 0 && <span style={{ color:'#ef4444', fontWeight:700 }}>{ungeleseneErrors} neue Fehler</span>}</p>
           </div>
         </div>
-        <button onClick={() => refetch()}
-          style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:10, color:'#64748b', fontSize:12, cursor:'pointer' }}>
-          <RefreshCw size={13} /> Aktualisieren
-        </button>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {/* Sektion-Tabs */}
+          <div style={{ display:'flex', background:'#f1f5f9', borderRadius:10, padding:3, gap:2 }}>
+            <button onClick={() => setActiveSection('aktivitaet')} style={{ padding:'6px 14px', borderRadius:8, border:'none', fontSize:12, fontWeight:600, cursor:'pointer', background: activeSection==='aktivitaet' ? '#fff' : 'transparent', color: activeSection==='aktivitaet' ? '#0f172a' : '#64748b', boxShadow: activeSection==='aktivitaet' ? '0 1px 3px rgba(0,0,0,.1)' : 'none' }}>
+              Aktivität
+            </button>
+            <button onClick={() => setActiveSection('fehler')} style={{ padding:'6px 14px', borderRadius:8, border:'none', fontSize:12, fontWeight:600, cursor:'pointer', background: activeSection==='fehler' ? '#fff' : 'transparent', color: activeSection==='fehler' ? '#ef4444' : '#64748b', boxShadow: activeSection==='fehler' ? '0 1px 3px rgba(0,0,0,.1)' : 'none', position:'relative' }}>
+              Fehler
+              {ungeleseneErrors > 0 && (
+                <span style={{ position:'absolute', top:-4, right:-4, width:16, height:16, background:'#ef4444', borderRadius:'50%', fontSize:9, fontWeight:800, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>{ungeleseneErrors > 9 ? '9+' : ungeleseneErrors}</span>
+              )}
+            </button>
+          </div>
+          <button onClick={() => { refetch(); refetchErrors(); }}
+            style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:10, color:'#64748b', fontSize:12, cursor:'pointer' }}>
+            <RefreshCw size={13} /> Aktualisieren
+          </button>
+        </div>
       </div>
 
-      <div style={{ display:'grid', gridTemplateColumns:'280px 1fr', gap:0, height:'calc(100vh - 62px)' }}>
+      <div style={{ gridTemplateColumns:'280px 1fr', gap:0, height:'calc(100vh - 62px)', display: activeSection === 'aktivitaet' ? 'grid' : 'none' }}>
 
         {/* Linke Spalte — Nutzer */}
         <div style={{ background:'#fff', borderRight:'1px solid #e2e8f0', overflowY:'auto', padding:'16px' }}>
@@ -238,6 +277,72 @@ export default function AdminLogPage() {
           )}
         </div>
       </div>
+      {/* ── Fehlerprotokoll ── */}
+      {activeSection === 'fehler' && (
+        <div style={{ padding:24, overflowY:'auto', height:'calc(100vh - 62px)' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ width:36, height:36, borderRadius:10, background:'#fef2f2', border:'1px solid #fecaca', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                <AlertTriangle size={16} style={{ color:'#ef4444' }} />
+              </div>
+              <div>
+                <p style={{ fontSize:14, fontWeight:800, color:'#0f172a', margin:0 }}>Fehlerprotokoll</p>
+                <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{(errorLogs as any[]).length} Einträge · automatisch aktualisiert</p>
+              </div>
+            </div>
+            {ungeleseneErrors > 0 && (
+              <button onClick={() => markAllRead.mutate()} style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, color:'#15803d', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                <CheckCheck size={13} /> Alle als gelesen markieren
+              </button>
+            )}
+          </div>
+
+          {(errorLogs as any[]).length === 0 && (
+            <div style={{ textAlign:'center', padding:'64px 0' }}>
+              <div style={{ width:48, height:48, background:'#f0fdf4', borderRadius:14, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px' }}>
+                <CheckCheck size={22} style={{ color:'#10b981' }} />
+              </div>
+              <p style={{ color:'#64748b', fontSize:15, fontWeight:600, margin:'0 0 4px' }}>Keine Fehler vorhanden</p>
+              <p style={{ color:'#94a3b8', fontSize:13 }}>Alle Systeme laufen fehlerfrei</p>
+            </div>
+          )}
+
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {(errorLogs as any[]).map((err: any) => (
+              <div key={err.id} style={{ background: err.gelesen ? '#f8fafc' : '#fff', border: `1px solid ${err.gelesen ? '#f1f5f9' : '#fecaca'}`, borderRadius:14, padding:'16px 20px', borderLeft:`4px solid ${err.gelesen ? '#e2e8f0' : '#ef4444'}` }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16 }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                      {!err.gelesen && <span style={{ width:7, height:7, borderRadius:'50%', background:'#ef4444', flexShrink:0, display:'inline-block' }} />}
+                      <p style={{ fontSize:13, fontWeight:700, color:'#dc2626', margin:0, wordBreak:'break-word' }}>{err.message}</p>
+                    </div>
+                    <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom: err.stack ? 8 : 0 }}>
+                      <span style={{ fontSize:11, color:'#64748b' }}>👤 {err.user_email ?? '–'}</span>
+                      <span style={{ fontSize:11, color:'#64748b' }}>📍 {err.route ?? '–'}</span>
+                      {err.component && <span style={{ fontSize:11, color:'#64748b' }}>🔧 {err.component}</span>}
+                    </div>
+                    {err.stack && (
+                      <details style={{ marginTop:6 }}>
+                        <summary style={{ fontSize:11, color:'#94a3b8', cursor:'pointer', userSelect:'none' }}>Stack-Trace anzeigen</summary>
+                        <pre style={{ fontSize:10, color:'#64748b', background:'#f8fafc', borderRadius:8, padding:'8px 10px', marginTop:6, overflowX:'auto', whiteSpace:'pre-wrap', wordBreak:'break-all' }}>{err.stack}</pre>
+                      </details>
+                    )}
+                  </div>
+                  <div style={{ textAlign:'right', flexShrink:0 }}>
+                    <p style={{ fontSize:12, color:'#64748b', margin:'0 0 2px', fontWeight:600 }}>
+                      {new Date(err.created_at).toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' })}
+                    </p>
+                    <p style={{ fontSize:10, color:'#94a3b8', margin:0 }}>
+                      {new Date(err.created_at).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'2-digit' })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
