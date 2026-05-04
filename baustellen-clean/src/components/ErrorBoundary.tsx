@@ -1,4 +1,6 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { getLocalSession } from '@/pages/AuthPage';
 
 interface Props { children: ReactNode; }
 interface State { hasError: boolean; error?: Error; }
@@ -13,6 +15,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('ErrorBoundary:', error, info);
+    logError(error, info.componentStack ?? '', 'ErrorBoundary');
   }
   render() {
     if (this.state.hasError) {
@@ -32,5 +35,21 @@ export default class ErrorBoundary extends Component<Props, State> {
       );
     }
     return this.props.children;
+  }
+}
+
+// Zentrale Funktion zum Loggen – wird auch von main.tsx genutzt
+export async function logError(error: Error | string, stack?: string, component?: string) {
+  try {
+    const session = getLocalSession();
+    await supabase.from('error_logs').insert({
+      user_email: session?.email ?? 'unbekannt',
+      message:    typeof error === 'string' ? error : error.message,
+      stack:      stack ?? (typeof error === 'object' ? error.stack : undefined),
+      route:      window.location.pathname,
+      component:  component ?? null,
+    });
+  } catch {
+    // Logging darf niemals die App zum Absturz bringen
   }
 }
