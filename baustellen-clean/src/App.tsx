@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { useState, useEffect } from 'react';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { MonthProvider } from '@/contexts/MonthContext';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 // Layouts
 import AppLayoutBaustellen from '@/components/AppLayout';
@@ -161,12 +162,12 @@ function AppRoutes() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <>
+      <ErrorBoundary>
         <BrowserRouter>
           <AppRoutes />
           <Toaster position="bottom-right" richColors />
         </BrowserRouter>
-      </>
+      </ErrorBoundary>
     </QueryClientProvider>
   );
 }
