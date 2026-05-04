@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { getNRWFeiertage } from '@/lib/feiertage';
 import {
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend, RadarChart, Radar,
@@ -753,76 +754,97 @@ export default function MitarbeiterAuswertungPage() {
 
 
                 {/* ── Jahreskalender ── */}
-                <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
-                  <div style={{ padding: '16px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Calendar size={16} style={{ color: '#8b5cf6' }} />
-                      <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>Urlaub & Krank {kalYear}</p>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {[['#10b981','Urlaub'],['#ef4444','Krank']].map(([c,l]) => (
-                        <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
-                          <span style={{ fontSize: 11, color: '#64748b' }}>{l}</span>
+                {(() => {
+                  const feiertage = getNRWFeiertage(kalYear);
+                  const abwMap: Record<string,string> = {};
+                  (abwesenheiten as any[]).forEach((a:any) => { abwMap[a.datum] = a.typ; });
+                  return (
+                    <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f1f5f9', overflow: 'hidden' }}>
+                      <div style={{ padding: '16px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Calendar size={16} style={{ color: '#8b5cf6' }} />
+                          <p style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>Urlaub & Krank {kalYear}</p>
                         </div>
-                      ))}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
-                        <button onClick={() => setKalYear(y => y-1)} style={{ width:28, height:28, borderRadius:7, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronLeft size={12}/></button>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', minWidth: 36, textAlign: 'center' }}>{kalYear}</span>
-                        <button onClick={() => setKalYear(y => y+1)} style={{ width:28, height:28, borderRadius:7, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronRight size={12}/></button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {[['#10b981','Urlaub'],['#ef4444','Krank'],['#e0e7ff','Feiertag']].map(([c,l]) => (
+                            <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: 2, background: c, border: l === 'Feiertag' ? '1px solid #c7d2fe' : 'none' }} />
+                              <span style={{ fontSize: 11, color: '#64748b' }}>{l}</span>
+                            </div>
+                          ))}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+                            <button onClick={() => setKalYear(y => y-1)} style={{ width:28, height:28, borderRadius:7, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronLeft size={12}/></button>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', minWidth: 36, textAlign: 'center' }}>{kalYear}</span>
+                            <button onClick={() => setKalYear(y => y+1)} style={{ width:28, height:28, borderRadius:7, border:'1px solid #e2e8f0', background:'#f8fafc', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#64748b' }}><ChevronRight size={12}/></button>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ padding: '16px 24px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
+                        {Array.from({ length: 12 }, (_, moIdx) => {
+                          const moNr = moIdx + 1;
+                          const letzterTag = new Date(kalYear, moIdx+1, 0).getDate();
+                          let startWt = new Date(kalYear, moIdx, 1).getDay(); if (startWt===0) startWt=7;
+                          return (
+                            <div key={moIdx}>
+                              <p style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', margin: '0 0 5px' }}>
+                                {new Date(kalYear, moIdx, 1).toLocaleString('de-DE', { month: 'long' })}
+                              </p>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 1.5, marginBottom: 2 }}>
+                                {['Mo','Di','Mi','Do','Fr','Sa','So'].map(wt => (
+                                  <div key={wt} style={{ fontSize: 7, color: '#cbd5e1', textAlign: 'center', fontWeight: 600 }}>{wt}</div>
+                                ))}
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 1.5 }}>
+                                {Array.from({ length: startWt-1 }, (_,k) => <div key={`e${k}`} />)}
+                                {Array.from({ length: letzterTag }, (_, d) => {
+                                  const tag = d+1;
+                                  const datumStr = `${kalYear}-${String(moNr).padStart(2,'0')}-${String(tag).padStart(2,'0')}`;
+                                  const typ = abwMap[datumStr];
+                                  const isWe = [0,6].includes(new Date(kalYear, moIdx, tag).getDay());
+                                  const isToday = datumStr === new Date().toISOString().slice(0,10);
+                                  const feiertagName = feiertage[datumStr];
+                                  const isFeiertag = !!feiertagName;
+                                  const isBlocked = isWe || isFeiertag;
+
+                                  let bg = '#f8fafc';
+                                  let color = '#64748b';
+                                  let title = '';
+                                  if (typ === 'urlaub')       { bg = '#dcfce7'; color = '#15803d'; }
+                                  else if (typ === 'krank')   { bg = '#fee2e2'; color = '#dc2626'; }
+                                  else if (isFeiertag)        { bg = '#e0e7ff'; color = '#4338ca'; title = feiertagName; }
+                                  else if (isToday)           { bg = '#eff6ff'; color = '#2563eb'; }
+                                  else if (isWe)              { bg = 'transparent'; color = '#e2e8f0'; }
+
+                                  return (
+                                    <div
+                                      key={tag}
+                                      title={title}
+                                      onClick={() => {
+                                        if (isBlocked) return;
+                                        if (!typ) toggleAbwesenheit(selectedEmp.id, datumStr, 'urlaub');
+                                        else if (typ==='urlaub') toggleAbwesenheit(selectedEmp.id, datumStr, 'krank');
+                                        else { const ex = (abwesenheiten as any[]).find((a:any)=>a.datum===datumStr); if(ex) supabase.from('mitarbeiter_abwesenheiten').delete().eq('id',ex.id).then(()=>refetchAbw()); }
+                                      }}
+                                      style={{
+                                        aspectRatio:'1', borderRadius:3, display:'flex', alignItems:'center', justifyContent:'center',
+                                        fontSize: 8, fontWeight: (typ || isFeiertag) ? 700 : 400,
+                                        cursor: isBlocked ? 'default' : 'pointer',
+                                        background: bg,
+                                        color,
+                                      }}
+                                    >
+                                      {tag}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  </div>
-                  <div style={{ padding: '16px 24px', display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14 }}>
-                    {Array.from({ length: 12 }, (_, moIdx) => {
-                      const moNr = moIdx + 1;
-                      const letzterTag = new Date(kalYear, moIdx+1, 0).getDate();
-                      let startWt = new Date(kalYear, moIdx, 1).getDay(); if (startWt===0) startWt=7;
-                      const abwMap: Record<string,string> = {};
-                      (abwesenheiten as any[]).forEach((a:any) => { abwMap[a.datum] = a.typ; });
-                      return (
-                        <div key={moIdx}>
-                          <p style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', margin: '0 0 5px' }}>
-                            {new Date(kalYear, moIdx, 1).toLocaleString('de-DE', { month: 'long' })}
-                          </p>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 1.5, marginBottom: 2 }}>
-                            {['Mo','Di','Mi','Do','Fr','Sa','So'].map(wt => (
-                              <div key={wt} style={{ fontSize: 7, color: '#cbd5e1', textAlign: 'center', fontWeight: 600 }}>{wt}</div>
-                            ))}
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 1.5 }}>
-                            {Array.from({ length: startWt-1 }, (_,k) => <div key={`e${k}`} />)}
-                            {Array.from({ length: letzterTag }, (_, d) => {
-                              const tag = d+1;
-                              const datumStr = `${kalYear}-${String(moNr).padStart(2,'0')}-${String(tag).padStart(2,'0')}`;
-                              const typ = abwMap[datumStr];
-                              const isWe = [0,6].includes(new Date(kalYear, moIdx, tag).getDay());
-                              const isToday = datumStr === new Date().toISOString().slice(0,10);
-                              return (
-                                <div key={tag}
-                                  onClick={() => {
-                                    if (isWe) return;
-                                    if (!typ) toggleAbwesenheit(selectedEmp.id, datumStr, 'urlaub');
-                                    else if (typ==='urlaub') toggleAbwesenheit(selectedEmp.id, datumStr, 'krank');
-                                    else { const ex = (abwesenheiten as any[]).find((a:any)=>a.datum===datumStr); if(ex) supabase.from('mitarbeiter_abwesenheiten').delete().eq('id',ex.id).then(()=>refetchAbw()); }
-                                  }}
-                                  style={{
-                                    aspectRatio:'1', borderRadius:3, display:'flex', alignItems:'center', justifyContent:'center',
-                                    fontSize: 8, fontWeight: typ ? 700 : 400,
-                                    cursor: isWe ? 'default' : 'pointer',
-                                    background: typ==='urlaub'?'#dcfce7':typ==='krank'?'#fee2e2':isToday?'#eff6ff':isWe?'transparent':'#f8fafc',
-                                    color: typ==='urlaub'?'#15803d':typ==='krank'?'#dc2626':isToday?'#2563eb':isWe?'#e2e8f0':'#64748b',
-                                  }}>
-                                  {tag}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                  );
+                })()}
 
               </div>
             );
