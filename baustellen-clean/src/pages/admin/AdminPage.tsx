@@ -1,11 +1,11 @@
 import { useState, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
   Users, Shield, Activity, Plus, Edit2, Trash2, Eye, EyeOff,
   Check, X, Lock, Unlock, Download, Search,
-  Clock, AlertCircle, RefreshCw, UserCheck, UserX, Sliders
+  Clock, AlertCircle, RefreshCw, UserCheck, UserX, Sliders, AlertTriangle, CheckCheck
 } from 'lucide-react';
 
 const BEREICHE = [
@@ -44,7 +44,7 @@ const AKTIONS_FARBEN: Record<string, { bg: string; color: string; label: string 
   gewerk_geaendert: { bg: '#fffbeb', color: '#b45309', label: 'Gewerk geaendert'},
 };
 
-type Tab = 'users' | 'permissions' | 'activity';
+type Tab = 'users' | 'permissions' | 'activity' | 'errors';
 
 const getAktion = (aktion: string) =>
   AKTIONS_FARBEN[aktion] ?? { bg: '#f8fafc', color: '#64748b', label: aktion };
@@ -133,6 +133,21 @@ export default function AdminPage() {
   const [filterAktion, setFilterAktion] = useState('');
   const [filterDatum,  setFilterDatum]  = useState('');
   const [actSearch,    setActSearch]    = useState('');
+
+  // Fehlerprotokoll
+  const { data: errorLogs = [], refetch: refetchErrors } = useQuery({
+    queryKey: ['admin-error-logs'],
+    queryFn: async () => {
+      const { data } = await supabase.from('error_logs').select('*').order('created_at', { ascending: false }).limit(200);
+      return data ?? [];
+    },
+    refetchInterval: 15000,
+  });
+  const ungeleseneErrors = (errorLogs as any[]).filter((e: any) => !e.gelesen).length;
+  const markAllRead = useMutation({
+    mutationFn: async () => { await supabase.from('error_logs').update({ gelesen: true }).eq('gelesen', false); },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-error-logs'] }),
+  });
   const [permSearch,   setPermSearch]   = useState('');
 
   const { data: users = [], isLoading: usersLoading } = useQuery({
@@ -360,10 +375,15 @@ export default function AdminPage() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 24, background: '#f8fafc', padding: 4, borderRadius: 12, width: 'fit-content', border: '1px solid #f1f5f9' }}>
-        {([['users', Users, 'Benutzerverwaltung'], ['permissions', Sliders, 'Berechtigungen'], ['activity', Activity, 'Aktivitaets-Log']] as [Tab, any, string][]).map(([key, Icon, label]) => (
+        {([['users', Users, 'Benutzerverwaltung'], ['permissions', Sliders, 'Berechtigungen'], ['activity', Activity, 'Aktivitaets-Log'], ['errors', AlertTriangle, 'Fehlerprotokoll']] as [Tab, any, string][]).map(([key, Icon, label]) => (
           <button key={key} onClick={() => setTab(key)}
-            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === key ? '#fff' : 'transparent', color: tab === key ? '#0f172a' : '#94a3b8', boxShadow: tab === key ? '0 1px 4px rgba(0,0,0,.08)' : 'none', transition: 'all .15s' }}>
-            <Icon size={14} />{label}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === key ? '#fff' : 'transparent', color: tab === key ? (key === 'errors' ? '#dc2626' : '#0f172a') : '#94a3b8', boxShadow: tab === key ? '0 1px 4px rgba(0,0,0,.08)' : 'none', transition: 'all .15s', position: 'relative' }}>
+            <Icon size={14} style={{ color: key === 'errors' ? (tab === key ? '#dc2626' : '#f87171') : undefined }} />{label}
+            {key === 'errors' && ungeleseneErrors > 0 && (
+              <span style={{ marginLeft: 4, minWidth: 18, height: 18, background: '#ef4444', borderRadius: 99, fontSize: 10, fontWeight: 800, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>
+                {ungeleseneErrors > 9 ? '9+' : ungeleseneErrors}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -683,6 +703,76 @@ export default function AdminPage() {
               </table>
             )}
           </div>
+        </div>
+      )}
+      {tab === 'errors' && (
+        <div>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <AlertTriangle size={18} style={{ color:'#ef4444' }} />
+              <div>
+                <h2 style={{ fontSize:14, fontWeight:700, margin:0 }}>
+                  Fehlerprotokoll
+                  {ungeleseneErrors > 0 && <span style={{ marginLeft:8, fontSize:11, padding:'2px 8px', borderRadius:99, background:'#fef2f2', color:'#dc2626', fontWeight:700 }}>{ungeleseneErrors} neu</span>}
+                </h2>
+                <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>Automatisch erfasste Fehler aller Benutzer · aktualisiert alle 15s</p>
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              {ungeleseneErrors > 0 && (
+                <button onClick={() => markAllRead.mutate()} style={btnStyle('ghost') as any}>
+                  <CheckCheck size={13} /> Alle gelesen
+                </button>
+              )}
+              <button onClick={() => refetchErrors()} style={btnStyle('ghost') as any}>
+                <RefreshCw size={13} /> Aktualisieren
+              </button>
+            </div>
+          </div>
+
+          {(errorLogs as any[]).length === 0 ? (
+            <div style={{ ...S.card, textAlign:'center', padding:'64px 0' }}>
+              <div style={{ width:48, height:48, background:'#f0fdf4', borderRadius:14, display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px' }}>
+                <CheckCheck size={22} style={{ color:'#10b981' }} />
+              </div>
+              <p style={{ color:'#64748b', fontSize:15, fontWeight:600, margin:'0 0 4px' }}>Keine Fehler vorhanden</p>
+              <p style={{ color:'#94a3b8', fontSize:13 }}>Alle Systeme laufen fehlerfrei</p>
+            </div>
+          ) : (
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {(errorLogs as any[]).map((err: any) => (
+                <div key={err.id} style={{ ...S.card, padding:'14px 18px', borderLeft:`4px solid ${err.gelesen ? '#e2e8f0' : '#ef4444'}`, background: err.gelesen ? '#f8fafc' : '#fff' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:16 }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5 }}>
+                        {!err.gelesen && <span style={{ width:7, height:7, borderRadius:'50%', background:'#ef4444', flexShrink:0, display:'inline-block' }} />}
+                        <p style={{ fontSize:13, fontWeight:700, color:'#dc2626', margin:0, wordBreak:'break-word' }}>{err.message}</p>
+                      </div>
+                      <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom: err.stack ? 6 : 0 }}>
+                        <span style={{ fontSize:11, color:'#64748b' }}>👤 {err.user_email ?? '–'}</span>
+                        <span style={{ fontSize:11, color:'#64748b' }}>📍 {err.route ?? '–'}</span>
+                        {err.component && <span style={{ fontSize:11, color:'#64748b' }}>🔧 {err.component}</span>}
+                      </div>
+                      {err.stack && (
+                        <details style={{ marginTop:4 }}>
+                          <summary style={{ fontSize:11, color:'#94a3b8', cursor:'pointer', userSelect:'none' }}>Stack-Trace anzeigen</summary>
+                          <pre style={{ fontSize:10, color:'#64748b', background:'#f8fafc', borderRadius:8, padding:'8px 10px', marginTop:4, overflowX:'auto', whiteSpace:'pre-wrap', wordBreak:'break-all' }}>{err.stack}</pre>
+                        </details>
+                      )}
+                    </div>
+                    <div style={{ textAlign:'right', flexShrink:0 }}>
+                      <p style={{ fontSize:12, color:'#64748b', margin:'0 0 2px', fontWeight:600 }}>
+                        {new Date(err.created_at).toLocaleTimeString('de-DE', { hour:'2-digit', minute:'2-digit' })}
+                      </p>
+                      <p style={{ fontSize:10, color:'#94a3b8', margin:0 }}>
+                        {new Date(err.created_at).toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
