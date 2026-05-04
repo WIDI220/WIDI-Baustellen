@@ -217,6 +217,41 @@ export default function MitarbeiterAuswertungPage() {
     },
   });
 
+  // DGUV-Stunden aus Wochenplanung (monatlich)
+  const { data: dguvMonat = [] } = useQuery({
+    queryKey: ['dguv-stunden-ma', year, month],
+    queryFn: async () => {
+      const von2 = `${year}-${String(month).padStart(2,'0')}-01`;
+      const lastDay2 = new Date(year, month, 0).getDate();
+      const bis2 = `${year}-${String(month).padStart(2,'0')}-${String(lastDay2).padStart(2,'0')}`;
+      const { data } = await supabase
+        .from('wochenplanung')
+        .select('mitarbeiter_id, stunden, datum')
+        .eq('typ', 'dguv')
+        .gte('datum', von2)
+        .lte('datum', bis2);
+      return data ?? [];
+    },
+  });
+
+  // DGUV-Stunden aus Wochenplanung (alle Monate für Verlauf)
+  const { data: dguvAll = [] } = useQuery({
+    queryKey: ['dguv-stunden-all'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('wochenplanung')
+        .select('mitarbeiter_id, stunden, datum')
+        .eq('typ', 'dguv');
+      return (data ?? []).map((r: any) => ({
+        mitarbeiter_id: r.mitarbeiter_id,
+        stunden: Number(r.stunden ?? 0),
+        monat: String(r.datum ?? '').slice(0, 7),
+      }));
+    },
+    staleTime: 60000,
+  });
+
+
   const { data: begehungenMonat = [] } = useQuery({
     queryKey: ['begehungen-monat', year, month],
     queryFn: async () => {
@@ -240,9 +275,9 @@ export default function MitarbeiterAuswertungPage() {
         return a.employee_id === e.id && a.typ === 'urlaub';
       }).length;
       const krankTage = (abwesenheitenMonat as any[]).filter((a:any) => a.employee_id === e.id && a.typ === 'krank').length;
-      return [e.name, e.tH.toFixed(1), e.bH.toFixed(1), (e.begH||0).toFixed(1), (e.intH||0).toFixed(1), e.gesamt.toFixed(1), e.kosten.toFixed(2), urlaubTage, krankTage].join(';');
+      return [e.name, e.tH.toFixed(1), e.bH.toFixed(1), (e.begH||0).toFixed(1), (e.intH||0).toFixed(1), (e.dguvH||0).toFixed(1), e.gesamt.toFixed(1), e.kosten.toFixed(2), urlaubTage, krankTage].join(';');
     });
-    const header = 'Mitarbeiter;Ticket-Std;Baustellen-Std;Begehungen-Std;Interne-Std;Gesamt-Std;Kosten (€);Urlaub-Tage;Krank-Tage';
+    const header = 'Mitarbeiter;Ticket-Std;Baustellen-Std;Begehungen-Std;Interne-Std;DGUV-Std;Gesamt-Std;Kosten (€);Urlaub-Tage;Krank-Tage';
     const csv = '\uFEFF' + [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -282,11 +317,12 @@ export default function MitarbeiterAuswertungPage() {
       })
       .reduce((s: number, b: any) => s + Number(b.stunden ?? 0), 0);
     const intH = (interneStunden as any[]).filter(x => x.employee_id === e.id).reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
-    const gesamt = tH + bH + begH + intH;
+    const dguvH = (dguvMonat as any[]).filter(x => x.mitarbeiter_id === e.id).reduce((s: number, x: any) => s + Number(x.stunden ?? 0), 0);
+    const gesamt = tH + bH + begH + intH + dguvH;
     const satz = Number(e.stundensatz ?? STUNDENSATZ);
     const kosten = gesamt * satz;
-    return { ...e, tH, bH, begH, intH, gesamt, kosten, satz, farbe: FARBEN[i % FARBEN.length] };
-  }).sort((a, b) => b.gesamt - a.gesamt), [emps, tw, bw, begehungenMonat, interneStunden]);
+    return { ...e, tH, bH, begH, intH, dguvH, gesamt, kosten, satz, farbe: FARBEN[i % FARBEN.length] };
+  }).sort((a, b) => b.gesamt - a.gesamt), [emps, tw, bw, begehungenMonat, interneStunden, dguvMonat]);
 
   const totalH = maStats.reduce((s, e) => s + e.gesamt, 0);
   const totalKosten = maStats.reduce((s, e) => s + e.kosten, 0);
@@ -312,6 +348,7 @@ export default function MitarbeiterAuswertungPage() {
     (bauAll as any[]).forEach(w => { const d = String(w.datum ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
     (begehungenAll as any[]).forEach(w => { const d = String(w.datum_von ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
     (interneAll as any[]).forEach(w => { const d = String(w.datum ?? ''); if (d.length >= 7) monatsSet.add(d.slice(0, 7)); });
+    (dguvAll as any[]).forEach(w => { if (w.monat?.length >= 7) monatsSet.add(w.monat); });
 
     const heute = new Date().toISOString().slice(0, 7);
     return Array.from(monatsSet).filter(ym => ym >= '2025-11' && ym <= heute).sort().map(ym => {
@@ -319,22 +356,24 @@ export default function MitarbeiterAuswertungPage() {
       const y2 = parseInt(y2str); const m2 = parseInt(m2str);
       const lastDay = new Date(y2, m2, 0).getDate();
       const v = `${ym}-01`; const b = `${ym}-${String(lastDay).padStart(2, '0')}`;
-      const tH2   = (ticketAll as any[]).filter(w => { const d = String(w.leistungsdatum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-      const bH2   = (bauAll as any[]).filter(w => { const d = String(w.datum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-      const begH2 = (begehungenAll as any[]).filter(w => { const d = String(w.datum_von ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-      const intH2 = (interneAll as any[]).filter(w => { const d = String(w.datum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
-      const gesamt = Math.round((tH2 + bH2 + begH2 + intH2) * 10) / 10;
+      const tH2    = (ticketAll as any[]).filter(w => { const d = String(w.leistungsdatum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const bH2    = (bauAll as any[]).filter(w => { const d = String(w.datum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const begH2  = (begehungenAll as any[]).filter(w => { const d = String(w.datum_von ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const intH2  = (interneAll as any[]).filter(w => { const d = String(w.datum ?? ''); return d >= v && d <= b; }).reduce((s, w) => s + Number(w.stunden ?? 0), 0);
+      const dguvH2 = (dguvAll as any[]).filter(w => w.monat === ym).reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+      const gesamt = Math.round((tH2 + bH2 + begH2 + intH2 + dguvH2) * 10) / 10;
       return {
         monat: `${MONATE[m2 - 1]} ${y2 !== new Date().getFullYear() ? y2 : ''}`.trim(),
         ym,
-        Tickets:    Math.round(tH2   * 10) / 10,
-        Baustellen: Math.round(bH2   * 10) / 10,
-        Begehungen: Math.round(begH2 * 10) / 10,
-        Intern:     Math.round(intH2 * 10) / 10,
+        Tickets:    Math.round(tH2    * 10) / 10,
+        Baustellen: Math.round(bH2    * 10) / 10,
+        Begehungen: Math.round(begH2  * 10) / 10,
+        Intern:     Math.round(intH2  * 10) / 10,
+        DGUV:       Math.round(dguvH2 * 10) / 10,
         Gesamt:     gesamt,
       };
     });
-  }, [ticketAll, bauAll, begehungenAll, interneAll]);
+  }, [ticketAll, bauAll, begehungenAll, interneAll, dguvAll]);
 
   // Radar-Daten für ausgewählten MA
   const selectedEmp = maStats.find(e => e.id === selectedMA) ?? maStats[0];
@@ -429,6 +468,7 @@ export default function MitarbeiterAuswertungPage() {
                     { key: 'Baustellen', color: '#10b981' },
                     { key: 'Begehungen', color: '#f59e0b' },
                     { key: 'Intern',     color: '#8b5cf6' },
+                    { key: 'DGUV',       color: '#0891b2' },
                   ].map(({ key, color }) => (
                     <linearGradient key={key} id={`grad-${key}`} x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%"  stopColor={color} stopOpacity={0.25} />
@@ -449,6 +489,7 @@ export default function MitarbeiterAuswertungPage() {
                   { key: 'Baustellen', color: '#10b981' },
                   { key: 'Begehungen', color: '#f59e0b' },
                   { key: 'Intern',     color: '#8b5cf6' },
+                  { key: 'DGUV',       color: '#0891b2' },
                 ].map(({ key, color }) => (
                   <Area key={key} type="monotone" dataKey={key} stackId="1"
                     stroke={color} strokeWidth={1.5}
@@ -463,7 +504,7 @@ export default function MitarbeiterAuswertungPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    {['Monat', 'Tickets', 'Baustellen', 'Begehungen', 'Intern', 'Gesamt'].map(h => (
+                    {['Monat', 'Tickets', 'Baustellen', 'Begehungen', 'Intern', 'DGUV', 'Gesamt'].map(h => (
                       <th key={h} style={{ padding: '6px 12px', textAlign: h === 'Monat' ? 'left' : 'right', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
                     ))}
                   </tr>
@@ -487,6 +528,7 @@ export default function MitarbeiterAuswertungPage() {
                           { v: row.Baustellen, c: '#10b981' },
                           { v: row.Begehungen, c: '#f59e0b' },
                           { v: row.Intern,     c: '#8b5cf6' },
+                          { v: row.DGUV ?? 0,  c: '#0891b2' },
                         ].map(({ v, c }, ci) => (
                           <td key={ci} style={{ padding: '8px 12px', textAlign: 'right', color: v > 0 ? c : '#94a3b8', fontWeight: v > 0 ? 700 : 400 }}>
                             {v > 0 ? `${fmt(v)}h` : '–'}
@@ -534,10 +576,11 @@ export default function MitarbeiterAuswertungPage() {
                 <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} unit="h" />
                 <Tooltip content={<CustomTooltip />} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="tH"   name="Tickets"    fill="#3b82f6" radius={[0,0,0,0]} />
-                <Bar dataKey="bH"   name="Baustellen" fill="#10b981" radius={[0,0,0,0]} />
-                <Bar dataKey="begH" name="Begehungen" fill="#f59e0b" radius={[0,0,0,0]} />
-                <Bar dataKey="intH" name="Intern"     fill="#8b5cf6" radius={[5,5,0,0]} />
+                <Bar dataKey="tH"    name="Tickets"    fill="#3b82f6" radius={[0,0,0,0]} />
+                <Bar dataKey="bH"    name="Baustellen" fill="#10b981" radius={[0,0,0,0]} />
+                <Bar dataKey="begH"  name="Begehungen" fill="#f59e0b" radius={[0,0,0,0]} />
+                <Bar dataKey="intH"  name="Intern"     fill="#8b5cf6" radius={[0,0,0,0]} />
+                <Bar dataKey="dguvH" name="DGUV"       fill="#0891b2" radius={[5,5,0,0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -549,7 +592,7 @@ export default function MitarbeiterAuswertungPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: '2px solid #f1f5f9' }}>
-                    {['Mitarbeiter', 'Gewerk', 'Tickets', 'Baustellen', 'Gesamt', 'Stundensatz', 'Kosten', 'Anteil'].map(h => (
+                    {['Mitarbeiter', 'Gewerk', 'Tickets', 'Baustellen', 'DGUV', 'Gesamt', 'Stundensatz', 'Kosten', 'Anteil'].map(h => (
                       <th key={h} style={{ textAlign: h === 'Mitarbeiter' ? 'left' : 'right', padding: '8px 12px', fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
                     ))}
                   </tr>
@@ -570,6 +613,7 @@ export default function MitarbeiterAuswertungPage() {
                       </td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#3b82f6', fontWeight: 600 }}>{fmt(e.tH)}h</td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{fmt(e.bH)}h</td>
+                      <td style={{ padding: '12px', textAlign: 'right', color: '#0891b2', fontWeight: 600 }}>{fmt(e.dguvH ?? 0)}h</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>{fmt(e.gesamt)}h</td>
                       <td style={{ padding: '12px', textAlign: 'right', color: '#64748b' }}>{e.satz.toFixed(2)}€</td>
                       <td style={{ padding: '12px', textAlign: 'right', fontWeight: 700, color: '#0f172a' }}>{fmtEur(e.kosten)}</td>
@@ -589,6 +633,7 @@ export default function MitarbeiterAuswertungPage() {
                     <td colSpan={2} style={{ padding: '12px', fontWeight: 700, color: '#0f172a', fontSize: 13 }}>Gesamt</td>
                     <td style={{ padding: '12px', textAlign: 'right', color: '#3b82f6', fontWeight: 700 }}>{fmt(maStats.reduce((s, e) => s + e.tH, 0))}h</td>
                     <td style={{ padding: '12px', textAlign: 'right', color: '#10b981', fontWeight: 700 }}>{fmt(maStats.reduce((s, e) => s + e.bH, 0))}h</td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: '#0891b2', fontWeight: 700 }}>{fmt(maStats.reduce((s, e) => s + (e.dguvH ?? 0), 0))}h</td>
                     <td style={{ padding: '12px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>{fmt(totalH)}h</td>
                     <td />
                     <td style={{ padding: '12px', textAlign: 'right', fontWeight: 800, color: '#0f172a' }}>{fmtEur(totalKosten)}</td>
