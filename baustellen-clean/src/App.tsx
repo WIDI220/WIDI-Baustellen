@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { MonthProvider } from '@/contexts/MonthContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 // Layouts
 import AppLayoutBaustellen from '@/components/AppLayout';
@@ -75,6 +77,36 @@ function AppRoutes() {
     window.addEventListener('storage', check);
     return () => window.removeEventListener('storage', check);
   }, []);
+
+  // Realtime Fehler-Alarm: nur für Admin sichtbar, auf jeder Seite
+  useEffect(() => {
+    const session = getLocalSession();
+    if (session?.email !== 'j.paredis@widi-hellersen.de') return;
+
+    const channel = supabase
+      .channel('error-alarm')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'error_logs',
+      }, (payload) => {
+        const err = payload.new as any;
+        toast.error(
+          `🚨 Fehler bei ${err.user_email ?? 'Unbekannt'}`,
+          {
+            description: `${err.message ?? ''}${err.route ? ' · ' + err.route : ''}`,
+            duration: 12000,
+            action: {
+              label: 'Zum Protokoll',
+              onClick: () => window.location.href = '/admin',
+            },
+          }
+        );
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [loggedIn]);
 
   if (!loggedIn) return (
     <Routes>
