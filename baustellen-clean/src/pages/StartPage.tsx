@@ -248,17 +248,6 @@ export default function StartPage() {
           </p>
         </div>
 
-        {/* Stilisiertes Foto – dezent rechts im Hintergrund */}
-        <div style={{ position:'absolute', right:32, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', zIndex:0 }}>
-          <div style={{ position:'relative', width:160, height:160 }}>
-            {/* Farbige Ringe dahinter */}
-            <div style={{ position:'absolute', inset:-12, borderRadius:'50%', background:'linear-gradient(135deg,rgba(37,99,235,.15),rgba(124,58,237,.1))', filter:'blur(8px)' }} />
-            <div style={{ position:'absolute', inset:-4, borderRadius:'50%', border:'2px solid rgba(37,99,235,.2)' }} />
-            {/* Foto */}
-            <img src="/jan.png" alt="" style={{ width:160, height:160, borderRadius:'50%', objectFit:'cover', objectPosition:'center top', opacity:.18, filter:'grayscale(30%) contrast(1.1)', display:'block' }} />
-          </div>
-        </div>
-
         {/* Stats chips */}
         <div className="s-chips" style={{ display:'flex', gap:10, marginBottom:44, flexWrap:'wrap', justifyContent:'center' }}>
           {[
