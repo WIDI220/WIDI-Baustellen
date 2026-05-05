@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Euro, Clock, Package, Camera, Plus, Pencil, Trash2, Upload, TrendingUp, BarChart2, FileText, Download, File, X } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import { fmtEur, fmtDate } from '@/lib/utils';
-import { exportBaustellePDF } from '@/lib/exportPDF';
+import { exportBaustellePDF, exportTeilabrechungPDF } from '@/lib/exportPDF';
 
 const STUNDEN_SATZ = 38.08;
 const STATUS_OPTIONS = [
@@ -85,6 +85,10 @@ export default function BaustelleDetail() {
   const [taForm, setTaForm] = useState({ begruendung: '', betrag_eur: '', betrag_prozent: '', erstellt_von: '', notizen: '' });
   const [taFiles, setTaFiles] = useState<File[]>([]);
   const [taUploading, setTaUploading] = useState(false);
+  const [taKommentarText, setTaKommentarText] = useState<Record<string,string>>({});
+  const [taKommentarVon, setTaKommentarVon] = useState('');
+  const [taKommentarLoading, setTaKommentarLoading] = useState<string|null>(null);
+  const [taDeleteId, setTaDeleteId] = useState<string|null>(null);
 
   const { data: bs, isLoading: bsLoading } = useQuery({ queryKey:['baustelle',id], queryFn: async () => { const {data,error}=await supabase.from('baustellen').select('*').eq('id',id!).single(); if(error)throw error; return data; }, enabled:!!id });
   const { data: employees=[] } = useQuery({ queryKey:['employees'], queryFn: async () => { const {data}=await supabase.from('employees').select('id,name,kuerzel,stundensatz').eq('aktiv',true).order('name'); return data??[]; } });
@@ -104,7 +108,7 @@ export default function BaustelleDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('bs_teilabrechnungen')
-        .select('*, bs_teilabrechnung_dokumente(*)')
+        .select('*, bs_teilabrechnung_dokumente(*), bs_teilabrechnung_kommentare(*)')
         .eq('baustelle_id', id!)
         .order('lfd_nr', { ascending: true });
       if (error) throw error;
@@ -258,6 +262,7 @@ export default function BaustelleDetail() {
   };
 
   const exportPDF = async () => await exportBaustellePDF(bs, sw, mat, nach, fts);
+  const exportTAPDF = () => exportTeilabrechungPDF(bs, teilabrechnungen as any[], effektivBudget);
 
   return (
     <div className="space-y-5">
@@ -825,12 +830,22 @@ export default function BaustelleDetail() {
             <h3 className="text-sm font-semibold" style={{color:'#0f172a'}}>
               Verlauf ({(teilabrechnungen as any[]).length})
             </h3>
-            <button
-              onClick={() => { setTaForm({ begruendung:'', betrag_eur:'', betrag_prozent:'', erstellt_von:'', notizen:'' }); setTaFiles([]); setTaDialog(true); }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white"
-              style={{background:'linear-gradient(135deg,#1e3a5f,#2563eb)'}}>
-              + Neue Teilabrechnung
-            </button>
+            <div className="flex gap-2">
+              {(teilabrechnungen as any[]).length > 0 && (
+                <button
+                  onClick={exportTAPDF}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold"
+                  style={{background:'#f1f5f9', color:'#374151', border:'1px solid #e2e8f0'}}>
+                  📄 PDF exportieren
+                </button>
+              )}
+              <button
+                onClick={() => { setTaForm({ begruendung:'', betrag_eur:'', betrag_prozent:'', erstellt_von:'', notizen:'' }); setTaFiles([]); setTaDialog(true); }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                style={{background:'linear-gradient(135deg,#1e3a5f,#2563eb)'}}>
+                + Neue Teilabrechnung
+              </button>
+            </div>
           </div>
 
           {/* Leer-Zustand */}
@@ -862,6 +877,13 @@ export default function BaustelleDetail() {
                       </p>
                     </div>
                   </div>
+                  {/* Löschen-Button */}
+                  <button
+                    onClick={() => setTaDeleteId(ta.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors hover:bg-red-50"
+                    style={{color:'#ef4444', border:'1px solid #fecaca', background:'#fff'}}>
+                    🗑 Löschen
+                  </button>
                 </div>
 
                 {/* Begründung */}
@@ -892,11 +914,100 @@ export default function BaustelleDetail() {
                     </div>
                   </div>
                 )}
+
+                {/* Kommentare */}
+                <div className="mt-4" style={{borderTop:'1px solid #f1f5f9', paddingTop:14}}>
+                  <p className="text-xs font-semibold mb-3" style={{color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em'}}>
+                    Kommentare ({(ta.bs_teilabrechnung_kommentare || []).length})
+                  </p>
+
+                  {/* Bestehende Kommentare */}
+                  {(ta.bs_teilabrechnung_kommentare || [])
+                    .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                    .map((k: any) => (
+                      <div key={k.id} className="mb-3 p-3 rounded-xl" style={{background:'#f8fafc', border:'1px solid #f1f5f9'}}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold" style={{color:'#374151'}}>{k.erstellt_von}</span>
+                          <span className="text-[10px]" style={{color:'#94a3b8'}}>
+                            {new Date(k.created_at).toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'2-digit'})}
+                            {' '}
+                            {new Date(k.created_at).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'})}
+                          </span>
+                        </div>
+                        <p className="text-sm" style={{color:'#374151', lineHeight:1.5}}>{k.text}</p>
+                      </div>
+                    ))
+                  }
+
+                  {/* Neuen Kommentar schreiben */}
+                  <div className="space-y-2 mt-2">
+                    <input
+                      placeholder="Dein Name"
+                      value={taKommentarVon}
+                      onChange={e => setTaKommentarVon(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg text-xs"
+                      style={{border:'1px solid #e2e8f0', outline:'none', background:'#fff'}}
+                    />
+                    <textarea
+                      placeholder="Kommentar schreiben... (z.B. Kunde hat telefonisch bestätigt)"
+                      rows={2}
+                      value={taKommentarText[ta.id] || ''}
+                      onChange={e => setTaKommentarText(prev => ({ ...prev, [ta.id]: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg text-xs resize-none"
+                      style={{border:'1px solid #e2e8f0', outline:'none', background:'#fff'}}
+                    />
+                    <button
+                      disabled={!taKommentarText[ta.id]?.trim() || !taKommentarVon.trim() || taKommentarLoading === ta.id}
+                      onClick={async () => {
+                        setTaKommentarLoading(ta.id);
+                        try {
+                          await supabase.from('bs_teilabrechnung_kommentare').insert({
+                            teilabrechnung_id: ta.id,
+                            text: taKommentarText[ta.id],
+                            erstellt_von: taKommentarVon,
+                          });
+                          setTaKommentarText(prev => ({ ...prev, [ta.id]: '' }));
+                          await refetchTA();
+                        } catch(e: any) { alert('Fehler: ' + e.message); }
+                        finally { setTaKommentarLoading(null); }
+                      }}
+                      className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white transition-opacity"
+                      style={{background:'#1e3a5f', opacity: (!taKommentarText[ta.id]?.trim() || !taKommentarVon.trim()) ? 0.4 : 1}}>
+                      {taKommentarLoading === ta.id ? 'Speichert...' : '+ Kommentar hinzufügen'}
+                    </button>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* ── DIALOG: TEILABRECHNUNG LÖSCHEN ── */}
+      <Dialog open={!!taDeleteId} onOpenChange={v => { if (!v) setTaDeleteId(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Teilabrechnung löschen?</DialogTitle></DialogHeader>
+          <div className="pt-1">
+            <p className="text-sm mb-4" style={{color:'#64748b'}}>
+              Diese Aktion kann nicht rückgängig gemacht werden. Alle zugehörigen Dokumente und Kommentare werden ebenfalls gelöscht.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setTaDeleteId(null)}>Abbrechen</Button>
+              <Button className="flex-1" style={{background:'#ef4444', color:'#fff'}}
+                onClick={async () => {
+                  if (!taDeleteId) return;
+                  try {
+                    await supabase.from('bs_teilabrechnungen').delete().eq('id', taDeleteId);
+                    await refetchTA();
+                    setTaDeleteId(null);
+                  } catch(e: any) { alert('Fehler: ' + e.message); }
+                }}>
+                Endgültig löschen
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── DIALOG: NEUE TEILABRECHNUNG ── */}
       <Dialog open={taDialog} onOpenChange={v => { setTaDialog(v); }}>
