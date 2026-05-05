@@ -149,6 +149,19 @@ export default function AdminPage() {
     mutationFn: async () => { await supabase.from('error_logs').update({ gelesen: true }).eq('gelesen', false); },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-error-logs'] }),
   });
+
+  const [sending, setSending] = useState(false);
+  async function sendUpdateNotification() {
+    setSending(true);
+    try {
+      await supabase.from('system_announcements').insert({
+        message: 'Das System wurde aktualisiert – bitte neu laden.',
+        aktiv: true,
+      });
+      toast.success('Benachrichtigung an alle Nutzer gesendet ✓');
+    } catch { toast.error('Fehler beim Senden'); }
+    finally { setSending(false); }
+  }
   const [permSearch,   setPermSearch]   = useState('');
 
   const { data: users = [], isLoading: usersLoading, refetch: refetchUsers } = useQuery({
@@ -362,18 +375,25 @@ export default function AdminPage() {
   // ════════ RENDER ════════
   return (
     <div style={{ maxWidth: 1300, margin: '0 auto', padding: '28px 24px', fontFamily: "'Inter', system-ui, sans-serif", color: '#0f172a' }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Header */}
       <div style={{ marginBottom: 28, display: 'flex', alignItems: 'center', gap: 14 }}>
         <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Shield size={22} style={{ color: '#fff' }} />
         </div>
-        <div>
+        <div style={{ flex: 1 }}>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-.03em' }}>
             Admin <span style={{ color: '#6366f1' }}>Einstellungen</span>
           </h1>
           <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Benutzerverwaltung · Berechtigungen · Aktivitaetsprotokoll</p>
         </div>
+        {/* Update-Benachrichtigung an alle senden */}
+        <button onClick={sendUpdateNotification} disabled={sending}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', background: sending ? '#f1f5f9' : 'linear-gradient(135deg,#f59e0b,#d97706)', color: sending ? '#94a3b8' : '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: sending ? 'not-allowed' : 'pointer', boxShadow: sending ? 'none' : '0 2px 8px rgba(245,158,11,.3)', transition: 'all .2s' }}>
+          <RefreshCw size={14} style={{ animation: sending ? 'spin 1s linear infinite' : 'none' }} />
+          {sending ? 'Wird gesendet...' : '🔔 Update-Meldung senden'}
+        </button>
       </div>
 
       {/* Statistik */}
