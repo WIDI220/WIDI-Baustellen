@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
-import { Shield, BarChart2, Calendar, LogOut, Home, Upload, RefreshCw, CheckCircle, Users, FileUp } from 'lucide-react';
+import { Shield, BarChart2, Calendar, LogOut, Home, RefreshCw, CheckCircle, Upload } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -8,11 +8,8 @@ const ACCENT = '#f59e0b';
 const ACCENT_LIGHT = 'rgba(245,158,11,0.15)';
 
 const NAV = [
-  { to: '/dguv',           icon: Upload,    label: 'Verarbeitung' },
-  { to: '/dguv/roadmap',   icon: Calendar,  label: 'Roadmap' },
-  { to: '/dguv/pruefer',   icon: Users,     label: 'Prüfer' },
-  { to: '/dguv/import',    icon: FileUp,    label: 'Messungen Import' },
-  { to: '/dguv/auswertung',icon: BarChart2, label: 'Auswertung' },
+  { to: '/dguv/roadmap',     icon: Calendar,  label: 'Roadmap' },
+  { to: '/dguv/auswertung',  icon: BarChart2, label: 'Messauswertung' },
 ];
 
 function parseCSV(text: string): Record<string, string>[] {
