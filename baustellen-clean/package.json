@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node -e \"const fs=require('fs');fs.writeFileSync('public/version.json',JSON.stringify({t:Date.now()}))\" && tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
