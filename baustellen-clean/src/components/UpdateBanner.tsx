@@ -3,10 +3,9 @@ import { supabase } from '@/integrations/supabase/client';
 
 export default function UpdateBanner() {
   const [show, setShow]       = useState(false);
-  const [message, setMessage] = useState('Das System wurde aktualisiert – bitte neu laden.');
+  const [message, setMessage] = useState('Das System wurde aktualisiert.');
 
   useEffect(() => {
-    // Realtime: sobald ein neuer Eintrag in system_announcements kommt → Banner zeigen
     const channel = supabase
       .channel('system-announcements')
       .on('postgres_changes', {
@@ -22,6 +21,19 @@ export default function UpdateBanner() {
 
     return () => { supabase.removeChannel(channel); };
   }, []);
+
+  function hardReload() {
+    // Cache leeren und neu laden – funktioniert in allen Browsern
+    if ('caches' in window) {
+      caches.keys().then(names => {
+        names.forEach(name => caches.delete(name));
+      });
+    }
+    // Timestamp-Parameter zwingt Browser neue Version zu laden
+    const url = new URL(window.location.href);
+    url.searchParams.set('_v', Date.now().toString());
+    window.location.replace(url.toString());
+  }
 
   if (!show) return null;
 
@@ -41,10 +53,10 @@ export default function UpdateBanner() {
         🔄
       </div>
       <div style={{ flex:1, minWidth:0 }}>
-        <p style={{ fontSize:14, fontWeight:700, margin:'0 0 2px' }}>System-Update</p>
+        <p style={{ fontSize:14, fontWeight:700, margin:'0 0 2px' }}>Neue Version verfügbar</p>
         <p style={{ fontSize:12, color:'rgba(255,255,255,.5)', margin:0 }}>{message}</p>
       </div>
-      <button onClick={() => window.location.reload()}
+      <button onClick={hardReload}
         style={{ padding:'9px 18px', background:'#f59e0b', color:'#fff', border:'none', borderRadius:9, fontWeight:700, fontSize:13, cursor:'pointer', flexShrink:0, fontFamily:'inherit', boxShadow:'0 2px 8px rgba(245,158,11,.4)' }}>
         Neu laden →
       </button>
