@@ -284,10 +284,26 @@ export default function BaustelleDetail() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          {label:'Effektives Budget', sub:nachtragGenehmigt>0?`+${fmtEur(nachtragGenehmigt)} Nachträge`:'inkl. Nachträge', value:fmtEur(effektivBudget), icon:Euro, c:'#1e3a5f', bg:'rgba(30,58,95,.08)'},
-          {label:'Gesamtkosten', sub:`${pct}% des Budgets`, value:fmtEur(gesamtkosten), icon:TrendingUp, c:overBudget?'#ef4444':'#10b981', bg:overBudget?'rgba(239,68,68,.1)':'rgba(16,185,129,.1)'},
-          {label:'Personalkosten', sub:`${Math.round(gesamtStunden*10)/10}h · ${sw.length} Einträge`, value:fmtEur(personalkosten), icon:Clock, c:'#8b5cf6', bg:'rgba(139,92,246,.1)'},
-          {label:'Materialkosten', sub:`${mat.length} Positionen`, value:fmtEur(materialkosten), icon:Package, c:'#f97316', bg:'rgba(249,115,22,.1)'},
+          {
+            label:'Effektives Budget',
+            sub: teilabrechungSumme > 0
+              ? `davon ${fmtEur(teilabrechungSumme)} teilabgerechnet`
+              : nachtragGenehmigt > 0 ? `+${fmtEur(nachtragGenehmigt)} Nachträge` : 'inkl. Nachträge',
+            value: fmtEur(effektivBudget),
+            extra: teilabrechungSumme > 0 ? `Noch offen: ${fmtEur(effektivBudget - teilabrechungSumme)}` : null,
+            extraColor: '#10b981',
+            icon:Euro, c:'#1e3a5f', bg:'rgba(30,58,95,.08)'
+          },
+          {
+            label:'Gesamtkosten',
+            sub:`${pct}% des Budgets`,
+            value:fmtEur(gesamtkosten),
+            extra: effektivBudget > 0 ? `Verbleibend: ${fmtEur(effektivBudget - gesamtkosten)}` : null,
+            extraColor: overBudget ? '#ef4444' : '#10b981',
+            icon:TrendingUp, c:overBudget?'#ef4444':'#10b981', bg:overBudget?'rgba(239,68,68,.1)':'rgba(16,185,129,.1)'
+          },
+          {label:'Personalkosten', sub:`${Math.round(gesamtStunden*10)/10}h · ${sw.length} Einträge`, value:fmtEur(personalkosten), extra:null, extraColor:'', icon:Clock, c:'#8b5cf6', bg:'rgba(139,92,246,.1)'},
+          {label:'Materialkosten', sub:`${mat.length} Positionen`, value:fmtEur(materialkosten), extra:null, extraColor:'', icon:Package, c:'#f97316', bg:'rgba(249,115,22,.1)'},
         ].map(k=>(
           <div key={k.label} className="card kpi-card p-4">
             <div className="w-8 h-8 rounded-xl flex items-center justify-center mb-3" style={{background:k.bg}}>
@@ -296,6 +312,7 @@ export default function BaustelleDetail() {
             <p className="text-xl font-bold count-up" style={{color:'#0f1f3d', fontFamily:'DM Mono, monospace'}}>{k.value}</p>
             <p className="text-xs mt-0.5" style={{color:'#6b7a99'}}>{k.label}</p>
             <p className="text-[10px] mt-0.5" style={{color:'#9ca3af'}}>{k.sub}</p>
+            {k.extra && <p className="text-[11px] mt-1.5 font-semibold" style={{color:k.extraColor}}>{k.extra}</p>}
           </div>
         ))}
       </div>
@@ -866,7 +883,7 @@ export default function BaustelleDetail() {
                     <p className="text-xs font-semibold mb-2" style={{color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em'}}>Dokumente ({ta.bs_teilabrechnung_dokumente.length})</p>
                     <div className="flex flex-wrap gap-2">
                       {ta.bs_teilabrechnung_dokumente.map((d: any) => (
-                        <a key={d.id} href={`${(import.meta as any).env.VITE_SUPABASE_URL}/storage/v1/object/public/baustellen-dokumente/${d.storage_path}`} target="_blank" rel="noreferrer"
+                        <a key={d.id} href={`${(import.meta as any).env.VITE_SUPABASE_URL}/storage/v1/object/public/baustellen-dokumente/${d.storage_path}`} target="_blank" rel="noreferrer" download={d.name}
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-blue-50"
                           style={{background:'#f1f5f9', color:'#374151', border:'1px solid #e2e8f0'}}>
                           📎 {d.name}
