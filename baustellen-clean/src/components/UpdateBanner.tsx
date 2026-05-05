@@ -1,70 +1,72 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 
-// Vercel setzt bei jedem Deploy einen neuen ETag auf index.html
-// Wir vergleichen den aktuellen ETag mit dem beim Start geladenen
-// Bei Abweichung → neues Deployment → Banner anzeigen
+declare const __BUILD_TIME__: string;
 
-const CHECK_INTERVAL = 5 * 60 * 1000; // alle 5 Minuten
+const BUILD_TIME = __BUILD_TIME__;
+const CHECK_INTERVAL = 2 * 60 * 1000; // alle 2 Minuten
 
-async function fetchETag(): Promise<string | null> {
+async function getServerVersion(): Promise<number | null> {
   try {
-    const res = await fetch('/', { method: 'HEAD', cache: 'no-store' });
-    return res.headers.get('etag') ?? res.headers.get('last-modified') ?? null;
+    const res = await fetch(`/version.json?_=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.t ?? null;
   } catch {
     return null;
   }
 }
 
 export default function UpdateBanner() {
-  const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [initialETag, setInitialETag] = useState<string | null>(null);
+  const [show, setShow] = useState(false);
 
-  // Beim Start: aktuellen ETag merken
   useEffect(() => {
-    fetchETag().then(setInitialETag);
-  }, []);
+    // Eigene Build-Zeit in ms
+    const myTime = new Date(BUILD_TIME).getTime();
 
-  // Regelmäßig prüfen
-  const check = useCallback(async () => {
-    if (!initialETag) return;
-    const current = await fetchETag();
-    if (current && current !== initialETag) {
-      setUpdateAvailable(true);
+    async function check() {
+      const serverTime = await getServerVersion();
+      if (serverTime && serverTime > myTime + 5000) {
+        // Server hat eine neuere Version (5s Puffer für Build-Varianz)
+        setShow(true);
+      }
     }
-  }, [initialETag]);
 
-  useEffect(() => {
-    if (!initialETag) return;
+    // Sofort prüfen + dann regelmäßig
+    check();
     const interval = setInterval(check, CHECK_INTERVAL);
     return () => clearInterval(interval);
-  }, [check, initialETag]);
+  }, []);
 
-  if (!updateAvailable) return null;
+  if (!show) return null;
 
   return (
     <div style={{
       position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
       zIndex: 9999, display: 'flex', alignItems: 'center', gap: 14,
       background: '#0f1f3d', color: '#fff', borderRadius: 14,
-      padding: '14px 20px', boxShadow: '0 8px 32px rgba(0,0,0,.35)',
-      border: '1px solid rgba(255,255,255,.1)', fontFamily: "'Inter',system-ui,sans-serif",
-      maxWidth: 420, width: 'calc(100vw - 48px)',
+      padding: '14px 20px', boxShadow: '0 8px 32px rgba(0,0,0,.4)',
+      border: '1px solid rgba(255,255,255,.12)', fontFamily: "'Inter',system-ui,sans-serif",
+      maxWidth: 440, width: 'calc(100vw - 48px)',
+      animation: 'slideUp .3s ease',
     }}>
-      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(245,158,11,.15)', border: '1px solid rgba(245,158,11,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 18 }}>
+      <style>{`@keyframes slideUp { from { opacity:0; transform:translateX(-50%) translateY(16px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }`}</style>
+      <div style={{ width:38, height:38, borderRadius:10, background:'rgba(245,158,11,.15)', border:'1px solid rgba(245,158,11,.25)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:20 }}>
         🔄
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 14, fontWeight: 700, margin: '0 0 2px' }}>Neue Version verfügbar</p>
-        <p style={{ fontSize: 12, color: 'rgba(255,255,255,.5)', margin: 0 }}>Bitte aktualisieren um die neuesten Funktionen zu nutzen</p>
+      <div style={{ flex:1, minWidth:0 }}>
+        <p style={{ fontSize:14, fontWeight:700, margin:'0 0 2px' }}>Neue Version verfügbar</p>
+        <p style={{ fontSize:12, color:'rgba(255,255,255,.45)', margin:0 }}>
+          Das System wurde aktualisiert – bitte neu laden
+        </p>
       </div>
       <button
         onClick={() => window.location.reload()}
         style={{
-          padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none',
-          borderRadius: 9, fontWeight: 700, fontSize: 13, cursor: 'pointer', flexShrink: 0,
-          fontFamily: 'inherit',
+          padding:'9px 18px', background:'#f59e0b', color:'#fff', border:'none',
+          borderRadius:9, fontWeight:700, fontSize:13, cursor:'pointer', flexShrink:0,
+          fontFamily:'inherit', boxShadow:'0 2px 8px rgba(245,158,11,.4)',
         }}>
-        Jetzt aktualisieren
+        Neu laden →
       </button>
     </div>
   );
