@@ -154,12 +154,23 @@ export default function AdminPage() {
   const { data: users = [], isLoading: usersLoading, refetch: refetchUsers } = useQuery({
     queryKey: ['admin-users'],
     queryFn: async () => {
+      // Primär: Supabase-Client
       const { data, error } = await supabase.from('app_users').select('*').order('name');
-      if (error) { console.error('app_users query error:', error); throw error; }
-      return data ?? [];
+      if (!error && data && data.length > 0) return data;
+
+      // Fallback: direkter REST-Call falls Client-Session ein Problem hat
+      const url = (import.meta as any).env.VITE_SUPABASE_URL;
+      const key = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
+      if (!url || !key) throw new Error('Supabase ENV fehlt');
+      const res = await fetch(`${url}/rest/v1/app_users?select=*&order=name`, {
+        headers: { apikey: key, Authorization: `Bearer ${key}` },
+      });
+      if (!res.ok) throw new Error('Direkter Fetch fehlgeschlagen');
+      return res.json();
     },
     retry: 3,
     retryDelay: 1000,
+    staleTime: 0,
   });
 
   // Sicherheitsnetz: Admin-Liste manchmal leer nach Deploy/Session-Wechsel
@@ -406,13 +417,34 @@ export default function AdminPage() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0 }}>
-                Alle Benutzer
+                Controlling-Benutzer
                 <span style={{ marginLeft: 8, fontSize: 11, padding: '2px 8px', borderRadius: 99, background: '#f1f5f9', color: '#64748b', fontWeight: 600 }}>{(users as any[]).length}</span>
+                {!usersLoading && users.length === 0 && (
+                  <button onClick={() => refetchUsers()} style={{ marginLeft: 10, fontSize: 11, padding: '2px 10px', borderRadius: 99, background: '#fef3c7', color: '#b45309', border: '1px solid #fcd34d', cursor: 'pointer', fontWeight: 700 }}>
+                    ↺ Neu laden
+                  </button>
+                )}
               </h2>
               <button onClick={() => { resetForm(); setShowForm(true); }} style={btnStyle('primary') as any}>
                 <Plus size={14} /> Neuer Benutzer
               </button>
             </div>
+
+            {usersLoading && (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: '#94a3b8', fontSize: 14 }}>
+                Wird geladen...
+              </div>
+            )}
+
+            {!usersLoading && users.length === 0 && (
+              <div style={{ ...S.card, padding: 32, textAlign: 'center' }}>
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#64748b', margin: '0 0 8px' }}>Keine Benutzer geladen</p>
+                <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>Verbindungsproblem – bitte Seite neu laden oder den Button oben klicken</p>
+                <button onClick={() => refetchUsers()} style={{ ...btnStyle('primary'), padding: '8px 20px', fontSize: 13 } as any}>
+                  <RefreshCw size={13} /> Jetzt neu laden
+                </button>
+              </div>
+            )}
 
             {showForm && (
               <div style={{ ...S.card, padding: 20, marginBottom: 16, border: '1.5px solid #e0e7ff' }}>
