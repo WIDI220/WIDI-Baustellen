@@ -32,7 +32,7 @@ const NACH_STATUS = [
   { value:'genehmigt', label:'Genehmigt', bg:'#f0fdf4', text:'#065f46' },
   { value:'abgelehnt', label:'Abgelehnt', bg:'#fef2f2', text:'#b91c1c' },
 ];
-const TABS = ['Übersicht','Analyse','Stunden','Material','Nachträge','Fotos','Dokumente'];
+const TABS = ['Übersicht','Analyse','Stunden','Material','Nachträge','Fotos','Dokumente','Teilabrechnung'];
 const STUNDEN_EMPTY = { mitarbeiter_id:'', datum:new Date().toISOString().split('T')[0], stunden:'', beschreibung:'' };
 const MAT_EMPTY = { bezeichnung:'', menge:'1', einheit:'Stk', einzelpreis:'', gesamtpreis:'', status:'bestellt', datum:new Date().toISOString().split('T')[0] };
 const NACH_EMPTY = { titel:'', beschreibung:'', betrag:'', status:'entwurf', datum:new Date().toISOString().split('T')[0], begruendung:'' };
@@ -80,6 +80,12 @@ export default function BaustelleDetail() {
   const [dokUploading, setDokUploading] = useState(false);
   const [dokDragOver, setDokDragOver] = useState(false);
 
+  // Teilabrechnung State
+  const [taDialog, setTaDialog] = useState(false);
+  const [taForm, setTaForm] = useState({ begruendung: '', betrag_eur: '', betrag_prozent: '', erstellt_von: '', notizen: '' });
+  const [taFiles, setTaFiles] = useState<File[]>([]);
+  const [taUploading, setTaUploading] = useState(false);
+
   const { data: bs, isLoading: bsLoading } = useQuery({ queryKey:['baustelle',id], queryFn: async () => { const {data,error}=await supabase.from('baustellen').select('*').eq('id',id!).single(); if(error)throw error; return data; }, enabled:!!id });
   const { data: employees=[] } = useQuery({ queryKey:['employees'], queryFn: async () => { const {data}=await supabase.from('employees').select('id,name,kuerzel,stundensatz').eq('aktiv',true).order('name'); return data??[]; } });
   const { data: stunden=[] } = useQuery({ queryKey:['bs-stunden',id], queryFn: async () => { const {data,error}=await supabase.from('bs_stundeneintraege').select('*, employees(id,name,kuerzel,stundensatz)').eq('baustelle_id',id!).order('datum',{ascending:false}); if(error)throw error; return data??[]; }, enabled:!!id });
@@ -92,6 +98,23 @@ export default function BaustelleDetail() {
     }, enabled:!!id });
 
   const { data: fotos=[] } = useQuery({ queryKey:['bs-fotos',id], queryFn: async () => { const {data,error}=await supabase.from('bs_fotos').select('*').eq('baustelle_id',id!).order('created_at',{ascending:false}); if(error)throw error; return data??[]; }, enabled:!!id });
+
+  const { data: teilabrechnungen=[], refetch: refetchTA } = useQuery({
+    queryKey: ['bs-teilabrechnungen', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('bs_teilabrechnungen')
+        .select('*, bs_teilabrechnung_dokumente(*)')
+        .eq('baustelle_id', id!)
+        .order('lfd_nr', { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!id,
+  });
+
+  // Summe aller Teilabrechnungen → wird vom Budget abgezogen
+  const teilabrechungSumme = (teilabrechnungen as any[]).reduce((s, t) => s + Number(t.betrag_eur ?? 0), 0);
 
   useEffect(() => {
     if (!id) return;
@@ -284,16 +307,27 @@ export default function BaustelleDetail() {
             <span className="text-sm font-medium" style={{color:'#374151'}}>Budget-Auslastung</span>
             <span className="text-sm font-bold" style={{color:overBudget?'#ef4444':'#0f1f3d'}}>{pct}% {overBudget?'⚠ ÜBERZOGEN':''}</span>
           </div>
-          <div className="rounded-full overflow-hidden" style={{height:'8px', background:'#eef1f9'}}>
-            <div className="h-full rounded-full progress-bar" style={{width:`${Math.min(pct,100)}%`, background:overBudget?'#ef4444':pct>80?'#f59e0b':'linear-gradient(90deg, #1e3a5f, #3b82f6)'}} />
+          {/* Mehrteiliger Fortschrittsbalken */}
+          <div className="rounded-full overflow-hidden flex" style={{height:'10px', background:'#eef1f9'}}>
+            {/* Verbrauchte Kosten */}
+            <div style={{width:`${Math.min(gesamtkosten/effektivBudget*100,100)}%`, background:overBudget?'#ef4444':pct>80?'#f59e0b':'linear-gradient(90deg,#1e3a5f,#3b82f6)', transition:'width .5s'}} />
+            {/* Bereits abgerechnet (Teilabrechnungen) */}
+            {teilabrechungSumme > 0 && (
+              <div style={{width:`${Math.min(teilabrechungSumme/effektivBudget*100, 100 - Math.min(gesamtkosten/effektivBudget*100,100))}%`, background:'#94a3b8', transition:'width .5s'}} />
+            )}
           </div>
           <div className="flex justify-between mt-1.5 text-xs" style={{color:'#9ca3af'}}>
             <span>{fmtEur(gesamtkosten)} verbraucht</span>
-            <span>{fmtEur(effektivBudget-gesamtkosten)} verbleibend</span>
+            <span>{fmtEur(effektivBudget - gesamtkosten - teilabrechungSumme)} offen</span>
           </div>
           <div className="flex gap-4 mt-3 flex-wrap">
             {nachtragGenehmigt>0 && <p className="text-xs font-medium" style={{color:'#10b981'}}>✓ {fmtEur(nachtragGenehmigt)} genehmigte Nachträge im Budget</p>}
             {nachtragEingereicht>0 && <p className="text-xs" style={{color:'#3b82f6'}}>⏳ {fmtEur(nachtragEingereicht)} noch nicht genehmigt</p>}
+            {teilabrechungSumme > 0 && (
+              <p className="text-xs font-semibold" style={{color:'#64748b'}}>
+                🧾 {fmtEur(teilabrechungSumme)} bereits teilabgerechnet ({(teilabrechnungen as any[]).length}×)
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -736,6 +770,244 @@ export default function BaustelleDetail() {
               <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={e=>{if(e.target.files?.[0])handleFotoUpload(e.target.files[0]);}} />
             </label>
             <Button variant="outline" className="w-full" onClick={()=>setFotoDialog(false)}>Schließen</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── TAB: TEILABRECHNUNG ── */}
+      {tab === 'Teilabrechnung' && (
+        <div className="space-y-4">
+
+          {/* Zusammenfassung oben */}
+          {teilabrechungSumme > 0 && (
+            <div className="card p-5" style={{borderLeft:'4px solid #64748b', background:'#f8fafc'}}>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <p className="text-xs font-semibold mb-1" style={{color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em'}}>Bereits teilabgerechnet</p>
+                  <p className="text-2xl font-bold" style={{color:'#0f172a', letterSpacing:'-.03em'}}>{fmtEur(teilabrechungSumme)}</p>
+                  <p className="text-xs mt-1" style={{color:'#64748b'}}>
+                    {(teilabrechnungen as any[]).length} Teilabrechnung{(teilabrechnungen as any[]).length !== 1 ? 'en' : ''} ·{' '}
+                    {effektivBudget > 0 ? `${Math.round(teilabrechungSumme / effektivBudget * 100)}% des Budgets` : ''}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-semibold mb-1" style={{color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em'}}>Noch offen</p>
+                  <p className="text-2xl font-bold" style={{color:'#10b981', letterSpacing:'-.03em'}}>{fmtEur(effektivBudget - teilabrechungSumme)}</p>
+                  <p className="text-xs mt-1" style={{color:'#64748b'}}>von {fmtEur(effektivBudget)} Gesamtbudget</p>
+                </div>
+              </div>
+              {/* Mini-Balken */}
+              <div className="mt-4 rounded-full overflow-hidden" style={{height:8, background:'#e2e8f0'}}>
+                <div style={{width:`${Math.min(teilabrechungSumme/effektivBudget*100,100)}%`, height:'100%', background:'#64748b', borderRadius:99, transition:'width .5s'}} />
+              </div>
+            </div>
+          )}
+
+          {/* Neu anlegen Button */}
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-semibold" style={{color:'#0f172a'}}>
+              Verlauf ({(teilabrechnungen as any[]).length})
+            </h3>
+            <button
+              onClick={() => { setTaForm({ begruendung:'', betrag_eur:'', betrag_prozent:'', erstellt_von:'', notizen:'' }); setTaFiles([]); setTaDialog(true); }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white"
+              style={{background:'linear-gradient(135deg,#1e3a5f,#2563eb)'}}>
+              + Neue Teilabrechnung
+            </button>
+          </div>
+
+          {/* Leer-Zustand */}
+          {(teilabrechnungen as any[]).length === 0 && (
+            <div className="card p-10 text-center">
+              <p className="text-3xl mb-3">🧾</p>
+              <p className="text-sm font-semibold" style={{color:'#64748b'}}>Noch keine Teilabrechnungen</p>
+              <p className="text-xs mt-1" style={{color:'#94a3b8'}}>Erstelle die erste Teilabrechnung über den Button oben</p>
+            </div>
+          )}
+
+          {/* Timeline */}
+          <div className="space-y-3">
+            {(teilabrechnungen as any[]).map((ta: any, idx: number) => (
+              <div key={ta.id} className="card p-5" style={{borderLeft:'4px solid #1e3a5f'}}>
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <div style={{width:36, height:36, borderRadius:10, background:'#eff6ff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:14, color:'#1e3a5f', flexShrink:0}}>
+                      #{ta.lfd_nr}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-base font-bold" style={{color:'#0f172a'}}>{fmtEur(ta.betrag_eur)}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{background:'#f1f5f9', color:'#64748b'}}>{Number(ta.betrag_prozent).toFixed(1)}%</span>
+                      </div>
+                      <p className="text-xs mt-0.5" style={{color:'#94a3b8'}}>
+                        {new Date(ta.erstellt_am).toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric'})}
+                        {' · '}{ta.erstellt_von}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Begründung */}
+                <div className="mt-3 p-3 rounded-xl" style={{background:'#f8fafc', border:'1px solid #f1f5f9'}}>
+                  <p className="text-xs font-semibold mb-1" style={{color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em'}}>Begründung</p>
+                  <p className="text-sm" style={{color:'#374151', lineHeight:1.6}}>{ta.begruendung}</p>
+                </div>
+
+                {ta.notizen && (
+                  <div className="mt-2 p-3 rounded-xl" style={{background:'#fffbeb', border:'1px solid #fef3c7'}}>
+                    <p className="text-xs font-semibold mb-1" style={{color:'#b45309', textTransform:'uppercase', letterSpacing:'.06em'}}>Notizen</p>
+                    <p className="text-sm" style={{color:'#374151'}}>{ta.notizen}</p>
+                  </div>
+                )}
+
+                {/* Dokumente */}
+                {ta.bs_teilabrechnung_dokumente?.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold mb-2" style={{color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em'}}>Dokumente ({ta.bs_teilabrechnung_dokumente.length})</p>
+                    <div className="flex flex-wrap gap-2">
+                      {ta.bs_teilabrechnung_dokumente.map((d: any) => (
+                        <a key={d.id} href={`${(import.meta as any).env.VITE_SUPABASE_URL}/storage/v1/object/public/baustellen-dokumente/${d.storage_path}`} target="_blank" rel="noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-blue-50"
+                          style={{background:'#f1f5f9', color:'#374151', border:'1px solid #e2e8f0'}}>
+                          📎 {d.name}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── DIALOG: NEUE TEILABRECHNUNG ── */}
+      <Dialog open={taDialog} onOpenChange={v => { setTaDialog(v); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Neue Teilabrechnung</DialogTitle></DialogHeader>
+          <div className="space-y-4 pt-1">
+
+            {/* Betrag */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Betrag in € *</Label>
+                <Input
+                  type="number" step="0.01" placeholder="z.B. 5000.00"
+                  value={taForm.betrag_eur}
+                  onChange={e => {
+                    const eur = e.target.value;
+                    const pct = effektivBudget > 0 ? (Number(eur) / effektivBudget * 100).toFixed(2) : '';
+                    setTaForm(f => ({ ...f, betrag_eur: eur, betrag_prozent: pct }));
+                  }}
+                />
+              </div>
+              <div>
+                <Label>Anteil in % *</Label>
+                <Input
+                  type="number" step="0.01" placeholder="z.B. 25.00"
+                  value={taForm.betrag_prozent}
+                  onChange={e => {
+                    const pct = e.target.value;
+                    const eur = effektivBudget > 0 ? (Number(pct) / 100 * effektivBudget).toFixed(2) : '';
+                    setTaForm(f => ({ ...f, betrag_prozent: pct, betrag_eur: eur }));
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Budget-Vorschau */}
+            {effektivBudget > 0 && taForm.betrag_eur && (
+              <div className="p-3 rounded-xl text-xs" style={{background:'#f0fdf4', border:'1px solid #d1fae5', color:'#065f46'}}>
+                <strong>{fmtEur(Number(taForm.betrag_eur))}</strong> von {fmtEur(effektivBudget)} Gesamtbudget ·{' '}
+                verbleibend nach Abrechnung: <strong>{fmtEur(effektivBudget - teilabrechungSumme - Number(taForm.betrag_eur))}</strong>
+              </div>
+            )}
+
+            {/* Begründung */}
+            <div>
+              <Label>Begründung * <span style={{color:'#94a3b8', fontWeight:400}}>(Pflicht – wird im Protokoll angezeigt)</span></Label>
+              <Textarea
+                placeholder="Warum wird dieser Betrag teilabgerechnet? Z.B. Abschluss Rohbauphase, Teilleistung abgenommen..."
+                rows={4}
+                value={taForm.begruendung}
+                onChange={e => setTaForm(f => ({ ...f, begruendung: e.target.value }))}
+              />
+            </div>
+
+            {/* Erstellt von */}
+            <div>
+              <Label>Erstellt von *</Label>
+              <Input placeholder="Name" value={taForm.erstellt_von} onChange={e => setTaForm(f => ({ ...f, erstellt_von: e.target.value }))} />
+            </div>
+
+            {/* Notizen */}
+            <div>
+              <Label>Interne Notizen (optional)</Label>
+              <Textarea placeholder="Zusätzliche Infos..." rows={2} value={taForm.notizen} onChange={e => setTaForm(f => ({ ...f, notizen: e.target.value }))} />
+            </div>
+
+            {/* Dokumente */}
+            <div>
+              <Label>Dokumente anhängen (optional)</Label>
+              <label className="flex flex-col items-center justify-center w-full h-20 cursor-pointer rounded-xl transition-colors hover:bg-blue-50/50" style={{border:'2px dashed #e5e9f2'}}>
+                <Upload className="h-5 w-5 mb-1" style={{color:'#d1d5db'}} />
+                <span className="text-xs" style={{color:'#9ca3af'}}>Dateien auswählen</span>
+                <input type="file" multiple className="hidden" onChange={e => { if(e.target.files) setTaFiles(Array.from(e.target.files)); }} />
+              </label>
+              {taFiles.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {taFiles.map((f,i) => <span key={i} className="text-xs px-2 py-1 rounded-lg" style={{background:'#f1f5f9', color:'#374151'}}>📎 {f.name}</span>)}
+                </div>
+              )}
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setTaDialog(false)}>Abbrechen</Button>
+              <Button className="flex-1" disabled={taUploading || !taForm.begruendung || !taForm.betrag_eur || !taForm.erstellt_von}
+                onClick={async () => {
+                  if (!id) return;
+                  setTaUploading(true);
+                  try {
+                    const lfdNr = (teilabrechnungen as any[]).length + 1;
+                    const { data: neu, error } = await supabase.from('bs_teilabrechnungen').insert({
+                      baustelle_id: id,
+                      lfd_nr: lfdNr,
+                      betrag_eur: Number(taForm.betrag_eur),
+                      betrag_prozent: Number(taForm.betrag_prozent || 0),
+                      begruendung: taForm.begruendung,
+                      erstellt_von: taForm.erstellt_von,
+                      notizen: taForm.notizen || null,
+                      erstellt_am: new Date().toISOString().split('T')[0],
+                    }).select().single();
+                    if (error || !neu) throw error ?? new Error('Fehler');
+
+                    // Dokumente hochladen
+                    for (const file of taFiles) {
+                      const path = `teilabrechnung/${id}/${neu.id}/${Date.now()}_${file.name}`;
+                      const { error: upErr } = await supabase.storage.from('baustellen-dokumente').upload(path, file);
+                      if (!upErr) {
+                        await supabase.from('bs_teilabrechnung_dokumente').insert({
+                          teilabrechnung_id: neu.id,
+                          name: file.name,
+                          storage_path: path,
+                          dateityp: file.type,
+                          groesse: file.size,
+                        });
+                      }
+                    }
+                    await refetchTA();
+                    setTaDialog(false);
+                    setTaFiles([]);
+                  } catch(e: any) {
+                    alert('Fehler: ' + e.message);
+                  } finally {
+                    setTaUploading(false);
+                  }
+                }}>
+                {taUploading ? 'Wird gespeichert...' : 'Teilabrechnung erstellen'}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
