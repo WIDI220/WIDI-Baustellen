@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
 import { MonthProvider } from '@/contexts/MonthContext';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import UpdateBanner from '@/components/UpdateBanner';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -189,6 +190,7 @@ export default function App() {
         <BrowserRouter>
           <AppRoutes />
           <Toaster position="bottom-right" richColors />
+          <UpdateBanner />
         </BrowserRouter>
       </ErrorBoundary>
     </QueryClientProvider>
