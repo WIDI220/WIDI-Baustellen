@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -45,6 +45,7 @@ const AKTIONS_FARBEN: Record<string, { bg: string; color: string; label: string 
 };
 
 type Tab = 'users' | 'permissions' | 'activity' | 'errors';
+// Note: 'users' tab kept for Controlling users only (not Handwerker App users)
 
 const getAktion = (aktion: string) =>
   AKTIONS_FARBEN[aktion] ?? { bg: '#f8fafc', color: '#64748b', label: aktion };
@@ -150,13 +151,24 @@ export default function AdminPage() {
   });
   const [permSearch,   setPermSearch]   = useState('');
 
-  const { data: users = [], isLoading: usersLoading } = useQuery({
+  const { data: users = [], isLoading: usersLoading, refetch: refetchUsers } = useQuery({
     queryKey: ['admin-users'],
     queryFn: async () => {
-      const { data } = await supabase.from('app_users').select('*').order('name');
+      const { data, error } = await supabase.from('app_users').select('*').order('name');
+      if (error) { console.error('app_users query error:', error); throw error; }
       return data ?? [];
     },
+    retry: 3,
+    retryDelay: 1000,
   });
+
+  // Sicherheitsnetz: Admin-Liste manchmal leer nach Deploy/Session-Wechsel
+  useEffect(() => {
+    if (!usersLoading && users.length === 0) {
+      const t = setTimeout(() => refetchUsers(), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [usersLoading, users.length]);
 
   const { data: allPermissions = [] } = useQuery({
     queryKey: ['admin-all-permissions'],
@@ -375,7 +387,7 @@ export default function AdminPage() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 24, background: '#f8fafc', padding: 4, borderRadius: 12, width: 'fit-content', border: '1px solid #f1f5f9' }}>
-        {([['users', Users, 'Benutzerverwaltung'], ['permissions', Sliders, 'Berechtigungen'], ['activity', Activity, 'Aktivitaets-Log'], ['errors', AlertTriangle, 'Fehlerprotokoll']] as [Tab, any, string][]).map(([key, Icon, label]) => (
+        {([['users', Users, 'Controlling-Benutzer'], ['permissions', Sliders, 'Berechtigungen'], ['activity', Activity, 'Aktivitaets-Log'], ['errors', AlertTriangle, 'Fehlerprotokoll']] as [Tab, any, string][]).map(([key, Icon, label]) => (
           <button key={key} onClick={() => setTab(key)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, background: tab === key ? '#fff' : 'transparent', color: tab === key ? (key === 'errors' ? '#dc2626' : '#0f172a') : '#94a3b8', boxShadow: tab === key ? '0 1px 4px rgba(0,0,0,.08)' : 'none', transition: 'all .15s', position: 'relative' }}>
             <Icon size={14} style={{ color: key === 'errors' ? (tab === key ? '#dc2626' : '#f87171') : undefined }} />{label}
