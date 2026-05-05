@@ -22,7 +22,7 @@ import AuthPage from '@/pages/AuthPage';
 
 // DGUV
 import DGUVRoadmap from '@/pages/DGUVRoadmap';
-import DGUVMessauswertung from '@/pages/DGUVMessAuswertung';
+import DGUVAuswertung from '@/pages/DGUVAuswertung';
 
 // Baustellen
 import Dashboard from '@/pages/Dashboard';
@@ -122,7 +122,7 @@ function AppRoutes() {
       {/* ── DGUV-Bereich ───────────────────────────────── */}
       <Route path="/dguv"              element={<Navigate to="/dguv/roadmap" replace />} />
       <Route path="/dguv/roadmap"      element={<AppLayoutDGUV><DGUVRoadmap /></AppLayoutDGUV>} />
-      <Route path="/dguv/auswertung"   element={<AppLayoutDGUV><DGUVMessauswertung /></AppLayoutDGUV>} />
+      <Route path="/dguv/auswertung"   element={<AppLayoutDGUV><DGUVAuswertung /></AppLayoutDGUV>} />
 
       {/* ── Baustellen-Bereich ─────────────────────────── */}
       <Route path="/baustellen/*" element={
