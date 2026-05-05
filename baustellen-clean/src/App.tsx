@@ -21,13 +21,8 @@ import AdminPage from '@/pages/admin/AdminPage';
 import AuthPage from '@/pages/AuthPage';
 
 // DGUV
-import DGUVPage from '@/pages/DGUVPage';
 import DGUVRoadmap from '@/pages/DGUVRoadmap';
-import DGUVAuswertung from '@/pages/DGUVAuswertung';
-import DGUVAbgleich from '@/pages/DGUVAbgleich';
-import DGUVPruefer from '@/pages/DGUVPruefer';
-import DGUVImport from '@/pages/DGUVImport';
-import DGUVMessAuswertung from '@/pages/DGUVMessAuswertung';
+import DGUVMessauswertung from '@/pages/DGUVMessAuswertung';
 
 // Baustellen
 import Dashboard from '@/pages/Dashboard';
@@ -125,13 +120,9 @@ function AppRoutes() {
       <Route path="/planung" element={<WochenplanungPage />} />
 
       {/* ── DGUV-Bereich ───────────────────────────────── */}
-      <Route path="/dguv"              element={<AppLayoutDGUV><DGUVPage /></AppLayoutDGUV>} />
+      <Route path="/dguv"              element={<Navigate to="/dguv/roadmap" replace />} />
       <Route path="/dguv/roadmap"      element={<AppLayoutDGUV><DGUVRoadmap /></AppLayoutDGUV>} />
-      <Route path="/dguv/auswertung"   element={<AppLayoutDGUV><DGUVAuswertung /></AppLayoutDGUV>} />
-      <Route path="/dguv/abgleich"     element={<AppLayoutDGUV><DGUVAbgleich /></AppLayoutDGUV>} />
-      <Route path="/dguv/pruefer"      element={<AppLayoutDGUV><DGUVPruefer /></AppLayoutDGUV>} />
-      <Route path="/dguv/import"       element={<AppLayoutDGUV><DGUVImport /></AppLayoutDGUV>} />
-      <Route path="/dguv/messungen"    element={<AppLayoutDGUV><DGUVMessAuswertung /></AppLayoutDGUV>} />
+      <Route path="/dguv/auswertung"   element={<AppLayoutDGUV><DGUVMessauswertung /></AppLayoutDGUV>} />
 
       {/* ── Baustellen-Bereich ─────────────────────────── */}
       <Route path="/baustellen/*" element={
