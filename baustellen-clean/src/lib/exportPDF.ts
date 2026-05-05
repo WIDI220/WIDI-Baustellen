@@ -476,3 +476,220 @@ export function exportBaustellePDF(
   const filename = `${bs.name.replace(/[^\wäöüÄÖÜß\s]/g,'').trim().replace(/\s+/g,'_')}_Bericht.pdf`;
   doc.save(filename);
 }
+
+export function exportTeilabrechungPDF(
+  bs: any,
+  teilabrechnungen: any[],
+  effektivBudget: number
+) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const gesamtTA  = teilabrechnungen.reduce((s, t) => s + Number(t.betrag_eur ?? 0), 0);
+  const restBudget = effektivBudget - gesamtTA;
+  const bsNummer = bs.name.match(/[A-Z]\d{2}-\d{5}/)?.[0] || bs.name.slice(0, 20);
+  const today = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  // ── SEITE 1: Deckblatt Teilabrechnung ──
+  header(doc, bs.name, 'Teilabrechnung – Protokoll');
+  let y = 22;
+
+  // Titel-Block
+  setFill(doc, C.navy); doc.roundedRect(14, y, 182, 32, 2, 2, 'F');
+  setFill(doc, C.accent); doc.roundedRect(14, y + 28, 182, 4, 0, 0, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); setColor(doc, C.white);
+  doc.text('TEILABRECHNUNG', 20, y + 9);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+  doc.text(bs.name, 20, y + 16);
+  doc.text(`Auftraggeber: ${bs.auftraggeber || '–'}  ·  Adresse: ${bs.adresse || '–'}`, 20, y + 22);
+  // Dok-Nummer oben rechts
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); setColor(doc, [147, 197, 253] as [number,number,number]);
+  doc.text(bsNummer, 196, y + 9, { align: 'right' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); setColor(doc, [147, 197, 253] as [number,number,number]);
+  doc.text(`Erstellt: ${today}`, 196, y + 15, { align: 'right' });
+  doc.text(`${teilabrechnungen.length} Teilabrechnung(en)`, 196, y + 21, { align: 'right' });
+  y += 40;
+
+  // Übersicht KPIs
+  y = kpiRow(doc, [
+    { label: 'Gesamtbudget (effektiv)', value: eur(effektivBudget) },
+    { label: 'Bereits teilabgerechnet', value: eur(gesamtTA), color: C.gray },
+    { label: 'Noch offenes Budget', value: eur(restBudget), color: restBudget >= 0 ? C.green : C.red },
+    { label: 'Anzahl Teilabrechnungen', value: String(teilabrechnungen.length), color: C.navy },
+  ], y);
+
+  // Fortschrittsbalken
+  if (effektivBudget > 0) {
+    const pct = Math.round(gesamtTA / effektivBudget * 100);
+    y = sectionTitle(doc, 'Budget-Auslastung Teilabrechnungen', y);
+    setFill(doc, C.border); doc.roundedRect(14, y, 160, 5, 1, 1, 'F');
+    setFill(doc, [100, 116, 139] as [number,number,number]);
+    doc.roundedRect(14, y, Math.min(pct, 100) / 100 * 160, 5, 1, 1, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7); setColor(doc, C.navy);
+    doc.text(`${pct}% abgerechnet`, 176, y + 3.5, { align: 'right' });
+    y += 10;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); setColor(doc, C.gray);
+    doc.text(`${eur(gesamtTA)} abgerechnet  ·  ${eur(restBudget)} offen  ·  Gesamtbudget: ${eur(effektivBudget)}`, 14, y);
+    y += 10;
+  }
+
+  // Verlauf-Tabelle
+  y = sectionTitle(doc, 'Verlauf aller Teilabrechnungen', y);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Nr.', 'Datum', 'Erstellt von', 'Betrag (€)', 'Anteil (%)', 'Begründung']],
+    body: teilabrechnungen.map(ta => [
+      `#${ta.lfd_nr}`,
+      new Date(ta.erstellt_am).toLocaleDateString('de-DE'),
+      ta.erstellt_von,
+      eur(Number(ta.betrag_eur)),
+      `${Number(ta.betrag_prozent).toFixed(2)}%`,
+      ta.begruendung,
+    ]),
+    foot: [['', '', 'Summe', eur(gesamtTA), `${effektivBudget > 0 ? (gesamtTA / effektivBudget * 100).toFixed(2) : 0}%`, '']],
+    headStyles: { fillColor: C.navy, textColor: C.white, fontStyle: 'bold', fontSize: 7.5 },
+    bodyStyles: { fontSize: 7.5, textColor: C.text },
+    footStyles: { fillColor: C.light, textColor: C.navy, fontStyle: 'bold', fontSize: 8 },
+    alternateRowStyles: { fillColor: C.light },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 20 },
+      3: { halign: 'right', fontStyle: 'bold' },
+      4: { halign: 'right' },
+      5: { cellWidth: 60 },
+    },
+    margin: { left: 14, right: 14 },
+  });
+
+  footer(doc);
+
+  // ── SEITE 2+: Eine Seite pro Teilabrechnung mit Signaturzeile ──
+  teilabrechnungen.forEach((ta: any) => {
+    doc.addPage();
+    header(doc, bs.name, `Teilabrechnung #${ta.lfd_nr}`);
+    let ty = 22;
+
+    // Titel
+    setFill(doc, C.navy); doc.roundedRect(14, ty, 182, 22, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); setColor(doc, C.white);
+    doc.text(`Teilabrechnung #${ta.lfd_nr}`, 20, ty + 8);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text(`${bs.name}  ·  ${bs.auftraggeber || '–'}`, 20, ty + 15);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); setColor(doc, [147, 197, 253] as [number,number,number]);
+    doc.text(bsNummer, 196, ty + 8, { align: 'right' });
+    ty += 28;
+
+    // Kerndaten
+    ty = kpiRow(doc, [
+      { label: 'Betrag', value: eur(Number(ta.betrag_eur)), color: C.navy },
+      { label: 'Anteil am Budget', value: `${Number(ta.betrag_prozent).toFixed(2)}%`, color: C.blue },
+      { label: 'Erstellt am', value: new Date(ta.erstellt_am).toLocaleDateString('de-DE') },
+      { label: 'Erstellt von', value: ta.erstellt_von },
+    ], ty);
+
+    // Begründung
+    ty = sectionTitle(doc, 'Begründung', ty);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); setColor(doc, C.text);
+    const bLines = doc.splitTextToSize(ta.begruendung, 178);
+    doc.text(bLines, 14, ty);
+    ty += bLines.length * 5 + 8;
+
+    // Notizen
+    if (ta.notizen) {
+      ty = sectionTitle(doc, 'Interne Notizen', ty);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); setColor(doc, C.gray);
+      const nLines = doc.splitTextToSize(ta.notizen, 178);
+      doc.text(nLines, 14, ty);
+      ty += nLines.length * 5 + 8;
+    }
+
+    // Kommentare
+    const kommentare = ta.bs_teilabrechnung_kommentare || [];
+    if (kommentare.length > 0) {
+      ty = sectionTitle(doc, `Kommentare (${kommentare.length})`, ty);
+      kommentare
+        .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .forEach((k: any) => {
+          if (ty > 240) return;
+          setFill(doc, C.light); doc.roundedRect(14, ty, 182, 14, 1.5, 1.5, 'F');
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); setColor(doc, C.navy);
+          doc.text(k.erstellt_von, 18, ty + 5);
+          doc.setFont('helvetica', 'normal'); setColor(doc, C.gray);
+          doc.text(new Date(k.created_at).toLocaleDateString('de-DE') + ' ' + new Date(k.created_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }), 196, ty + 5, { align: 'right' });
+          doc.setFontSize(8); setColor(doc, C.text);
+          const kLines = doc.splitTextToSize(k.text, 174);
+          doc.text(kLines[0] || '', 18, ty + 11);
+          ty += 18;
+        });
+      ty += 4;
+    }
+
+    // Dokumente-Liste
+    const dokumente = ta.bs_teilabrechnung_dokumente || [];
+    if (dokumente.length > 0) {
+      ty = sectionTitle(doc, `Angehängte Dokumente (${dokumente.length})`, ty);
+      dokumente.forEach((d: any, i: number) => {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); setColor(doc, C.text);
+        doc.text(`${i + 1}. ${d.name}`, 18, ty);
+        ty += 6;
+      });
+      ty += 4;
+    }
+
+    // ── SIGNATURZEILE ──────────────────────────────────────────
+    // Immer am unteren Seitenrand, unabhängig vom Inhalt
+    const sigY = 248;
+
+    // Trennlinie
+    setDraw(doc, C.border); doc.setLineWidth(0.5);
+    doc.line(14, sigY, 196, sigY);
+
+    // Überschrift
+    setFill(doc, C.light); doc.rect(14, sigY, 182, 8, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); setColor(doc, C.navy);
+    doc.text('BESTÄTIGUNG & UNTERSCHRIFTEN', 105, sigY + 5.5, { align: 'center' });
+
+    const sigBoxY = sigY + 10;
+
+    // Drei Unterschriftsfelder
+    const fields = [
+      { label: 'Erstellt von', value: ta.erstellt_von, x: 14 },
+      { label: 'Geprüft / Genehmigt', value: '', x: 80 },
+      { label: 'Auftraggeber / Kunde', value: '', x: 146 },
+    ];
+
+    fields.forEach(field => {
+      // Box
+      setDraw(doc, C.border); doc.setLineWidth(0.3);
+      doc.roundedRect(field.x, sigBoxY, 60, 26, 1, 1, 'S');
+
+      // Label
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); setColor(doc, C.gray);
+      doc.text(field.label.toUpperCase(), field.x + 3, sigBoxY + 5);
+
+      // Vorausgefüllter Wert (nur bei Erstellt von)
+      if (field.value) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); setColor(doc, C.text);
+        doc.text(field.value, field.x + 3, sigBoxY + 13);
+      }
+
+      // Signatur-Linie
+      setDraw(doc, [180, 180, 190] as [number,number,number]); doc.setLineWidth(0.3);
+      doc.line(field.x + 3, sigBoxY + 20, field.x + 57, sigBoxY + 20);
+
+      // "Unterschrift, Datum"
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5); setColor(doc, C.gray);
+      doc.text('Unterschrift, Datum', field.x + 3, sigBoxY + 24.5);
+    });
+
+    // Metadaten unter den Feldern
+    const metaY = sigBoxY + 30;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); setColor(doc, C.gray);
+    doc.text(`Dokument-Nr.: ${bsNummer}-TA${String(ta.lfd_nr).padStart(2,'0')}  ·  Erstellt: ${today}  ·  Betrag: ${eur(Number(ta.betrag_eur))}  ·  Anteil: ${Number(ta.betrag_prozent).toFixed(2)}%`, 14, metaY);
+
+    footer(doc);
+  });
+
+  const filename = `${bsNummer}_Teilabrechnung_Protokoll.pdf`;
+  doc.save(filename);
+}
