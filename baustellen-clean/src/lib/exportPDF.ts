@@ -444,7 +444,7 @@ export async function exportBaustellePDF(
 }
 
 // ════════════════════════════════════════════════════════
-// ABNAHMESCHEIN – Premium Design
+// ABNAHMESCHEIN – Luxuriöses Premium-Design
 // ════════════════════════════════════════════════════════
 export interface AbnahmeOptionen {
   projektdaten: boolean;
@@ -473,390 +473,416 @@ export async function exportAbnahmeschein(
   const personal   = stunden.reduce((s: number, e: any) => s + Number(e.stunden) * Number(e.employees?.stundensatz ?? STUNDENSATZ_LOCAL), 0);
   const material   = materialien.reduce((s: number, m: any) => s + Number(m.gesamtpreis ?? 0), 0);
   const gesamtH    = stunden.reduce((s: number, e: any) => s + Number(e.stunden), 0);
-  const budget     = Number(bs.budget ?? 0);
   const nGenehmigt = nachtraege.filter((n: any) => n.status === 'genehmigt').reduce((s: number, n: any) => s + Number(n.betrag), 0);
   const today      = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' });
   const bsNummer   = bs.name?.match(/[A-Z]\d{2}-\d{4,6}/)?.[0] || '';
 
-  // ─── Farb-Palette ──────────────────────────────────────────
+  // ─── Premium Farbpalette ─────────────────────────────────
+  // Kein Schwarz – stattdessen warme Tiefen und lebhafte Akzente
   const P = {
-    ink:       [15,  23,  42]  as [number,number,number],   // Fast-Schwarz
-    charcoal:  [30,  41,  59]  as [number,number,number],   // Dunkelblau-Grau
-    slate:     [71,  85, 105]  as [number,number,number],   // Mittelgrau
-    silver:    [148,163,184]   as [number,number,number],   // Hellgrau
-    fog:       [241,245,249]   as [number,number,number],   // Sehr helles Grau
-    white:     [255,255,255]   as [number,number,number],
-    pine:      [20,  83,  45]  as [number,number,number],   // Tiefes Grün (WIDI)
-    forest:    [34, 139,  34]  as [number,number,number],   // Grün Mittel
-    sage:      [134,239,172]   as [number,number,number],   // Helles Grün Akzent
-    moss:      [220,252,231]   as [number,number,number],   // Sehr helles Grün
-    amber:     [217,119,  6]   as [number,number,number],   // Warn-Amber
-    gold:      [253,224,  71]  as [number,number,number],   // Gold Akzent
+    deep:     [22,  78,  50]  as [number,number,number],  // Tiefes Smaragdgrün
+    rich:     [21, 128,  61]  as [number,number,number],  // Sattes Grün
+    vivid:    [34, 197,  94]  as [number,number,number],  // Leuchtendes Grün
+    mint:     [167,243,208]   as [number,number,number],  // Mint-Akzent
+    foam:     [236,253,245]   as [number,number,number],  // Sehr helles Grün
+    pearl:    [250,252,255]   as [number,number,number],  // Fast-Weiß
+    white:    [255,255,255]   as [number,number,number],
+    ink:      [30,  50,  40]  as [number,number,number],  // Dunkles Grün-Grau (kein Schwarz)
+    dusk:     [55,  80,  65]  as [number,number,number],  // Mittleres Grün-Grau
+    mist:     [120,155,130]   as [number,number,number],  // Helles Grau-Grün
+    cloud:    [235,245,238]   as [number,number,number],  // Wolken-Grau
+    gold:     [180,143,  0]   as [number,number,number],  // Gold-Akzent
+    cream:    [255,251,235]   as [number,number,number],  // Cremeweiß
   };
 
   const sf = (c:[number,number,number]) => doc.setFillColor(c[0],c[1],c[2]);
   const st = (c:[number,number,number]) => doc.setTextColor(c[0],c[1],c[2]);
-  const sd = (c:[number,number,number], w=0.3) => { doc.setDrawColor(c[0],c[1],c[2]); doc.setLineWidth(w); };
+  const sd = (c:[number,number,number], w=0.25) => { doc.setDrawColor(c[0],c[1],c[2]); doc.setLineWidth(w); };
 
-  // ─── Seiten-Template ────────────────────────────────────────
-  const drawPageTemplate = () => {
-    const pg = (doc as any).internal.getCurrentPageInfo().pageNumber;
-
-    // ── Header-Bereich ─────────────────────────────────────
-    // Hintergrund zweifarbig
-    sf(P.ink); doc.rect(0, 0, PW, 22, 'F');
-    // Grüner Akzentstreifen unten am Header
-    sf(P.forest); doc.rect(0, 20.5, PW, 1.5, 'F');
-
-    // Logo – PNG, sauber, kein Hintergrund-Balken
-    try {
-      doc.addImage(
-        'data:image/png;base64,' + WIDI_LOGO_B64,
-        'PNG',
-        7, 2, 42, 17,
-        undefined, 'FAST'
-      );
-    } catch {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(13); st(P.white);
-      doc.text('WIDI', 10, 14);
-    }
-
-    // Vertikaler Trenn-Strich nach Logo
-    sf(P.slate); doc.rect(52, 4, 0.3, 13, 'F');
-
-    // Rechts: Dokumenttitel + Firma
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); st(P.white);
-    doc.text('ABNAHMESCHEIN', PW - 9, 10, { align: 'right' });
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
-    doc.setTextColor(P.sage[0], P.sage[1], P.sage[2]);
-    doc.text('Wirtschaftsdienste Hellersen GmbH  ·  Unternehmensverbund WIDI', PW - 9, 16, { align: 'right' });
-
-    // ── Footer ─────────────────────────────────────────────
-    sf(P.fog); doc.rect(0, PH - 10, PW, 10, 'F');
-    sf(P.forest); doc.rect(0, PH - 10, PW, 0.4, 'F');
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); st(P.slate);
-    doc.text('WIDI Wirtschaftsdienste Hellersen GmbH  ·  Unternehmensverbund WIDI', 9, PH - 4);
-    doc.text(`Seite ${pg}`, PW - 9, PH - 4, { align: 'right' });
-    // Kleines grünes Quadrat vor Footer-Text
-    sf(P.forest); doc.rect(6, PH - 7, 1.5, 1.5, 'F');
+  // ─── Hintergrund-Textur (Glasmorphismus-Effekt) ──────────
+  const drawBg = () => {
+    // Weißer Basis-Hintergrund
+    sf(P.white); doc.rect(0, 0, PW, PH, 'F');
+    // Subtle diagonale Farbflächen für Tiefe
+    doc.setFillColor(240, 253, 244);
+    doc.triangle(0, 0, PW * 0.6, 0, 0, PH * 0.4, 'F');
+    doc.setFillColor(250, 255, 250);
+    doc.triangle(PW, PH, PW * 0.3, PH, PW, PH * 0.55, 'F');
   };
 
-  // ─── Section-Header ─────────────────────────────────────────
+  // ─── Seiten-Template ─────────────────────────────────────
+  const drawPageTemplate = () => {
+    const pg = (doc as any).internal.getCurrentPageInfo().pageNumber;
+    drawBg();
+
+    // ── Luxuriöser Header ──
+    // Hauptfläche – sattes Grün mit Tiefe
+    sf(P.deep); doc.rect(0, 0, PW, 24, 'F');
+    // Glanz-Streifen (3D-Effekt)
+    doc.setFillColor(40, 130, 80);
+    doc.rect(0, 0, PW, 10, 'F');
+    // Akzentlinie unten
+    sf(P.vivid); doc.rect(0, 23.2, PW, 1.2, 'F');
+    // Dezenter Schatten unter Header
+    doc.setFillColor(22, 78, 50); doc.setGState(new (doc as any).GState({ opacity: 0.15 }));
+    doc.rect(0, 24, PW, 3, 'F');
+    doc.setGState(new (doc as any).GState({ opacity: 1.0 }));
+
+    // WIDI Text statt Logo – elegant typografisch
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); st(P.white);
+    doc.text('WIDI', 10, 14);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6); st(P.mint);
+    doc.text('Wirtschaftsdienste Hellersen GmbH', 10, 19.5);
+
+    // Trennlinie
+    sf(P.vivid); doc.rect(42, 6, 0.5, 13, 'F');
+
+    // Rechts: Dokumenttyp
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); st(P.white);
+    doc.text('ABNAHMESCHEIN', PW - 10, 12, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); st(P.mint);
+    doc.text('Unternehmensverbund WIDI', PW - 10, 18, { align: 'right' });
+
+    // ── Eleganter Footer ──
+    // Glasmorphismus-Footer
+    doc.setFillColor(P.cloud[0], P.cloud[1], P.cloud[2]);
+    doc.rect(0, PH - 11, PW, 11, 'F');
+    sf(P.rich); doc.rect(0, PH - 11, PW, 0.6, 'F');
+    // Grüner Punkt-Akzent
+    sf(P.vivid); doc.circle(8, PH - 5.5, 1.2, 'F');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); st(P.dusk);
+    doc.text('WIDI Wirtschaftsdienste Hellersen GmbH · Unternehmensverbund WIDI', 13, PH - 4);
+    st(P.rich);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+    doc.text(`Seite ${pg}`, PW - 10, PH - 4, { align: 'right' });
+  };
+
+  // ─── 3D Section-Header ───────────────────────────────────
   const secHeader = (title: string, y: number): number => {
-    // Hintergrund
-    sf(P.fog); doc.rect(9, y, PW - 18, 9, 'F');
-    // Linke Akzent-Bar
-    sf(P.pine); doc.rect(9, y, 2.5, 9, 'F');
-    // Feine rechte Border
-    sf(P.forest); doc.rect(PW - 9, y, 0.3, 9, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); st(P.pine);
-    doc.text(title.toUpperCase(), 15, y + 6);
+    // Schatten-Layer
+    doc.setFillColor(180, 220, 195);
+    doc.roundedRect(9.8, y + 0.8, PW - 18, 9, 2, 2, 'F');
+    // Haupt-Layer
+    sf(P.deep); doc.roundedRect(9, y, PW - 18, 9, 2, 2, 'F');
+    // Glanz oben
+    doc.setFillColor(34, 120, 70);
+    doc.roundedRect(9, y, PW - 18, 4, 2, 0, 'F');
+    // Linker Akzent
+    sf(P.vivid); doc.roundedRect(9, y, 3, 9, 2, 0, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(P.white);
+    doc.text(title.toUpperCase(), 16, y + 6.2);
     return y + 13;
   };
 
-  // ─── Info-Grid-Zelle ────────────────────────────────────────
-  // Zeichnet Label + Value OHNE Abschneiden
-  const infoCell = (label: string, value: string, x: number, y: number, maxW: number): number => {
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); st(P.silver);
-    doc.text(label, x, y);
+  // ─── Daten-Zelle (kein Abschneiden!) ────────────────────
+  const infoCell = (label: string, value: string, x: number, y: number, maxW: number) => {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); st(P.mist);
+    doc.text(label, x, y + 1);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(P.ink);
-    const lines = doc.splitTextToSize(String(value || '–'), maxW);
-    doc.text(lines, x, y + 5.5);
-    return y + 5.5 + lines.length * 4.5;
+    const clean = String(value || '–').replace(/_/g, ' ');
+    const lines = doc.splitTextToSize(clean, maxW - 2);
+    doc.text(lines, x, y + 7);
   };
 
-  // ─── Trenn-Linie ────────────────────────────────────────────
-  const divider = (y: number) => {
-    sd(P.fog, 0.3); doc.line(9, y, PW - 9, y);
+  // ─── Glasmorphismus-Box ──────────────────────────────────
+  const glassBox = (x: number, y: number, w: number, h: number) => {
+    // Schatten
+    doc.setFillColor(200, 230, 210);
+    doc.roundedRect(x + 1, y + 1.2, w, h, 2.5, 2.5, 'F');
+    // Glas-Fläche
+    sf(P.foam); sd(P.mint, 0.3);
+    doc.roundedRect(x, y, w, h, 2.5, 2.5, 'FD');
+    // Glanz-Streifen
+    doc.setFillColor(255, 255, 255);
+    doc.setGState(new (doc as any).GState({ opacity: 0.6 }));
+    doc.roundedRect(x + 1, y + 1, w - 2, h / 2.5, 2, 0, 'F');
+    doc.setGState(new (doc as any).GState({ opacity: 1.0 }));
   };
 
   // ══════════════════════════════════════════════════════════
   // SEITE 1 – DECKBLATT
   // ══════════════════════════════════════════════════════════
   drawPageTemplate();
-  let y = 26;
+  let y = 28;
 
-  // ── Heroblock ──────────────────────────────────────────────
-  // Hauptfläche dunkel
-  sf(P.charcoal); doc.roundedRect(9, y, PW - 18, 44, 2.5, 2.5, 'F');
-  // Linker grüner Akzent-Streifen
-  sf(P.forest); doc.roundedRect(9, y, 2.5, 44, 2.5, 0, 'F');
-  // Grüner Boden-Streifen
-  sf(P.pine); doc.rect(9, y + 40, PW - 18, 4, 'F');
+  // ── Hero-Block – Glasmorphismus + 3D ─────────────────────
+  // Schatten-Layer
+  doc.setFillColor(180, 220, 200);
+  doc.roundedRect(10.5, y + 1.5, PW - 20, 46, 3, 3, 'F');
+  // Haupt-Fläche: Tiefes Smaragd
+  sf(P.deep); doc.roundedRect(9, y, PW - 18, 46, 3, 3, 'F');
+  // Oberer Glanz (3D-Tiefe)
+  doc.setFillColor(32, 110, 65);
+  doc.roundedRect(9, y, PW - 18, 18, 3, 0, 'F');
+  // Unterer Akzentstreifen
+  sf(P.vivid); doc.rect(9, y + 42, PW - 18, 4, 'F');
+  // Rechter dekorativer Kreis (3D-Effekt)
+  doc.setFillColor(34, 197, 94);
+  doc.setGState(new (doc as any).GState({ opacity: 0.12 }));
+  doc.circle(PW - 15, y + 8, 32, 'F');
+  doc.setGState(new (doc as any).GState({ opacity: 0.08 }));
+  doc.circle(PW - 25, y + 40, 22, 'F');
+  doc.setGState(new (doc as any).GState({ opacity: 1.0 }));
 
-  // Projektnummer-Badge oben rechts
+  // Projektnummer-Badge
   if (bsNummer) {
-    sf(P.pine); doc.roundedRect(PW - 56, y + 5, 44, 8, 1.5, 1.5, 'F');
-    sf(P.sage); doc.roundedRect(PW - 57, y + 4.5, 44, 8, 1.5, 1.5, 'F');
-    sf(P.pine); doc.roundedRect(PW - 56, y + 5, 44, 8, 1.5, 1.5, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); st(P.white);
-    doc.text(bsNummer, PW - 34, y + 10.5, { align: 'center' });
+    sf(P.vivid); doc.roundedRect(PW - 58, y + 5, 46, 9, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); st(P.deep);
+    doc.text(bsNummer, PW - 35, y + 11, { align: 'center' });
   }
 
   // Titel
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); st(P.white);
-  doc.text('ABNAHMESCHEIN', 16, y + 13);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(20); st(P.white);
+  doc.text('ABNAHMESCHEIN', 17, y + 14);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); st(P.mint);
+  doc.text('Wirtschaftsdienste Hellersen GmbH  ·  Unternehmensverbund WIDI', 17, y + 21);
 
-  // Untertitel
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-  doc.setTextColor(P.sage[0], P.sage[1], P.sage[2]);
-  doc.text('Wirtschaftsdienste Hellersen GmbH  ·  Unternehmensverbund WIDI', 16, y + 20);
-
-  // Projektname – VOLLSTÄNDIG, kein Kürzen
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); st(P.white);
+  // Projektname vollständig
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); st(P.white);
   const nameLines = doc.splitTextToSize(bs.name || '–', PW - 50);
-  doc.text(nameLines.slice(0, 2), 16, y + 29);
+  doc.text(nameLines.slice(0, 2), 17, y + 30);
 
-  // Datum unten rechts
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); st(P.sage);
-  doc.text(today, PW - 13, y + 38.5, { align: 'right' });
+  // Datum
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); st(P.mint);
+  doc.text(today, PW - 14, y + 40, { align: 'right' });
+  y += 52;
 
-  y += 50;
-
-  // ── Projektdaten ───────────────────────────────────────────
+  // ── Projektdaten ─────────────────────────────────────────
   if (optionen.projektdaten) {
     y = secHeader('Projektdaten', y);
-
-    const colW = (PW - 18) / 2 - 4;
+    const colW = (PW - 18) / 2;
     const fields = [
-      ['Projektnummer',    bsNummer || bs.name?.slice(0, 25) || '–'],
+      ['Projektnummer',    bsNummer || bs.name?.slice(0, 30) || '–'],
       ['Auftraggeber',     bs.auftraggeber || '–'],
       ['Adresse / Objekt', bs.adresse || '–'],
       ['Projektleiter',    bs.projektleiter || '–'],
       ['Gewerk',           bs.gewerk || '–'],
       ['Startdatum',       fmtDate(bs.startdatum)],
       ['Fertigstellung',   fmtDate(bs.enddatum)],
-      ['Status',           bs.status?.replace(/_/g, ' ') || '–'],
+      ['Status',           (bs.status || '–').replace(/_/g, ' ')],
     ];
 
-    // Paarweise darstellen – 2 Spalten
     for (let i = 0; i < fields.length; i += 2) {
       const rowY = y;
-      const isEven = (i / 2) % 2 === 0;
-
-      // Zeilen-Hintergrund abwechselnd
-      if (isEven) { sf(P.moss); doc.rect(9, rowY - 1, PW - 18, 14, 'F'); }
-
-      const leftVal  = String(fields[i][1]);
-      const rightVal = i + 1 < fields.length ? String(fields[i + 1][1]) : '';
-
-      infoCell(fields[i][0],     leftVal,   13,              rowY,    colW);
-      if (i + 1 < fields.length)
-        infoCell(fields[i + 1][0], rightVal, 13 + colW + 8,  rowY,    colW);
-
-      divider(rowY + 13);
-      y = rowY + 14;
+      if ((i / 2) % 2 === 0) {
+        sf(P.foam); doc.rect(9, rowY, PW - 18, 13, 'F');
+      }
+      // Dezente horizontale Trennlinie
+      sd(P.cloud, 0.2); doc.line(9, rowY + 13, PW - 9, rowY + 13);
+      // Linke Zelle
+      infoCell(fields[i][0], fields[i][1], 14, rowY + 1, colW - 5);
+      // Rechte Zelle
+      if (i + 1 < fields.length) {
+        sd(P.cloud, 0.2); doc.line(9 + colW, rowY + 2, 9 + colW, rowY + 11);
+        infoCell(fields[i + 1][0], fields[i + 1][1], 14 + colW, rowY + 1, colW - 5);
+      }
+      y = rowY + 13;
     }
-    y += 4;
+    y += 6;
   }
 
-  // ── Leistungsbeschreibung ──────────────────────────────────
+  // ── Leistungsbeschreibung ─────────────────────────────────
   if (optionen.beschreibung && bs.beschreibung) {
-    if (y > 220) { doc.addPage(); drawPageTemplate(); y = 26; }
+    if (y > 220) { doc.addPage(); drawPageTemplate(); y = 28; }
     y = secHeader('Leistungsbeschreibung', y);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); st(P.charcoal);
-    const dLines = doc.splitTextToSize(bs.beschreibung, PW - 26);
-    doc.text(dLines, 13, y);
-    y += dLines.length * 4.8 + 8;
+    sf(P.pearl); doc.roundedRect(9, y - 2, PW - 18, 1, 0, 0, 'F');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); st(P.dusk);
+    const dLines = doc.splitTextToSize(bs.beschreibung, PW - 28);
+    doc.text(dLines, 14, y + 2);
+    y += dLines.length * 5 + 8;
   }
 
-  // ── Stunden ────────────────────────────────────────────────
+  // ── Stunden ───────────────────────────────────────────────
   if (optionen.stunden && stunden.length > 0) {
-    if (y > 200) { doc.addPage(); drawPageTemplate(); y = 26; }
+    if (y > 200) { doc.addPage(); drawPageTemplate(); y = 28; }
     y = secHeader(`Erbrachte Leistungen  ·  ${fmt(gesamtH)} h  ·  ${eur(personal)}`, y);
-
-    const maMap2: Record<string, { name: string; stunden: number; kosten: number }> = {};
+    const maMap2: Record<string,{name:string;stunden:number;kosten:number}> = {};
     stunden.forEach((s: any) => {
       const name = s.employees?.name || 'Unbekannt';
       const satz = Number(s.employees?.stundensatz ?? STUNDENSATZ_LOCAL);
-      if (!maMap2[name]) maMap2[name] = { name, stunden: 0, kosten: 0 };
+      if (!maMap2[name]) maMap2[name] = {name,stunden:0,kosten:0};
       maMap2[name].stunden += Number(s.stunden);
       maMap2[name].kosten  += Number(s.stunden) * satz;
     });
-
     autoTable(doc, {
       startY: y,
-      head: [['Mitarbeiter', 'Stunden', 'Kosten (€)']],
-      body: Object.values(maMap2)
-        .sort((a, b) => b.stunden - a.stunden)
-        .map(m => [m.name, `${fmt(m.stunden)} h`, eur(m.kosten)]),
-      foot: [['Gesamt', `${fmt(gesamtH)} h`, eur(personal)]],
-      headStyles:          { fillColor: P.pine, textColor: P.white, fontStyle: 'bold', fontSize: 8, cellPadding: 4 },
-      bodyStyles:          { fontSize: 8, textColor: P.charcoal, cellPadding: 3.5 },
-      footStyles:          { fillColor: P.moss, textColor: P.pine, fontStyle: 'bold', fontSize: 8, cellPadding: 3.5 },
-      alternateRowStyles:  { fillColor: P.fog },
-      columnStyles:        { 1: { halign: 'right' }, 2: { halign: 'right', fontStyle: 'bold' } },
-      margin:              { left: 9, right: 9 },
+      head: [['Mitarbeiter','Stunden','Kosten (€)']],
+      body: Object.values(maMap2).sort((a,b)=>b.stunden-a.stunden).map(m=>[m.name,`${fmt(m.stunden)} h`,eur(m.kosten)]),
+      foot: [['Gesamt',`${fmt(gesamtH)} h`,eur(personal)]],
+      headStyles:         {fillColor:P.deep,textColor:P.white,fontStyle:'bold',fontSize:8,cellPadding:4},
+      bodyStyles:         {fontSize:8,textColor:P.ink,cellPadding:3.5},
+      footStyles:         {fillColor:P.foam,textColor:P.deep,fontStyle:'bold',fontSize:8,cellPadding:3.5},
+      alternateRowStyles: {fillColor:P.pearl},
+      columnStyles:       {1:{halign:'right'},2:{halign:'right',fontStyle:'bold'}},
+      margin:             {left:9,right:9},
     });
     y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ── Material ───────────────────────────────────────────────
+  // ── Material ──────────────────────────────────────────────
   if (optionen.material && materialien.length > 0) {
-    if (y > 200) { doc.addPage(); drawPageTemplate(); y = 26; }
+    if (y > 200) { doc.addPage(); drawPageTemplate(); y = 28; }
     y = secHeader(`Material  ·  ${materialien.length} Positionen  ·  ${eur(material)}`, y);
     autoTable(doc, {
       startY: y,
-      head: [['Bezeichnung', 'Menge', 'Einheit', 'Einzelpreis', 'Gesamt (€)']],
-      body: materialien.map((m: any) => [m.bezeichnung, fmt(m.menge), m.einheit || '–', eur(m.einzelpreis), eur(m.gesamtpreis)]),
-      foot: [['Gesamt', `${materialien.length} Pos.`, '', '', eur(material)]],
-      headStyles:          { fillColor: P.pine, textColor: P.white, fontStyle: 'bold', fontSize: 7.5, cellPadding: 4 },
-      bodyStyles:          { fontSize: 7.5, textColor: P.charcoal, cellPadding: 3.5 },
-      footStyles:          { fillColor: P.moss, textColor: P.pine, fontStyle: 'bold', fontSize: 8 },
-      alternateRowStyles:  { fillColor: P.fog },
-      columnStyles:        { 1: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right', fontStyle: 'bold' } },
-      margin:              { left: 9, right: 9 },
+      head: [['Bezeichnung','Menge','Einheit','Einzelpreis','Gesamt (€)']],
+      body: materialien.map((m:any)=>[m.bezeichnung,fmt(m.menge),m.einheit||'–',eur(m.einzelpreis),eur(m.gesamtpreis)]),
+      foot: [['Gesamt',`${materialien.length} Pos.`,'','',eur(material)]],
+      headStyles:         {fillColor:P.deep,textColor:P.white,fontStyle:'bold',fontSize:7.5,cellPadding:4},
+      bodyStyles:         {fontSize:7.5,textColor:P.ink,cellPadding:3.5},
+      footStyles:         {fillColor:P.foam,textColor:P.deep,fontStyle:'bold',fontSize:8},
+      alternateRowStyles: {fillColor:P.pearl},
+      columnStyles:       {1:{halign:'right'},3:{halign:'right'},4:{halign:'right',fontStyle:'bold'}},
+      margin:             {left:9,right:9},
     });
     y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ── Nachträge ──────────────────────────────────────────────
+  // ── Nachträge ─────────────────────────────────────────────
   if (optionen.nachtraege && nachtraege.length > 0) {
-    if (y > 200) { doc.addPage(); drawPageTemplate(); y = 26; }
+    if (y > 200) { doc.addPage(); drawPageTemplate(); y = 28; }
     y = secHeader(`Nachträge  ·  ${nachtraege.length} gesamt  ·  ${eur(nGenehmigt)} genehmigt`, y);
     autoTable(doc, {
       startY: y,
-      head: [['Titel', 'Betrag (€)', 'Status', 'Datum']],
-      body: nachtraege.map((n: any) => [n.titel, eur(n.betrag), n.status, fmtDate(n.datum)]),
-      headStyles:          { fillColor: P.pine, textColor: P.white, fontStyle: 'bold', fontSize: 8, cellPadding: 4 },
-      bodyStyles:          { fontSize: 7.5, textColor: P.charcoal, cellPadding: 3.5 },
-      alternateRowStyles:  { fillColor: P.fog },
-      columnStyles:        { 1: { halign: 'right', fontStyle: 'bold' }, 3: { cellWidth: 24 } },
-      margin:              { left: 9, right: 9 },
+      head: [['Titel','Betrag (€)','Status','Datum']],
+      body: nachtraege.map((n:any)=>[n.titel,eur(n.betrag),n.status.replace(/_/g,' '),fmtDate(n.datum)]),
+      headStyles:         {fillColor:P.deep,textColor:P.white,fontStyle:'bold',fontSize:8,cellPadding:4},
+      bodyStyles:         {fontSize:7.5,textColor:P.ink,cellPadding:3.5},
+      alternateRowStyles: {fillColor:P.pearl},
+      columnStyles:       {1:{halign:'right',fontStyle:'bold'},3:{cellWidth:24}},
+      margin:             {left:9,right:9},
     });
     y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ── Mängelliste ────────────────────────────────────────────
+  // ── Mängelliste ───────────────────────────────────────────
   if (optionen.maengelliste) {
-    if (y > 200) { doc.addPage(); drawPageTemplate(); y = 26; }
+    if (y > 200) { doc.addPage(); drawPageTemplate(); y = 28; }
     y = secHeader('Mängelliste', y);
     autoTable(doc, {
       startY: y,
-      head: [['Nr.', 'Beschreibung des Mangels', 'Verantwortlich', 'Frist', 'Erledigt am']],
-      body: Array.from({ length: 6 }, (_, i) => [(i + 1).toString(), '', '', '', '']),
-      headStyles:          { fillColor: P.pine, textColor: P.white, fontStyle: 'bold', fontSize: 8, cellPadding: 4 },
-      bodyStyles:          { fontSize: 8, textColor: P.charcoal, minCellHeight: 13, cellPadding: 3.5 },
-      alternateRowStyles:  { fillColor: P.fog },
-      columnStyles:        { 0: { cellWidth: 10, halign: 'center' }, 2: { cellWidth: 32 }, 3: { cellWidth: 24 }, 4: { cellWidth: 26 } },
-      margin:              { left: 9, right: 9 },
+      head: [['Nr.','Beschreibung des Mangels','Verantwortlich','Frist','Erledigt am']],
+      body: Array.from({length:6},(_,i)=>[(i+1).toString(),'','','','']),
+      headStyles:         {fillColor:P.deep,textColor:P.white,fontStyle:'bold',fontSize:8,cellPadding:4},
+      bodyStyles:         {fontSize:8,textColor:P.ink,minCellHeight:13,cellPadding:3.5},
+      alternateRowStyles: {fillColor:P.pearl},
+      columnStyles:       {0:{cellWidth:10,halign:'center'},2:{cellWidth:32},3:{cellWidth:24},4:{cellWidth:26}},
+      margin:             {left:9,right:9},
     });
     y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ── Bemerkungsfeld ─────────────────────────────────────────
+  // ── Bemerkungsfeld ────────────────────────────────────────
   if (optionen.bemerkungsfeld) {
-    if (y > 225) { doc.addPage(); drawPageTemplate(); y = 26; }
+    if (y > 225) { doc.addPage(); drawPageTemplate(); y = 28; }
     y = secHeader('Bemerkungen / Sonstige Vereinbarungen', y);
-    sf(P.fog); sd(P.silver, 0.25);
-    doc.roundedRect(9, y, PW - 18, 30, 2, 2, 'FD');
-    // Linierte Linien im Feld
+    glassBox(9, y, PW - 18, 32);
     for (let li = 1; li <= 3; li++) {
-      sd(P.silver, 0.15);
-      doc.line(14, y + li * 7, PW - 14, y + li * 7);
+      sd(P.mint, 0.2); doc.line(14, y + li * 7.5, PW - 14, y + li * 7.5);
     }
-    y += 34;
+    y += 37;
   }
 
-  // ── Fotos ──────────────────────────────────────────────────
+  // ── Fotos ─────────────────────────────────────────────────
   if (optionen.fotos && fotos.length > 0) {
-    doc.addPage(); drawPageTemplate(); y = 26;
-    y = secHeader(`Dokumentationsfotos  ·  ${Math.min(fotos.length, 12)} von ${fotos.length}`, y);
-    const cols = 3;
-    const gap  = 5;
+    doc.addPage(); drawPageTemplate(); y = 28;
+    y = secHeader(`Dokumentationsfotos  ·  ${Math.min(fotos.length,12)} von ${fotos.length}`, y);
+    const cols = 3; const gap = 5;
     const imgW = (PW - 18 - gap * (cols - 1)) / cols;
     const imgH = imgW * 0.68;
-
     for (let i = 0; i < Math.min(fotos.length, 12); i += cols) {
-      if (y + imgH + 14 > PH - 14) { doc.addPage(); drawPageTemplate(); y = 26; }
+      if (y + imgH + 14 > PH - 14) { doc.addPage(); drawPageTemplate(); y = 28; }
       const row = fotos.slice(i, i + cols);
       for (let j = 0; j < row.length; j++) {
         const foto = row[j];
         const x = 9 + j * (imgW + gap);
-        // Schatten-Effekt
-        sf(P.silver); doc.roundedRect(x + 0.8, y + 0.8, imgW, imgH, 1.5, 1.5, 'F');
+        // 3D Schatten
+        doc.setFillColor(200, 220, 208);
+        doc.roundedRect(x + 1.2, y + 1.2, imgW, imgH, 2, 2, 'F');
         // Rahmen
-        sf(P.fog); sd(P.silver, 0.2);
-        doc.roundedRect(x, y, imgW, imgH, 1.5, 1.5, 'FD');
+        sf(P.foam); sd(P.mint, 0.3); doc.roundedRect(x, y, imgW, imgH, 2, 2, 'FD');
         try {
           const imgData = await loadImageAsBase64(foto.url);
           if (imgData) {
             doc.addImage(imgData.data, imgData.format, x, y, imgW, imgH, undefined, 'FAST');
-            doc.roundedRect(x, y, imgW, imgH, 1.5, 1.5, 'S');
+            sd(P.mint, 0.3); doc.roundedRect(x, y, imgW, imgH, 2, 2, 'S');
           }
         } catch { /* Platzhalter */ }
-        if (foto.beschreibung || foto.datum) {
-          const cap = [foto.kategorie ? foto.kategorie.charAt(0).toUpperCase() + foto.kategorie.slice(1) : '', foto.beschreibung, foto.datum ? fmtDate(foto.datum) : ''].filter(Boolean).join(' · ');
-          doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); st(P.slate);
-          const capLine = doc.splitTextToSize(cap, imgW)[0] || '';
-          doc.text(capLine, x + imgW / 2, y + imgH + 5.5, { align: 'center' });
+        const cap = [
+          foto.kategorie ? (foto.kategorie.charAt(0).toUpperCase() + foto.kategorie.slice(1)) : '',
+          foto.beschreibung,
+          foto.datum ? fmtDate(foto.datum) : '',
+        ].filter(Boolean).join(' · ');
+        if (cap) {
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); st(P.mist);
+          doc.text(doc.splitTextToSize(cap, imgW)[0] || '', x + imgW / 2, y + imgH + 5.5, { align: 'center' });
         }
       }
       y += imgH + 12;
     }
   }
 
-  // ── Unterschriften ─────────────────────────────────────────
+  // ── Unterschriften ────────────────────────────────────────
   if (optionen.unterschriften) {
-    if (y > 185) { doc.addPage(); drawPageTemplate(); y = 26; }
+    if (y > 185) { doc.addPage(); drawPageTemplate(); y = 28; }
     y = secHeader('Abnahme & Unterschriften', y);
 
     // Abnahmestatus
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(P.pine);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); st(P.deep);
     doc.text('Abnahmestatus:', 12, y + 5);
     y += 10;
-
-    const statuses = [
-      'Abgenommen ohne Mängel',
-      'Abgenommen mit Mängeln (s. Mängelliste)',
-      'Nicht abgenommen',
-    ];
+    const statuses = ['Abgenommen ohne Mängel','Abgenommen mit Mängeln (s. Mängelliste)','Nicht abgenommen'];
     statuses.forEach((s, i) => {
-      const sx = 9 + i * 65;
-      // Elegantere Checkbox
-      sf(P.white); sd(P.pine, 0.5);
-      doc.roundedRect(sx, y, 5.5, 5.5, 0.8, 0.8, 'FD');
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); st(P.charcoal);
+      const sx = 9 + i * 66;
+      // Elegante Checkbox mit 3D-Effekt
+      sf(P.white); sd(P.rich, 0.5); doc.roundedRect(sx, y, 5.5, 5.5, 1, 1, 'FD');
+      // Innerer Schatten
+      doc.setFillColor(240, 253, 244); doc.roundedRect(sx + 0.5, y + 0.5, 4.5, 4.5, 0.8, 0.8, 'F');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); st(P.dusk);
       doc.text(s, sx + 7.5, y + 4.5);
     });
     y += 12;
 
-    // Unterschriftsfelder
+    // Unterschriftsfelder – 3D Glasmorphismus
     const sigW = (PW - 22) / 3;
     const sigH = 40;
     const sigFields = [
-      { label: 'Auftragnehmer / WIDI', sub: 'Projektleiter / Bauleiter' },
-      { label: 'Auftraggeber / Kunde', sub: 'Bevollmächtigter Vertreter' },
-      { label: 'Bauleiter / Zeuge',    sub: 'Optional' },
+      {label:'Auftragnehmer / WIDI', sub:'Projektleiter / Bauleiter'},
+      {label:'Auftraggeber / Kunde', sub:'Bevollmächtigter Vertreter'},
+      {label:'Bauleiter / Zeuge',    sub:'(optional)'},
     ];
-
     sigFields.forEach((field, i) => {
       const x = 9 + i * (sigW + 2);
-      // Äußere Box – leicht abgesetzt
-      sf(P.fog); sd(P.silver, 0.3);
-      doc.roundedRect(x, y, sigW, sigH, 2, 2, 'FD');
-      // Obere grüne Linie
-      sf(P.pine); doc.rect(x, y, sigW, 1.5, 'F');
-      // Label
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); st(P.pine);
-      doc.text(field.label, x + 4, y + 8);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); st(P.slate);
-      doc.text(field.sub, x + 4, y + 14);
+      // 3D Schatten
+      doc.setFillColor(195, 228, 210);
+      doc.roundedRect(x + 1, y + 1.2, sigW, sigH, 2.5, 2.5, 'F');
+      // Glas-Fläche
+      sf(P.foam); sd(P.mint, 0.3); doc.roundedRect(x, y, sigW, sigH, 2.5, 2.5, 'FD');
+      // Glanz-Layer
+      doc.setFillColor(255,255,255);
+      doc.setGState(new (doc as any).GState({opacity:0.7}));
+      doc.roundedRect(x+1, y+1, sigW-2, sigH/3, 2, 0, 'F');
+      doc.setGState(new (doc as any).GState({opacity:1.0}));
+      // Farbiger Top-Streifen
+      sf(P.rich); doc.roundedRect(x, y, sigW, 2, 2.5, 0, 'F');
+      // Labels
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); st(P.deep);
+      doc.text(field.label, x + 4, y + 9);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); st(P.mist);
+      doc.text(field.sub, x + 4, y + 15);
       // Unterschriftslinie
-      sd(P.slate, 0.4);
-      doc.line(x + 4, y + sigH - 8, x + sigW - 4, y + sigH - 8);
-      doc.setFontSize(5.8); st(P.silver);
+      sd(P.mint, 0.4); doc.line(x + 4, y + sigH - 8, x + sigW - 4, y + sigH - 8);
+      doc.setFontSize(5.8); st(P.mist);
       doc.text('Unterschrift  ·  Datum', x + 4, y + sigH - 4);
     });
     y += sigH + 10;
 
-    // Ort / Datum Zeile
-    sf(P.fog); doc.rect(9, y, PW - 18, 10, 'F');
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); st(P.charcoal);
-    doc.text('Ort, Datum der Abnahme:', 13, y + 6.5);
-    sd(P.pine, 0.4);
-    doc.line(72, y + 6.5, PW - 13, y + 6.5);
-    y += 14;
+    // Ort/Datum
+    glassBox(9, y, PW - 18, 12);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); st(P.dusk);
+    doc.text('Ort, Datum der Abnahme:', 14, y + 8);
+    sd(P.rich, 0.4); doc.line(73, y + 8, PW - 14, y + 8);
+    y += 16;
   }
 
   const filename = `${bsNummer || 'WIDI'}_Abnahmeschein.pdf`;
