@@ -59,6 +59,135 @@ function extractANummer(name: string): string {
   const m = (name||'').match(/^\[A(\w+)\]/);
   return m ? m[1] : '';
 }
+// ── Stabile Abnahmeschein-Dialog-Komponente ──────────────────
+// Separat damit Inputs NICHT bei jedem Tastendruck neu gemountet werden
+interface AbnahmeDialogProps {
+  open: boolean;
+  opts: AbnahmeOptionen;
+  onOptsChange: (o: AbnahmeOptionen) => void;
+  loading: boolean;
+  bs: any;
+  onClose: () => void;
+  onSubmit: (felder: Record<string,string>) => void;
+  felderStep: boolean;
+  onFelderStep: (v: boolean) => void;
+}
+
+const ABNAHME_OPTIONS: { key: keyof AbnahmeOptionen; label: string }[] = [
+  { key: 'projektdaten',  label: 'Projektdaten' },
+  { key: 'beschreibung',  label: 'Leistungsbeschreibung' },
+  { key: 'stunden',       label: 'Stunden & Personal' },
+  { key: 'material',      label: 'Material' },
+  { key: 'nachtraege',    label: 'Nachträge' },
+  { key: 'fotos',         label: 'Dokumentationsfotos' },
+  { key: 'maengelliste',  label: 'Mängelliste (leer)' },
+  { key: 'bemerkungsfeld',label: 'Bemerkungsfeld' },
+  { key: 'unterschriften',label: 'Unterschriftsfelder' },
+];
+
+const PFLICHTFELDER = [
+  { key: 'auftraggeber', label: 'Auftraggeber' },
+  { key: 'adresse',      label: 'Adresse / Objekt' },
+  { key: 'projektleiter',label: 'Projektleiter' },
+  { key: 'gewerk',       label: 'Gewerk' },
+];
+
+function AbnahmeDialog({ open, opts, onOptsChange, loading, bs, onClose, onSubmit, felderStep, onFelderStep }: AbnahmeDialogProps) {
+  // useRef für Eingabefelder → kein Re-Mount bei jedem Buchstaben
+  const felderRef = React.useRef<Record<string,string>>({});
+  const [felderValues, setFelderValues] = React.useState<Record<string,string>>({});
+
+  // Fehlende Pflichtfelder berechnen
+  const fehlend = PFLICHTFELDER.filter(f => !bs?.[f.key] && !felderValues[f.key]);
+
+  if (!open) return null;
+
+  const handleWeiter = () => {
+    if (fehlend.length > 0) {
+      onFelderStep(true);
+    } else {
+      onSubmit(felderValues);
+    }
+  };
+
+  const handleInputChange = (key: string, value: string) => {
+    felderRef.current[key] = value;
+    setFelderValues(prev => ({ ...prev, [key]: value }));
+  };
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.6)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:500, maxHeight:'90vh', overflowY:'auto', boxShadow:'0 32px 80px rgba(0,0,0,0.25)', border:'1px solid rgba(255,255,255,0.8)' }}>
+        {/* Header */}
+        <div style={{ padding:'20px 24px 0', borderBottom:'1px solid #f1f5f9', paddingBottom:16, display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ width:42, height:42, borderRadius:12, background:'linear-gradient(135deg,#16a34a,#15803d)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, boxShadow:'0 4px 12px rgba(22,163,74,0.3)' }}>📋</div>
+          <div>
+            <div style={{ fontSize:16, fontWeight:800, color:'#0f172a' }}>Abnahmeschein erstellen</div>
+            <div style={{ fontSize:12, color:'#94a3b8', marginTop:2 }}>Wähle die gewünschten Inhalte</div>
+          </div>
+        </div>
+
+        <div style={{ padding:'16px 24px' }}>
+          {/* Optionen */}
+          {!felderStep && (
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              {ABNAHME_OPTIONS.map(({ key, label }) => (
+                <label key={key} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px', borderRadius:10, border:`1.5px solid ${opts[key] ? '#bbf7d0' : '#e2e8f0'}`, background: opts[key] ? '#f0fdf4' : '#f8fafc', cursor:'pointer', transition:'all .15s', userSelect:'none' }}>
+                  <div style={{ width:20, height:20, borderRadius:6, background: opts[key] ? 'linear-gradient(135deg,#16a34a,#15803d)' : '#fff', border:`2px solid ${opts[key] ? '#16a34a' : '#cbd5e1'}`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all .15s' }}>
+                    {opts[key] && <span style={{ color:'#fff', fontSize:12, lineHeight:1 }}>✓</span>}
+                  </div>
+                  <input type="checkbox" checked={opts[key]} onChange={e => onOptsChange({ ...opts, [key]: e.target.checked })} style={{ display:'none' }} />
+                  <span style={{ fontSize:13, fontWeight:opts[key] ? 600 : 400, color: opts[key] ? '#15803d' : '#64748b' }}>{label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {/* Fehlende Projektdaten */}
+          {felderStep && (
+            <div>
+              <div style={{ padding:'12px 14px', background:'#fefce8', borderRadius:10, border:'1px solid #fde68a', marginBottom:14 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#92400e', marginBottom:2 }}>⚠️ Fehlende Projektdaten</div>
+                <div style={{ fontSize:12, color:'#b45309' }}>Diese Daten werden im Abnahmeschein benötigt</div>
+              </div>
+              {PFLICHTFELDER.filter(f => !bs?.[f.key]).map(f => (
+                <div key={f.key} style={{ marginBottom:12 }}>
+                  <label style={{ fontSize:11, fontWeight:700, color:'#64748b', textTransform:'uppercase', letterSpacing:'.05em', display:'block', marginBottom:5 }}>{f.label}</label>
+                  <input
+                    type="text"
+                    defaultValue={felderRef.current[f.key] || ''}
+                    onBlur={e => handleInputChange(f.key, e.target.value)}
+                    onChange={e => handleInputChange(f.key, e.target.value)}
+                    placeholder={`${f.label} eingeben…`}
+                    style={{ width:'100%', padding:'10px 12px', border:'1.5px solid #e2e8f0', borderRadius:9, fontSize:13, outline:'none', boxSizing:'border-box' as const, fontFamily:'inherit', color:'#0f172a' }}
+                    onFocus={e => { e.target.style.borderColor = '#16a34a'; e.target.style.boxShadow = '0 0 0 3px rgba(22,163,74,0.12)'; }}
+                    onBlurCapture={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+              ))}
+              <button onClick={() => onFelderStep(false)} style={{ background:'none', border:'none', color:'#64748b', fontSize:12, cursor:'pointer', padding:0, marginBottom:8 }}>← Zurück zu den Optionen</button>
+            </div>
+          )}
+
+          {/* Aktions-Buttons */}
+          <div style={{ display:'flex', gap:10, marginTop:16, paddingTop:16, borderTop:'1px solid #f1f5f9' }}>
+            <button onClick={onClose} style={{ flex:1, padding:'11px 0', border:'1.5px solid #e2e8f0', borderRadius:11, background:'#f8fafc', fontSize:13, fontWeight:600, cursor:'pointer', color:'#64748b' }}>
+              Abbrechen
+            </button>
+            <button
+              onClick={felderStep ? () => { if (fehlend.length === 0) onSubmit(felderValues); } : handleWeiter}
+              disabled={loading || (felderStep && fehlend.length > 0)}
+              style={{ flex:2, padding:'11px 0', border:'none', borderRadius:11, background: (loading || (felderStep && fehlend.length > 0)) ? '#94a3b8' : 'linear-gradient(135deg,#16a34a,#15803d)', fontSize:13, fontWeight:700, cursor:(loading || (felderStep && fehlend.length > 0)) ? 'not-allowed' : 'pointer', color:'#fff', boxShadow: '0 4px 14px rgba(22,163,74,0.3)', transition:'all .15s' }}
+            >
+              {loading ? 'Wird erstellt…' : felderStep ? '📋 Abnahmeschein erstellen' : '→ Weiter'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BaustelleDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -1176,51 +1305,22 @@ export default function BaustelleDetail() {
       </Dialog>
       {/* Abnahmeschein Dialog */}
       {abnahmeDialog && (
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
-          <div style={{background:'#fff',borderRadius:16,padding:28,width:'100%',maxWidth:480,boxShadow:'0 20px 60px rgba(0,0,0,0.2)'}}>
-            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
-              <div style={{width:40,height:40,borderRadius:10,background:'#dcfce7',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>📋</div>
-              <div>
-                <h3 style={{fontSize:16,fontWeight:800,color:'#14532d',margin:0}}>Abnahmeschein erstellen</h3>
-                <p style={{fontSize:12,color:'#6b7280',margin:0}}>Wähle die gewünschten Inhalte</p>
-              </div>
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
-              {([
-                ['projektdaten','Projektdaten'],['beschreibung','Leistungsbeschreibung'],
-                ['stunden','Stunden & Personal'],['material','Material'],
-                ['nachtraege','Nachträge'],['fotos','Dokumentationsfotos'],
-                ['maengelliste','Mängelliste (leer)'],['bemerkungsfeld','Bemerkungsfeld'],
-                ['unterschriften','Unterschriftsfelder'],
-              ] as [keyof AbnahmeOptionen, string][]).map(([key, label]) => (
-                <label key={key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,border:`1px solid ${abnahmeOpts[key]?'#bbf7d0':'#e5e7eb'}`,cursor:'pointer',background:abnahmeOpts[key]?'#f0fdf4':'#fff',transition:'all .15s'}}>
-                  <input type="checkbox" checked={abnahmeOpts[key]} onChange={e => setAbnahmeOpts(o=>({...o,[key]:e.target.checked}))} style={{width:16,height:16,accentColor:'#16a34a'}}/>
-                  <span style={{fontSize:13,fontWeight:500,color:abnahmeOpts[key]?'#15803d':'#374151'}}>{label}</span>
-                </label>
-              ))}
-            </div>
-            {abnahmeFelderStep && fehlendeFelderAbnahme.length > 0 && (
-              <div style={{marginBottom:16,padding:14,background:'#fefce8',borderRadius:10,border:'1px solid #fde68a'}}>
-                <p style={{fontSize:13,fontWeight:700,color:'#92400e',margin:'0 0 10px'}}>⚠️ Bitte fehlende Projektdaten ergänzen:</p>
-                {fehlendeFelderAbnahme.map(f => (
-                  <div key={f.key} style={{marginBottom:8}}>
-                    <label style={{fontSize:11,fontWeight:600,color:'#6b7280',display:'block',marginBottom:3}}>{f.label}</label>
-                    <input value={abnahmeFelder[f.key]||''} onChange={e=>{const v=e.target.value;setAbnahmeFelder(p=>({...p,[f.key]:v}));}} placeholder={f.label} autoComplete='off' style={{width:'100%',padding:'7px 10px',border:'1.5px solid #d1d5db',borderRadius:7,fontSize:13,outline:'none',boxSizing:'border-box' as const}}/>
-                  </div>
-                ))}
-                <button onClick={handleAbnahme} disabled={abnahmeLoading||fehlendeFelderAbnahme.some(f=>!abnahmeFelder[f.key])} style={{width:'100%',marginTop:6,padding:'10px 0',border:'none',borderRadius:9,background:'linear-gradient(135deg,#16a34a,#15803d)',fontSize:13,fontWeight:700,cursor:'pointer',color:'#fff',opacity:(abnahmeLoading||fehlendeFelderAbnahme.some(f=>!abnahmeFelder[f.key]))?0.5:1}}>
-                  {abnahmeLoading?'Wird erstellt…':'📋 Abnahmeschein erstellen'}
-                </button>
-              </div>
-            )}
-            <div style={{display:'flex',gap:10}}>
-              <button onClick={()=>{setAbnahmeDialog(false);setAbnahmeFelderStep(false);}} style={{flex:1,padding:'10px 0',border:'1px solid #e5e7eb',borderRadius:10,background:'#f9fafb',fontSize:13,fontWeight:600,cursor:'pointer',color:'#6b7280'}}>Abbrechen</button>
-              <button onClick={handleAbnahmeStart} disabled={abnahmeLoading} style={{flex:2,padding:'10px 0',border:'none',borderRadius:10,background:'linear-gradient(135deg,#16a34a,#15803d)',fontSize:13,fontWeight:700,cursor:'pointer',color:'#fff',opacity:abnahmeLoading?0.7:1}}>
-                {abnahmeLoading ? 'Wird erstellt…' : '📋 Weiter'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <AbnahmeDialog
+          open={abnahmeDialog}
+          opts={abnahmeOpts}
+          onOptsChange={setAbnahmeOpts}
+          loading={abnahmeLoading}
+          bs={bs}
+          onClose={() => { setAbnahmeDialog(false); setAbnahmeFelderStep(false); }}
+          onSubmit={(felder) => {
+            setAbnahmeLoading(true);
+            const bsMit = { ...bs, ...felder };
+            exportAbnahmeschein(bsMit, sw, mat, nach, fts, abnahmeOpts)
+              .finally(() => { setAbnahmeLoading(false); setAbnahmeDialog(false); setAbnahmeFelderStep(false); });
+          }}
+          felderStep={abnahmeFelderStep}
+          onFelderStep={setAbnahmeFelderStep}
+        />
       )}
     </div>
   );
