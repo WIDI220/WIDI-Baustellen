@@ -792,7 +792,6 @@ export async function exportAbnahmeschein(
   doc.save(filename);
 }
 
-export { exportBaustellePDF };
 
 export function exportTeilabrechungPDF(
   bs: any,
