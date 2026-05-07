@@ -265,12 +265,12 @@ export default function BaustelleDetail() {
   const exportTAPDF = () => exportTeilabrechungPDF(bs, teilabrechnungen as any[], effektivBudget);
 
   // Abnahmeschein Dialog
-  const [abnahmeDialog, setAbnahmeDialog] = React.useState(false);
-  const [abnahmeOpts, setAbnahmeOpts] = React.useState<AbnahmeOptionen>({
+  const [abnahmeDialog, setAbnahmeDialog] = useState(false);
+  const [abnahmeOpts, setAbnahmeOpts] = useState<AbnahmeOptionen>({
     projektdaten: true, beschreibung: true, stunden: true, material: true,
     nachtraege: true, fotos: true, maengelliste: true, unterschriften: true, bemerkungsfeld: true,
   });
-  const [abnahmeLoading, setAbnahmeLoading] = React.useState(false);
+  const [abnahmeLoading, setAbnahmeLoading] = useState(false);
   const handleAbnahme = async () => {
     setAbnahmeLoading(true);
     try { await exportAbnahmeschein(bs, sw, mat, nach, fts, abnahmeOpts); }
