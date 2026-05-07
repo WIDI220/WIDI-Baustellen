@@ -25,7 +25,6 @@ interface PlanBlock {
   bezeichnung: string;
   stunden: number;
   bs_eintrag_id?: string;
-  quelle?: 'planung' | 'app';
 }
 
 const TYP_FARBE: Record<Typ, string> = {
@@ -105,8 +104,7 @@ function PoolItemRow({ item, onDragStart, onDragEnd }: {
 function PlanBlockEl({ block, onDelete, onUpdateStunden, cellW }: {
   block: PlanBlock; onDelete: () => void; onUpdateStunden: (h: number) => void; cellW: number;
 }) {
-  const farbe    = TYP_FARBE[block.typ] ?? '#64748b';
-  const fromApp  = block.quelle === 'app';
+  const farbe = TYP_FARBE[block.typ] ?? '#64748b';
   const resizeRef = useRef<{ startX: number; startH: number } | null>(null);
   const [localH, setLocalH] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
@@ -141,16 +139,7 @@ function PlanBlockEl({ block, onDelete, onUpdateStunden, cellW }: {
 
   return (
     <div className="wp-block"
-      style={{ width: blockW, height: 26, background: farbe, borderRadius: 6, marginBottom: 3, position: 'relative', display: 'flex', alignItems: 'center', paddingLeft: 6, paddingRight: 18, boxSizing: 'border-box', boxShadow: fromApp ? `0 0 0 2px #fff, 0 0 0 3.5px ${farbe}` : '0 1px 3px rgba(0,0,0,.15)', overflow: 'hidden', flexShrink: 0, transition: localH !== null ? 'none' : 'width .08s',
-        outline: fromApp ? '2px dashed rgba(255,255,255,0.7)' : 'none',
-        outlineOffset: -3,
-      }}
-      title={fromApp ? `📱 App-Eintrag: ${block.bezeichnung}` : block.bezeichnung}>
-
-      {/* App-Badge */}
-      {fromApp && (
-        <span style={{ fontSize: 8, marginRight: 3, flexShrink: 0, opacity: 0.9 }} title="Von Handwerker-App">📱</span>
-      )}
+      style={{ width: blockW, height: 26, background: farbe, borderRadius: 6, marginBottom: 3, position: 'relative', display: 'flex', alignItems: 'center', paddingLeft: 6, paddingRight: 18, boxSizing: 'border-box', boxShadow: '0 1px 3px rgba(0,0,0,.15)', overflow: 'hidden', flexShrink: 0, transition: localH !== null ? 'none' : 'width .08s' }}>
 
       {/* Label */}
       <div style={{ fontSize: 10, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={block.bezeichnung}>
@@ -289,15 +278,12 @@ export default function WochenplanungPage() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {/* Legende */}
-          <div style={{ display: 'flex', gap: 8, marginRight: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, marginRight: 12, flexWrap: 'wrap' }}>
             {Object.entries(TYP_FARBE).map(([t, f]) => (
               <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b' }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: f }} />{TYP_LABEL[t as Typ]}
               </div>
             ))}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#64748b', borderLeft: '1px solid #e2e8f0', paddingLeft: 8, marginLeft: 4 }}>
-              <span style={{ fontSize: 10 }}>📱</span> App-Eintrag
-            </div>
           </div>
           <button onClick={() => setWeekOffset(o => o - 1)} style={{ padding: '7px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, cursor: 'pointer', color: '#64748b' }}><ChevronLeft size={14} /></button>
           <button onClick={() => setWeekOffset(0)} style={{ padding: '7px 14px', background: weekOffset === 0 ? '#6366f1' : '#f8fafc', border: `1px solid ${weekOffset === 0 ? '#6366f1' : '#e2e8f0'}`, borderRadius: 8, cursor: 'pointer', color: weekOffset === 0 ? '#fff' : '#64748b', fontSize: 12, fontWeight: 600 }}>Heute</button>
