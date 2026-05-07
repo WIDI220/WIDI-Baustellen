@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Euro, Clock, Package, Camera, Plus, Pencil, Trash2, Upload, TrendingUp, BarChart2, FileText, Download, File, X } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import { fmtEur, fmtDate } from '@/lib/utils';
-import { exportBaustellePDF, exportTeilabrechungPDF } from '@/lib/exportPDF';
+import { exportBaustellePDF, exportTeilabrechungPDF, exportAbnahmeschein, AbnahmeOptionen } from '@/lib/exportPDF';
 
 const STUNDEN_SATZ = 38.08;
 const STATUS_OPTIONS = [
@@ -264,6 +264,19 @@ export default function BaustelleDetail() {
   const exportPDF = async () => await exportBaustellePDF(bs, sw, mat, nach, fts);
   const exportTAPDF = () => exportTeilabrechungPDF(bs, teilabrechnungen as any[], effektivBudget);
 
+  // Abnahmeschein Dialog
+  const [abnahmeDialog, setAbnahmeDialog] = React.useState(false);
+  const [abnahmeOpts, setAbnahmeOpts] = React.useState<AbnahmeOptionen>({
+    projektdaten: true, beschreibung: true, stunden: true, material: true,
+    nachtraege: true, fotos: true, maengelliste: true, unterschriften: true, bemerkungsfeld: true,
+  });
+  const [abnahmeLoading, setAbnahmeLoading] = React.useState(false);
+  const handleAbnahme = async () => {
+    setAbnahmeLoading(true);
+    try { await exportAbnahmeschein(bs, sw, mat, nach, fts, abnahmeOpts); }
+    finally { setAbnahmeLoading(false); setAbnahmeDialog(false); }
+  };
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -284,6 +297,7 @@ export default function BaustelleDetail() {
           <p className="text-sm mt-0.5" style={{color:'#9ca3af'}}>{bs.auftraggeber}{bs.adresse?` · ${bs.adresse}`:''}</p>
         </div>
         <Button variant="outline" size="sm" onClick={exportPDF}>PDF</Button>
+        <Button variant="outline" size="sm" onClick={() => setAbnahmeDialog(true)} style={{borderColor:'#22c55e',color:'#15803d',fontWeight:600}}>Abnahmeschein</Button>
       </div>
 
       {/* KPIs */}
