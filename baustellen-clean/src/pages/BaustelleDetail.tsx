@@ -97,6 +97,8 @@ export default function BaustelleDetail() {
     nachtraege: true, fotos: true, maengelliste: true, unterschriften: true, bemerkungsfeld: true,
   });
   const [abnahmeLoading, setAbnahmeLoading] = useState(false);
+  const [abnahmeFelder, setAbnahmeFelder] = useState<Record<string,string>>({});
+  const [abnahmeFelderStep, setAbnahmeFelderStep] = useState(false);
 
   const { data: bs, isLoading: bsLoading } = useQuery({ queryKey:['baustelle',id], queryFn: async () => { const {data,error}=await supabase.from('baustellen').select('*').eq('id',id!).single(); if(error)throw error; return data; }, enabled:!!id });
   const { data: employees=[] } = useQuery({ queryKey:['employees'], queryFn: async () => { const {data}=await supabase.from('employees').select('id,name,kuerzel,stundensatz').eq('aktiv',true).order('name'); return data??[]; } });
@@ -272,10 +274,28 @@ export default function BaustelleDetail() {
   const exportPDF = async () => await exportBaustellePDF(bs, sw, mat, nach, fts);
   const exportTAPDF = () => exportTeilabrechungPDF(bs, teilabrechnungen as any[], effektivBudget);
 
+  const abnahmePflichtfelder = [
+    {key:'auftraggeber', label:'Auftraggeber'},
+    {key:'adresse', label:'Adresse / Objekt'},
+    {key:'projektleiter', label:'Projektleiter'},
+    {key:'gewerk', label:'Gewerk'},
+  ];
+  const fehlendeFelderAbnahme = abnahmePflichtfelder.filter(f => !bs?.[f.key] && !abnahmeFelder[f.key]);
+
+  const handleAbnahmeStart = () => {
+    if (fehlendeFelderAbnahme.length > 0) {
+      setAbnahmeFelderStep(true);
+    } else {
+      handleAbnahme();
+    }
+  };
+
   const handleAbnahme = async () => {
     setAbnahmeLoading(true);
-    try { await exportAbnahmeschein(bs, sw, mat, nach, fts, abnahmeOpts); }
-    finally { setAbnahmeLoading(false); setAbnahmeDialog(false); }
+    // Fehlende Felder in bs-Kopie einfügen
+    const bsMitFelder = {...bs, ...abnahmeFelder};
+    try { await exportAbnahmeschein(bsMitFelder, sw, mat, nach, fts, abnahmeOpts); }
+    finally { setAbnahmeLoading(false); setAbnahmeDialog(false); setAbnahmeFelderStep(false); }
   };
 
   return (
@@ -1179,10 +1199,24 @@ export default function BaustelleDetail() {
                 </label>
               ))}
             </div>
+            {abnahmeFelderStep && fehlendeFelderAbnahme.length > 0 && (
+              <div style={{marginBottom:16,padding:14,background:'#fefce8',borderRadius:10,border:'1px solid #fde68a'}}>
+                <p style={{fontSize:13,fontWeight:700,color:'#92400e',margin:'0 0 10px'}}>⚠️ Bitte fehlende Projektdaten ergänzen:</p>
+                {fehlendeFelderAbnahme.map(f => (
+                  <div key={f.key} style={{marginBottom:8}}>
+                    <label style={{fontSize:11,fontWeight:600,color:'#6b7280',display:'block',marginBottom:3}}>{f.label}</label>
+                    <input value={abnahmeFelder[f.key]||''} onChange={e=>setAbnahmeFelder(p=>({...p,[f.key]:e.target.value}))} placeholder={f.label} style={{width:'100%',padding:'7px 10px',border:'1px solid #d1d5db',borderRadius:7,fontSize:13,boxSizing:'border-box' as const}}/>
+                  </div>
+                ))}
+                <button onClick={handleAbnahme} disabled={abnahmeLoading||fehlendeFelderAbnahme.some(f=>!abnahmeFelder[f.key])} style={{width:'100%',marginTop:6,padding:'10px 0',border:'none',borderRadius:9,background:'linear-gradient(135deg,#16a34a,#15803d)',fontSize:13,fontWeight:700,cursor:'pointer',color:'#fff',opacity:(abnahmeLoading||fehlendeFelderAbnahme.some(f=>!abnahmeFelder[f.key]))?0.5:1}}>
+                  {abnahmeLoading?'Wird erstellt…':'📋 Abnahmeschein erstellen'}
+                </button>
+              </div>
+            )}
             <div style={{display:'flex',gap:10}}>
-              <button onClick={()=>setAbnahmeDialog(false)} style={{flex:1,padding:'10px 0',border:'1px solid #e5e7eb',borderRadius:10,background:'#f9fafb',fontSize:13,fontWeight:600,cursor:'pointer',color:'#6b7280'}}>Abbrechen</button>
-              <button onClick={handleAbnahme} disabled={abnahmeLoading} style={{flex:2,padding:'10px 0',border:'none',borderRadius:10,background:'linear-gradient(135deg,#16a34a,#15803d)',fontSize:13,fontWeight:700,cursor:'pointer',color:'#fff',opacity:abnahmeLoading?0.7:1}}>
-                {abnahmeLoading ? 'Wird erstellt…' : '📋 Abnahmeschein herunterladen'}
+              <button onClick={()=>{setAbnahmeDialog(false);setAbnahmeFelderStep(false);}} style={{flex:1,padding:'10px 0',border:'1px solid #e5e7eb',borderRadius:10,background:'#f9fafb',fontSize:13,fontWeight:600,cursor:'pointer',color:'#6b7280'}}>Abbrechen</button>
+              <button onClick={handleAbnahmeStart} disabled={abnahmeLoading} style={{flex:2,padding:'10px 0',border:'none',borderRadius:10,background:'linear-gradient(135deg,#16a34a,#15803d)',fontSize:13,fontWeight:700,cursor:'pointer',color:'#fff',opacity:abnahmeLoading?0.7:1}}>
+                {abnahmeLoading ? 'Wird erstellt…' : '📋 Weiter'}
               </button>
             </div>
           </div>
