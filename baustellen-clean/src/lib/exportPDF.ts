@@ -444,7 +444,7 @@ export async function exportBaustellePDF(
 }
 
 // ════════════════════════════════════════════════════════
-// ABNAHMESCHEIN
+// ABNAHMESCHEIN – Modernes professionelles Design
 // ════════════════════════════════════════════════════════
 export interface AbnahmeOptionen {
   projektdaten: boolean;
@@ -467,152 +467,171 @@ export async function exportAbnahmeschein(
   optionen: AbnahmeOptionen,
 ) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const W = 210, H = 297;
 
   const STUNDENSATZ_LOCAL = 38.08;
   const personal  = stunden.reduce((s,e) => s + Number(e.stunden) * Number(e.employees?.stundensatz ?? STUNDENSATZ_LOCAL), 0);
   const material  = materialien.reduce((s,m) => s + Number(m.gesamtpreis ?? 0), 0);
-  const gesamt    = personal + material;
   const gesamtH   = stunden.reduce((s,e) => s + Number(e.stunden), 0);
   const budget    = Number(bs.budget ?? 0);
-  const nGenehmigt = nachtraege.filter(n=>n.status==='genehmigt').reduce((s,n)=>s+Number(n.betrag),0);
+  const nGenehmigt = nachtraege.filter((n:any)=>n.status==='genehmigt').reduce((s:number,n:any)=>s+Number(n.betrag),0);
   const effBudget = budget + nGenehmigt;
   const today = new Date().toLocaleDateString('de-DE', {day:'2-digit', month:'long', year:'numeric'});
-  const bsNummer = bs.name.match(/[A-Z]\d{2}-\d{4,6}/)?.[0] || '';
+  const bsNummer = bs.name?.match(/[A-Z]\d{2}-\d{4,6}/)?.[0] || '';
 
-  // WIDI Grün Design
+  // ── Farben ──────────────────────────────────────────────
   const G = {
-    dark:   [20, 80, 20]   as [number,number,number],
-    mid:    [34, 120, 34]  as [number,number,number],
-    light:  [200, 230, 200] as [number,number,number],
-    bg:     [240, 250, 240] as [number,number,number],
-    white:  [255,255,255]  as [number,number,number],
-    gray:   [100,120,100]  as [number,number,number],
-    text:   [30, 50, 30]   as [number,number,number],
-    border: [150, 200, 150] as [number,number,number],
+    darkGreen:  [22, 101, 52]   as [number,number,number],
+    midGreen:   [34, 197, 94]   as [number,number,number],
+    lightGreen: [220, 252, 231] as [number,number,number],
+    paleGreen:  [240, 253, 244] as [number,number,number],
+    white:      [255, 255, 255] as [number,number,number],
+    nearBlack:  [17, 24, 39]    as [number,number,number],
+    darkGray:   [55, 65, 81]    as [number,number,number],
+    midGray:    [107, 114, 128] as [number,number,number],
+    lightGray:  [243, 244, 246] as [number,number,number],
+    border:     [209, 250, 229] as [number,number,number],
+    lineGray:   [229, 231, 235] as [number,number,number],
   };
 
-  const gHeader = () => {
-    // Grüner Header-Balken
-    doc.setFillColor(G.dark[0], G.dark[1], G.dark[2]);
-    doc.rect(0, 0, 210, 22, 'F');
-    doc.setFillColor(G.mid[0], G.mid[1], G.mid[2]);
-    doc.rect(0, 22, 210, 3, 'F');
+  const sf = (c:[number,number,number]) => doc.setFillColor(c[0],c[1],c[2]);
+  const st = (c:[number,number,number]) => doc.setTextColor(c[0],c[1],c[2]);
+  const sd = (c:[number,number,number]) => doc.setDrawColor(c[0],c[1],c[2]);
 
-    // WIDI Logo (GIF als base64)
+  // ── Seitenrahmen & Header ─────────────────────────────
+  const drawPage = () => {
+    const pg = (doc as any).internal.getCurrentPageInfo().pageNumber;
+
+    // Oberer grüner Balken (schlank, modern)
+    sf(G.darkGreen); doc.rect(0, 0, W, 18, 'F');
+    sf(G.midGreen);  doc.rect(0, 17.5, W, 0.8, 'F');
+
+    // Logo – sauber platziert, weiß hinterlegt
     try {
-      doc.addImage('data:image/gif;base64,' + WIDI_LOGO_B64, 'GIF', 14, 2, 40, 18);
+      doc.addImage('data:image/gif;base64,R0lGODlhFAFSAPf/ANXf7e6DAOypMbK0tqWoqvj4+PDw8J2gogCb2rm8vfX19ZaanO+2L73Awet8Aq6xsgByura5ugBstZibnTWWSvOSAPK/LHl+gUebRwCp5cbIyXKuOXF2eYeLjeHi4uzt7fCKAH6ChPfTJIq7KdPV1nqyNPLDLMvMzY2Qk+l3BYqNkGurO5CUlgxFlwNMnACFyfb299U7F/viHNxSFFykQaGkpurq6/KNAACCVAB8V9LU1fjaIXV6fcPFxpueoI28J/C6Lt3e3waOT4S3LvXLKeFgEdEsGPPHKwCKUfnfHmaoPffWJPvkGayvsYiMjq+ys9lKFYSIi6OmqI6RlGpvcpGVl+Xm5u7v783P0Le6u9DR0pSXmQCLzvLy8wBUos4cGQBeqt5ZErS3uMHDxFWhQ1iiQu2tMCyTTCWSTQCX18jKywCR087Q0QCm4tfY2airrNHT1HR4e+6xMNAlGeRoDpG/IwCg3nh9f4KGiKqtrthFFoe6LOJjEG9zdvnbIYCEh3yAgwBjrj+ZSdMzGPzpE+ZuC4C1MOdxCQB5wFCfRByRTvjZIQCS09dBFghJmpPAIWOnP99cEgCCxwB8wgB/VvbPJ+VtDBKPTwCP0s8gGc0XGfzqEpTBH7y+wNna28/R0qCjpfX29uLj5IOHisLQ5XB1d6msrmhtcGlucfr6+vfZpdZCQ6/Wym+1oOmZmvLFxb/e1e6zSld/t/ni4mxxdI/Ftfrpy5St0f39/QB/xWtwc/v8/N/g4f7+/vf4+Pv7++fo6PPz9MXHyG5yde3u7ubn597f3/z8/Orr6/Hx8by+v4GFiNvc3W90d8nLzKuur+jp6dja2tnb23uAguTl5vzqE7/Bw+fn6L2/wNXX1+Tr9OTk5X+Dht7f4PzmGOnq6vznF7O1t8PFx+Pk5PC3L9jZ2m1ydQB4v3Z7ftrb3NU4F+vs7Nzd3szOz/voFHJ3egBXpfjYI/jesMDf1f34+LbH4Ov18vvs0u2srdzt6PzoF/XQ0Nvt5/Dz+Gdsb////yH/C1hNUCBEYXRhWE1QPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS41LWMwMjEgNzkuMTU1NzcyLCAyMDE0LzAxLzEzLTE5OjQ0OjAwICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIiB4bWxuczpzdFJlZj0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL3NUeXBlL1Jlc291cmNlUmVmIyIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgQ0MgMjAxNCAoTWFjaW50b3NoKSIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDo5QkNCRTY2QTMwRTgxMUU0QjAyQ0VENjAyM0U2NzkzNyIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDo5QkNCRTY2QjMwRTgxMUU0QjAyQ0VENjAyM0U2NzkzNyI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOjlCQ0JFNjY4MzBFODExRTRCMDJDRUQ2MDIzRTY3OTM3IiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjlCQ0JFNjY5MzBFODExRTRCMDJDRUQ2MDIzRTY3OTM3Ii8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+Af/+/fz7+vn49/b19PPy8fDv7u3s6+rp6Ofm5eTj4uHg397d3Nva2djX1tXU09LR0M/OzczLysnIx8bFxMPCwcC/vr28u7q5uLe2tbSzsrGwr66trKuqqainpqWko6KhoJ+enZybmpmYl5aVlJOSkZCPjo2Mi4qJiIeGhYSDgoGAf359fHt6eXh3dnV0c3JxcG9ubWxramloZ2ZlZGNiYWBfXl1cW1pZWFdWVVRTUlFQT05NTEtKSUhHRkVEQ0JBQD8+PTw7Ojk4NzY1NDMyMTAvLi0sKyopKCcm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', 'GIF', 8, 1.5, 36, 15);
     } catch {
-      // Logo-Fallback: Text
-      doc.setFont('helvetica','bold'); doc.setFontSize(14);
-      doc.setTextColor(255,255,255);
-      doc.text('widi', 14, 14);
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); st(G.white);
+      doc.text('WIDI', 10, 12);
     }
 
-    // Rechts: Titel
-    doc.setFont('helvetica','bold'); doc.setFontSize(9);
-    doc.setTextColor(255,255,255);
-    doc.text('ABNAHMESCHEIN', 196, 9, {align:'right'});
+    // Rechts: Dokumenttyp + Firma
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); st(G.white);
+    doc.text('ABNAHMESCHEIN', W - 10, 8, {align:'right'});
     doc.setFont('helvetica','normal'); doc.setFontSize(7);
-    doc.setTextColor(180, 220, 180);
-    doc.text('Wirtschaftsdienste Hellersen GmbH  ·  Unternehmensverbund WIDI', 196, 15, {align:'right'});
+    doc.setTextColor(187, 247, 208);
+    doc.text('Wirtschaftsdienste Hellersen GmbH', W - 10, 13, {align:'right'});
 
-    const pg = (doc as any).internal.getCurrentPageInfo().pageNumber;
-    doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
-    doc.setTextColor(180,220,180);
-    doc.text(`Seite ${pg}`, 196, 20, {align:'right'});
+    // Seitenzahl unten rechts
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); st(G.midGray);
+    doc.text(`Seite ${pg}`, W - 10, H - 4, {align:'right'});
+
+    // Untere Linie
+    sd(G.border); doc.setLineWidth(0.4);
+    doc.line(10, H - 8, W - 10, H - 8);
+    doc.setFont('helvetica','normal'); doc.setFontSize(6.5); st(G.midGray);
+    doc.text('WIDI Wirtschaftsdienste Hellersen GmbH · Unternehmensverbund WIDI', 10, H - 4);
   };
 
-  const gFooter = () => {
-    doc.setDrawColor(G.border[0], G.border[1], G.border[2]);
-    doc.line(14, 284, 196, 284);
-    doc.setFont('helvetica','normal'); doc.setFontSize(6);
-    doc.setTextColor(G.gray[0], G.gray[1], G.gray[2]);
-    doc.text('WIDI Wirtschaftsdienste Hellersen GmbH  ·  Unternehmensverbund WIDI', 14, 288);
-    doc.text(today, 196, 288, {align:'right'});
+  // ── Abschnitts-Titel ──────────────────────────────────
+  const secTitle = (title: string, y: number): number => {
+    sf(G.lightGreen); doc.rect(10, y, W - 20, 8, 'F');
+    sf(G.darkGreen);  doc.rect(10, y, 3, 8, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); st(G.darkGreen);
+    doc.text(title.toUpperCase(), 16, y + 5.5);
+    return y + 12;
   };
 
-  const gSection = (title: string, y: number): number => {
-    doc.setFillColor(G.light[0], G.light[1], G.light[2]);
-    doc.rect(14, y, 182, 7, 'F');
-    doc.setFillColor(G.mid[0], G.mid[1], G.mid[2]);
-    doc.rect(14, y, 3, 7, 'F');
-    doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
-    doc.setTextColor(G.dark[0], G.dark[1], G.dark[2]);
-    doc.text(title, 20, y + 5);
+  // ── Info-Zeile (Label + Wert) ─────────────────────────
+  const infoRow = (label: string, value: string, x: number, y: number, w: number) => {
+    doc.setFont('helvetica','normal'); doc.setFontSize(6.5); st(G.midGray);
+    doc.text(label, x, y);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); st(G.nearBlack);
+    // Kein Abschneiden – splitTextToSize nutzen
+    const lines = doc.splitTextToSize(value || '–', w - 2);
+    doc.text(lines[0] || '–', x, y + 5);
     return y + 11;
   };
 
-  // ═══ SEITE 1 – DECKBLATT ═══
-  gHeader();
-  let y = 30;
+  // ══════════════════════════════════════════════════════
+  // SEITE 1 – DECKBLATT
+  // ══════════════════════════════════════════════════════
+  drawPage();
+  let y = 24;
 
-  // Grüner Titel-Block
-  doc.setFillColor(G.dark[0], G.dark[1], G.dark[2]);
-  doc.roundedRect(14, y, 182, 30, 2, 2, 'F');
-  doc.setFillColor(G.mid[0], G.mid[1], G.mid[2]);
-  doc.roundedRect(14, y+26, 182, 4, 0, 0, 'F');
+  // ── Titel-Block ───────────────────────────────────────
+  // Dunkler Box-Hintergrund
+  sf(G.nearBlack); doc.roundedRect(10, y, W - 20, 38, 3, 3, 'F');
+  sf(G.darkGreen); doc.rect(10, y + 35, W - 20, 3, 'F');
 
-  doc.setFont('helvetica','bold'); doc.setFontSize(13);
-  doc.setTextColor(255,255,255);
-  doc.text('ABNAHMESCHEIN', 20, y+9);
-  doc.setFont('helvetica','normal'); doc.setFontSize(8);
-  const shortName = bs.name.length > 65 ? bs.name.slice(0,62)+'…' : bs.name;
-  doc.text(shortName, 20, y+17);
-  doc.text(`Auftraggeber: ${bs.auftraggeber||'–'}`, 20, y+23);
-  doc.setFont('helvetica','bold'); doc.setFontSize(8);
-  doc.setTextColor(180, 230, 180);
-  doc.text(bsNummer, 196, y+9, {align:'right'});
-  doc.setFont('helvetica','normal'); doc.setFontSize(7);
-  doc.text(today, 196, y+17, {align:'right'});
-  y += 38;
+  // Nummer-Badge oben rechts
+  if (bsNummer) {
+    sf(G.darkGreen); doc.roundedRect(W - 52, y + 4, 40, 7, 1.5, 1.5, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(7); st(G.lightGreen);
+    doc.text(bsNummer, W - 32, y + 8.5, {align:'center'});
+  }
 
-  // ═══ PROJEKTDATEN ═══
+  doc.setFont('helvetica','bold'); doc.setFontSize(16); st(G.white);
+  doc.text('ABNAHMESCHEIN', 18, y + 12);
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+  doc.setTextColor(187, 247, 208);
+  doc.text('Wirtschaftsdienste Hellersen GmbH  ·  Unternehmensverbund WIDI', 18, y + 18);
+
+  // Projektname – vollständig, kein Kürzen
+  doc.setFont('helvetica','bold'); doc.setFontSize(9); st(G.white);
+  const nameLines = doc.splitTextToSize(bs.name || '–', W - 40);
+  doc.text(nameLines.slice(0,2), 18, y + 25);
+
+  // Datum unten rechts im Block
+  doc.setFont('helvetica','normal'); doc.setFontSize(7.5); st(G.midGreen);
+  doc.text(today, W - 14, y + 33, {align:'right'});
+  y += 44;
+
+  // ── Projektdaten ──────────────────────────────────────
   if (optionen.projektdaten) {
-    y = gSection('Projektdaten', y);
-    const felder = [
-      ['Projektnummer', bsNummer||bs.name.slice(0,20)],
-      ['Projektbezeichnung', bs.name],
-      ['Auftraggeber', bs.auftraggeber||'–'],
-      ['Adresse / Objekt', bs.adresse||'–'],
-      ['Startdatum', fmtDate(bs.startdatum)],
-      ['Fertigstellungsdatum', fmtDate(bs.enddatum)],
-      ['Projektleiter', bs.projektleiter||'–'],
-      ['Gewerk', bs.gewerk||'–'],
+    y = secTitle('Projektdaten', y);
+    const colW = (W - 20) / 2;
+    const fields = [
+      ['Projektnummer',     bsNummer || bs.name?.slice(0,25) || '–'],
+      ['Auftraggeber',      bs.auftraggeber || '–'],
+      ['Adresse / Objekt',  bs.adresse || '–'],
+      ['Projektleiter',     bs.projektleiter || '–'],
+      ['Gewerk',            bs.gewerk || '–'],
+      ['Startdatum',        fmtDate(bs.startdatum)],
+      ['Fertigstellung',    fmtDate(bs.enddatum)],
+      ['Status',            bs.status?.toUpperCase() || '–'],
     ];
-    felder.forEach(([label, wert], i) => {
-      const col = i % 2; const row = Math.floor(i / 2);
-      const cx = 14 + col * 91; const cy = y + row * 11;
+    fields.forEach(([label, wert], i) => {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const cx = 10 + col * colW;
+      const cy = y + row * 12;
       if (i % 2 === 0) {
-        doc.setFillColor(G.bg[0], G.bg[1], G.bg[2]);
-        doc.rect(14, cy - 2, 182, 11, 'F');
+        sf(G.paleGreen); doc.rect(10, cy - 2, W - 20, 12, 'F');
       }
-      doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
-      doc.setTextColor(G.gray[0], G.gray[1], G.gray[2]);
-      doc.text(label, cx + 2, cy + 3);
-      doc.setFont('helvetica','bold'); doc.setFontSize(8);
-      doc.setTextColor(G.text[0], G.text[1], G.text[2]);
-      const wertShort = String(wert).length > 40 ? String(wert).slice(0,37)+'…' : String(wert);
-      doc.text(wertShort, cx + 2, cy + 8);
+      sd(G.border); doc.setLineWidth(0.2);
+      doc.line(10, cy + 10, W - 10, cy + 10);
+      infoRow(label, String(wert), cx + 3, cy + 1, colW - 3);
     });
-    y += Math.ceil(felder.length / 2) * 11 + 4;
+    y += Math.ceil(fields.length / 2) * 12 + 4;
   }
 
-  // ═══ BESCHREIBUNG ═══
+  // ── Beschreibung ──────────────────────────────────────
   if (optionen.beschreibung && bs.beschreibung) {
-    y = gSection('Leistungsbeschreibung', y);
-    doc.setFont('helvetica','normal'); doc.setFontSize(8);
-    doc.setTextColor(G.text[0], G.text[1], G.text[2]);
-    const lines = doc.splitTextToSize(bs.beschreibung, 178);
-    doc.text(lines, 14, y);
-    y += lines.length * 4.5 + 6;
+    if (y > 220) { doc.addPage(); drawPage(); y = 24; }
+    y = secTitle('Leistungsbeschreibung', y);
+    sf(G.paleGreen); doc.rect(10, y - 2, W - 20, 1, 'F');
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); st(G.darkGray);
+    const lines = doc.splitTextToSize(bs.beschreibung, W - 26);
+    doc.text(lines, 13, y + 2);
+    y += lines.length * 4.8 + 8;
   }
 
-  // ═══ STUNDEN / PERSONAL ═══
+  // ── Stunden / Personal ────────────────────────────────
   if (optionen.stunden && stunden.length > 0) {
-    if (y > 210) { doc.addPage(); gHeader(); gFooter(); y = 30; }
-    y = gSection(`Erbrachte Leistungen – ${fmt(gesamtH)}h  ·  ${eur(personal)}`, y);
+    if (y > 200) { doc.addPage(); drawPage(); y = 24; }
+    y = secTitle(`Erbrachte Leistungen  ·  ${fmt(gesamtH)}h  ·  ${eur(personal)}`, y);
     const maMap2: Record<string,{name:string,stunden:number,kosten:number}> = {};
-    stunden.forEach(s => {
+    stunden.forEach((s:any) => {
       const name = s.employees?.name||'Unbekannt';
       const satz = Number(s.employees?.stundensatz??STUNDENSATZ_LOCAL);
       if(!maMap2[name]) maMap2[name]={name,stunden:0,kosten:0};
@@ -621,177 +640,184 @@ export async function exportAbnahmeschein(
     });
     autoTable(doc, {
       startY: y,
-      head: [['Mitarbeiter','Stunden','Kosten']],
-      body: Object.values(maMap2).sort((a,b)=>b.stunden-a.stunden).map(m=>[m.name,`${fmt(m.stunden)}h`,eur(m.kosten)]),
-      foot: [['Gesamt',`${fmt(gesamtH)}h`,eur(personal)]],
-      headStyles:{fillColor:[G.dark[0],G.dark[1],G.dark[2]],textColor:[255,255,255],fontStyle:'bold',fontSize:7.5},
-      bodyStyles:{fontSize:7.5,textColor:[G.text[0],G.text[1],G.text[2]]},
-      footStyles:{fillColor:[G.light[0],G.light[1],G.light[2]],textColor:[G.dark[0],G.dark[1],G.dark[2]],fontStyle:'bold',fontSize:8},
-      alternateRowStyles:{fillColor:[G.bg[0],G.bg[1],G.bg[2]]},
+      head: [['Mitarbeiter','Stunden','Kosten (€)']],
+      body: Object.values(maMap2).sort((a,b)=>b.stunden-a.stunden)
+        .map(m=>[m.name, `${fmt(m.stunden)} h`, eur(m.kosten)]),
+      foot: [['Gesamt', `${fmt(gesamtH)} h`, eur(personal)]],
+      headStyles:{fillColor:[G.darkGreen[0],G.darkGreen[1],G.darkGreen[2]],textColor:[255,255,255],fontStyle:'bold',fontSize:8},
+      bodyStyles:{fontSize:8,textColor:[G.darkGray[0],G.darkGray[1],G.darkGray[2]]},
+      footStyles:{fillColor:[G.lightGreen[0],G.lightGreen[1],G.lightGreen[2]],textColor:[G.darkGreen[0],G.darkGreen[1],G.darkGreen[2]],fontStyle:'bold',fontSize:8},
+      alternateRowStyles:{fillColor:[G.paleGreen[0],G.paleGreen[1],G.paleGreen[2]]},
       columnStyles:{1:{halign:'right'},2:{halign:'right',fontStyle:'bold'}},
-      margin:{left:14,right:14},
+      margin:{left:10, right:10},
     });
-    y = (doc as any).lastAutoTable.finalY + 6;
+    y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ═══ MATERIAL ═══
+  // ── Material ──────────────────────────────────────────
   if (optionen.material && materialien.length > 0) {
-    if (y > 210) { doc.addPage(); gHeader(); gFooter(); y = 30; }
-    y = gSection(`Material – ${materialien.length} Positionen  ·  ${eur(material)}`, y);
+    if (y > 200) { doc.addPage(); drawPage(); y = 24; }
+    y = secTitle(`Material  ·  ${materialien.length} Positionen  ·  ${eur(material)}`, y);
     autoTable(doc, {
       startY: y,
-      head: [['Bezeichnung','Menge','Einheit','Einzelpreis','Gesamt']],
-      body: materialien.map(m=>[m.bezeichnung,fmt(m.menge),m.einheit||'–',eur(m.einzelpreis),eur(m.gesamtpreis)]),
+      head: [['Bezeichnung','Menge','Einheit','Einzelpreis','Gesamt (€)']],
+      body: materialien.map((m:any)=>[
+        m.bezeichnung,
+        fmt(m.menge),
+        m.einheit||'–',
+        eur(m.einzelpreis),
+        eur(m.gesamtpreis),
+      ]),
       foot: [['Gesamt',`${materialien.length} Pos.`,'','',eur(material)]],
-      headStyles:{fillColor:[G.dark[0],G.dark[1],G.dark[2]],textColor:[255,255,255],fontStyle:'bold',fontSize:7.5},
-      bodyStyles:{fontSize:7,textColor:[G.text[0],G.text[1],G.text[2]]},
-      footStyles:{fillColor:[G.light[0],G.light[1],G.light[2]],textColor:[G.dark[0],G.dark[1],G.dark[2]],fontStyle:'bold'},
-      alternateRowStyles:{fillColor:[G.bg[0],G.bg[1],G.bg[2]]},
+      headStyles:{fillColor:[G.darkGreen[0],G.darkGreen[1],G.darkGreen[2]],textColor:[255,255,255],fontStyle:'bold',fontSize:8},
+      bodyStyles:{fontSize:7.5,textColor:[G.darkGray[0],G.darkGray[1],G.darkGray[2]]},
+      footStyles:{fillColor:[G.lightGreen[0],G.lightGreen[1],G.lightGreen[2]],textColor:[G.darkGreen[0],G.darkGreen[1],G.darkGreen[2]],fontStyle:'bold'},
+      alternateRowStyles:{fillColor:[G.paleGreen[0],G.paleGreen[1],G.paleGreen[2]]},
       columnStyles:{1:{halign:'right'},3:{halign:'right'},4:{halign:'right',fontStyle:'bold'}},
-      margin:{left:14,right:14},
+      margin:{left:10,right:10},
     });
-    y = (doc as any).lastAutoTable.finalY + 6;
+    y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ═══ NACHTRÄGE ═══
+  // ── Nachträge ─────────────────────────────────────────
   if (optionen.nachtraege && nachtraege.length > 0) {
-    if (y > 210) { doc.addPage(); gHeader(); gFooter(); y = 30; }
-    y = gSection(`Nachträge – ${nachtraege.length} gesamt  ·  ${eur(nGenehmigt)} genehmigt`, y);
+    if (y > 200) { doc.addPage(); drawPage(); y = 24; }
+    y = secTitle(`Nachträge  ·  ${nachtraege.length} gesamt  ·  ${eur(nGenehmigt)} genehmigt`, y);
     autoTable(doc, {
       startY: y,
-      head: [['Titel','Betrag','Status','Datum']],
-      body: nachtraege.map(n=>[n.titel,eur(n.betrag),n.status,fmtDate(n.datum)]),
-      headStyles:{fillColor:[G.dark[0],G.dark[1],G.dark[2]],textColor:[255,255,255],fontStyle:'bold',fontSize:7.5},
-      bodyStyles:{fontSize:7,textColor:[G.text[0],G.text[1],G.text[2]]},
-      alternateRowStyles:{fillColor:[G.bg[0],G.bg[1],G.bg[2]]},
-      columnStyles:{1:{halign:'right',fontStyle:'bold'}},
-      margin:{left:14,right:14},
+      head: [['Titel','Betrag (€)','Status','Datum']],
+      body: nachtraege.map((n:any)=>[
+        n.titel,
+        eur(n.betrag),
+        n.status,
+        fmtDate(n.datum),
+      ]),
+      headStyles:{fillColor:[G.darkGreen[0],G.darkGreen[1],G.darkGreen[2]],textColor:[255,255,255],fontStyle:'bold',fontSize:8},
+      bodyStyles:{fontSize:7.5,textColor:[G.darkGray[0],G.darkGray[1],G.darkGray[2]]},
+      alternateRowStyles:{fillColor:[G.paleGreen[0],G.paleGreen[1],G.paleGreen[2]]},
+      columnStyles:{1:{halign:'right',fontStyle:'bold'},3:{cellWidth:22}},
+      margin:{left:10,right:10},
     });
-    y = (doc as any).lastAutoTable.finalY + 6;
+    y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ═══ MÄNGELLISTE ═══
+  // ── Mängelliste ───────────────────────────────────────
   if (optionen.maengelliste) {
-    if (y > 210) { doc.addPage(); gHeader(); gFooter(); y = 30; }
-    y = gSection('Mängelliste', y);
+    if (y > 200) { doc.addPage(); drawPage(); y = 24; }
+    y = secTitle('Mängelliste', y);
     autoTable(doc, {
       startY: y,
-      head: [['Nr.','Beschreibung des Mangels','Verantwortlich','Frist','Behoben am']],
-      body: Array.from({length:5}, (_,i)=>[`${i+1}`,'','','','']),
-      headStyles:{fillColor:[G.dark[0],G.dark[1],G.dark[2]],textColor:[255,255,255],fontStyle:'bold',fontSize:7.5},
-      bodyStyles:{fontSize:8,textColor:[G.text[0],G.text[1],G.text[2]],minCellHeight:10},
-      alternateRowStyles:{fillColor:[G.bg[0],G.bg[1],G.bg[2]]},
-      columnStyles:{0:{cellWidth:10,halign:'center'}},
-      margin:{left:14,right:14},
+      head: [['Nr.','Beschreibung des Mangels','Verantwortlich','Frist','Erledigt am']],
+      body: Array.from({length:6}, (_,i)=>[(i+1).toString(),'','','','']),
+      headStyles:{fillColor:[G.darkGreen[0],G.darkGreen[1],G.darkGreen[2]],textColor:[255,255,255],fontStyle:'bold',fontSize:8},
+      bodyStyles:{fontSize:8,textColor:[G.darkGray[0],G.darkGray[1],G.darkGray[2]],minCellHeight:12},
+      alternateRowStyles:{fillColor:[G.paleGreen[0],G.paleGreen[1],G.paleGreen[2]]},
+      columnStyles:{0:{cellWidth:10,halign:'center'},2:{cellWidth:30},3:{cellWidth:22},4:{cellWidth:25}},
+      margin:{left:10,right:10},
     });
-    y = (doc as any).lastAutoTable.finalY + 6;
+    y = (doc as any).lastAutoTable.finalY + 8;
   }
 
-  // ═══ BEMERKUNGSFELD ═══
+  // ── Bemerkungsfeld ────────────────────────────────────
   if (optionen.bemerkungsfeld) {
-    if (y > 220) { doc.addPage(); gHeader(); gFooter(); y = 30; }
-    y = gSection('Bemerkungen / Sonstige Vereinbarungen', y);
-    doc.setFillColor(G.bg[0], G.bg[1], G.bg[2]);
-    doc.setDrawColor(G.border[0], G.border[1], G.border[2]);
-    doc.roundedRect(14, y, 182, 24, 1, 1, 'FD');
-    y += 28;
+    if (y > 225) { doc.addPage(); drawPage(); y = 24; }
+    y = secTitle('Bemerkungen / Sonstige Vereinbarungen', y);
+    sf(G.paleGreen); sd(G.border); doc.setLineWidth(0.3);
+    doc.roundedRect(10, y, W - 20, 28, 2, 2, 'FD');
+    y += 32;
   }
 
-  // ═══ FOTOS ═══
+  // ── Fotos ─────────────────────────────────────────────
   if (optionen.fotos && fotos.length > 0) {
-    doc.addPage(); gHeader(); gFooter(); y = 30;
-    y = gSection(`Dokumentationsfotos (${fotos.length})`, y);
-    const cols = 3; const imgW = 56; const imgH = 38; const gap = 7;
+    doc.addPage(); drawPage(); y = 24;
+    y = secTitle(`Dokumentationsfotos  ·  ${Math.min(fotos.length,12)} von ${fotos.length}`, y);
+    const cols = 3; const imgW = 58; const imgH = 42; const gapX = 7; const gapY = 12;
     for (let i = 0; i < Math.min(fotos.length, 12); i += cols) {
-      if (y + imgH + 14 > 275) { doc.addPage(); gHeader(); gFooter(); y = 30; }
+      if (y + imgH + gapY > H - 16) { doc.addPage(); drawPage(); y = 24; }
       const row = fotos.slice(i, i + cols);
       for (let j = 0; j < row.length; j++) {
         const foto = row[j];
-        const x = 14 + j * (imgW + gap);
+        const x = 10 + j * (imgW + gapX);
+        // Rahmen
+        sd(G.border); sf(G.paleGreen); doc.setLineWidth(0.3);
+        doc.roundedRect(x, y, imgW, imgH, 1.5, 1.5, 'FD');
         try {
           const imgData = await loadImageAsBase64(foto.url);
           if (imgData) {
             doc.addImage(imgData.data, imgData.format, x, y, imgW, imgH, undefined, 'FAST');
-          } else {
-            doc.setFillColor(G.light[0], G.light[1], G.light[2]);
-            doc.rect(x, y, imgW, imgH, 'F');
-            doc.setFontSize(7); doc.setTextColor(G.gray[0], G.gray[1], G.gray[2]);
-            doc.text('Foto nicht verfügbar', x+imgW/2, y+imgH/2, {align:'center'});
           }
-        } catch {
-          doc.setFillColor(G.light[0], G.light[1], G.light[2]);
-          doc.rect(x, y, imgW, imgH, 'F');
-        }
-        if (foto.beschreibung) {
-          doc.setFont('helvetica','normal'); doc.setFontSize(6);
-          doc.setTextColor(G.gray[0], G.gray[1], G.gray[2]);
-          doc.text(foto.beschreibung.slice(0,30), x+imgW/2, y+imgH+4, {align:'center'});
+        } catch { /* Platzhalter bleibt */ }
+        if (foto.beschreibung || foto.datum) {
+          doc.setFont('helvetica','normal'); doc.setFontSize(6.5); st(G.midGray);
+          const cap = [foto.beschreibung, foto.datum ? fmtDate(foto.datum) : ''].filter(Boolean).join(' · ');
+          doc.text(doc.splitTextToSize(cap, imgW)[0] || '', x + imgW/2, y + imgH + 5, {align:'center'});
         }
       }
-      y += imgH + 12;
+      y += imgH + gapY;
     }
   }
 
-  // ═══ UNTERSCHRIFTEN ═══
+  // ── Unterschriften ────────────────────────────────────
   if (optionen.unterschriften) {
-    if (y > 220) { doc.addPage(); gHeader(); gFooter(); y = 30; }
-    else { y += 6; }
-    y = gSection('Abnahme & Unterschriften', y);
+    // Immer auf neue Seite wenn nicht genug Platz
+    if (y > 190) { doc.addPage(); drawPage(); y = 24; }
+    y = secTitle('Abnahme & Unterschriften', y);
 
-    // Abnahme-Status Checkbox
-    doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
-    doc.setTextColor(G.dark[0], G.dark[1], G.dark[2]);
-    doc.text('Abnahmestatus:', 14, y);
-    const statuses = ['Abgenommen ohne Mängel','Abgenommen mit Mängeln (s.o.)','Nicht abgenommen'];
+    // Abnahmestatus-Checkboxen – modern
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); st(G.darkGreen);
+    doc.text('Abnahmestatus:', 13, y + 4);
+    const statuses = [
+      'Abgenommen ohne Mängel',
+      'Abgenommen mit Mängeln (s. Mängelliste)',
+      'Nicht abgenommen',
+    ];
     statuses.forEach((s, i) => {
-      const sx = 14 + i * 60;
-      doc.setDrawColor(G.mid[0], G.mid[1], G.mid[2]);
-      doc.rect(sx, y+4, 5, 5, 'S');
-      doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
-      doc.setTextColor(G.text[0], G.text[1], G.text[2]);
-      doc.text(s, sx+7, y+8.5);
+      const sx = 10 + i * 64;
+      // Checkbox-Box
+      sd(G.darkGreen); sf(G.white); doc.setLineWidth(0.4);
+      doc.roundedRect(sx, y + 8, 5, 5, 0.8, 0.8, 'FD');
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5); st(G.darkGray);
+      doc.text(s, sx + 7, y + 12.5);
     });
-    y += 16;
+    y += 20;
 
-    // Unterschriftsfelder
+    // Drei Unterschriftsfelder
+    const sigW = (W - 26) / 3;
+    const sigH = 36;
     const sigFields = [
       {label:'Auftragnehmer / WIDI', sub:'Projektleiter'},
       {label:'Auftraggeber / Kunde', sub:'Bevollmächtigter'},
-      {label:'Bauleiter / Zeuge', sub:'Optional'},
+      {label:'Bauleiter / Zeuge', sub:'(optional)'},
     ];
     sigFields.forEach((field, i) => {
-      const x = 14 + i * 62;
-      doc.setFillColor(G.bg[0], G.bg[1], G.bg[2]);
-      doc.setDrawColor(G.border[0], G.border[1], G.border[2]);
-      doc.roundedRect(x, y, 58, 32, 1.5, 1.5, 'FD');
-      doc.setFont('helvetica','bold'); doc.setFontSize(7);
-      doc.setTextColor(G.dark[0], G.dark[1], G.dark[2]);
-      doc.text(field.label, x+3, y+6);
-      doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
-      doc.setTextColor(G.gray[0], G.gray[1], G.gray[2]);
-      doc.text(field.sub, x+3, y+11);
-      doc.setDrawColor(G.border[0], G.border[1], G.border[2]);
-      doc.line(x+3, y+26, x+55, y+26);
-      doc.setFontSize(6);
-      doc.text('Unterschrift, Datum', x+3, y+30.5);
+      const x = 10 + i * (sigW + 3);
+      // Box
+      sf(G.paleGreen); sd(G.border); doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, sigW, sigH, 2, 2, 'FD');
+      // Label
+      doc.setFont('helvetica','bold'); doc.setFontSize(7.5); st(G.darkGreen);
+      doc.text(field.label, x + 4, y + 7);
+      doc.setFont('helvetica','normal'); doc.setFontSize(6.5); st(G.midGray);
+      doc.text(field.sub, x + 4, y + 12);
+      // Unterschriftslinie
+      sd(G.midGray); doc.setLineWidth(0.3);
+      doc.line(x + 4, y + sigH - 7, x + sigW - 4, y + sigH - 7);
+      doc.setFontSize(6); st(G.midGray);
+      doc.text('Unterschrift, Datum', x + 4, y + sigH - 3);
     });
-    y += 40;
+    y += sigH + 6;
 
-    // Datum / Ort
-    doc.setFont('helvetica','normal'); doc.setFontSize(8);
-    doc.setTextColor(G.text[0], G.text[1], G.text[2]);
-    doc.text('Ort, Datum der Abnahme:', 14, y);
-    doc.setDrawColor(G.border[0], G.border[1], G.border[2]);
-    doc.line(65, y, 140, y);
-    y += 8;
+    // Ort / Datum
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); st(G.darkGray);
+    doc.text('Ort, Datum der Abnahme:', 13, y + 4);
+    sd(G.midGray); doc.setLineWidth(0.3);
+    doc.line(68, y + 4, 150, y + 4);
+    y += 10;
   }
 
-  gFooter();
-
-  const filename = `${bsNummer||'WIDI'}_Abnahmeschein_${today.replace(/\s/g,'_')}.pdf`;
+  const filename = `${bsNummer||'WIDI'}_Abnahmeschein.pdf`;
   doc.save(filename);
 }
-
 
 export function exportTeilabrechungPDF(
   bs: any,
