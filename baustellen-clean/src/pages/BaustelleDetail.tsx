@@ -1154,6 +1154,40 @@ export default function BaustelleDetail() {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Abnahmeschein Dialog */}
+      {abnahmeDialog && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+          <div style={{background:'#fff',borderRadius:16,padding:28,width:'100%',maxWidth:480,boxShadow:'0 20px 60px rgba(0,0,0,0.2)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
+              <div style={{width:40,height:40,borderRadius:10,background:'#dcfce7',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>📋</div>
+              <div>
+                <h3 style={{fontSize:16,fontWeight:800,color:'#14532d',margin:0}}>Abnahmeschein erstellen</h3>
+                <p style={{fontSize:12,color:'#6b7280',margin:0}}>Wähle die gewünschten Inhalte</p>
+              </div>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
+              {([
+                ['projektdaten','Projektdaten'],['beschreibung','Leistungsbeschreibung'],
+                ['stunden','Stunden & Personal'],['material','Material'],
+                ['nachtraege','Nachträge'],['fotos','Dokumentationsfotos'],
+                ['maengelliste','Mängelliste (leer)'],['bemerkungsfeld','Bemerkungsfeld'],
+                ['unterschriften','Unterschriftsfelder'],
+              ] as [keyof AbnahmeOptionen, string][]).map(([key, label]) => (
+                <label key={key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,border:`1px solid ${abnahmeOpts[key]?'#bbf7d0':'#e5e7eb'}`,cursor:'pointer',background:abnahmeOpts[key]?'#f0fdf4':'#fff',transition:'all .15s'}}>
+                  <input type="checkbox" checked={abnahmeOpts[key]} onChange={e => setAbnahmeOpts(o=>({...o,[key]:e.target.checked}))} style={{width:16,height:16,accentColor:'#16a34a'}}/>
+                  <span style={{fontSize:13,fontWeight:500,color:abnahmeOpts[key]?'#15803d':'#374151'}}>{label}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{display:'flex',gap:10}}>
+              <button onClick={()=>setAbnahmeDialog(false)} style={{flex:1,padding:'10px 0',border:'1px solid #e5e7eb',borderRadius:10,background:'#f9fafb',fontSize:13,fontWeight:600,cursor:'pointer',color:'#6b7280'}}>Abbrechen</button>
+              <button onClick={handleAbnahme} disabled={abnahmeLoading} style={{flex:2,padding:'10px 0',border:'none',borderRadius:10,background:'linear-gradient(135deg,#16a34a,#15803d)',fontSize:13,fontWeight:700,cursor:'pointer',color:'#fff',opacity:abnahmeLoading?0.7:1}}>
+                {abnahmeLoading ? 'Wird erstellt…' : '📋 Abnahmeschein herunterladen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
