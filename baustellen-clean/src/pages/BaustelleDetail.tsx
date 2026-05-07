@@ -1205,7 +1205,7 @@ export default function BaustelleDetail() {
                 {fehlendeFelderAbnahme.map(f => (
                   <div key={f.key} style={{marginBottom:8}}>
                     <label style={{fontSize:11,fontWeight:600,color:'#6b7280',display:'block',marginBottom:3}}>{f.label}</label>
-                    <input value={abnahmeFelder[f.key]||''} onChange={e=>setAbnahmeFelder(p=>({...p,[f.key]:e.target.value}))} placeholder={f.label} style={{width:'100%',padding:'7px 10px',border:'1px solid #d1d5db',borderRadius:7,fontSize:13,boxSizing:'border-box' as const}}/>
+                    <input value={abnahmeFelder[f.key]||''} onChange={e=>{const v=e.target.value;setAbnahmeFelder(p=>({...p,[f.key]:v}));}} placeholder={f.label} autoComplete='off' style={{width:'100%',padding:'7px 10px',border:'1.5px solid #d1d5db',borderRadius:7,fontSize:13,outline:'none',boxSizing:'border-box' as const}}/>
                   </div>
                 ))}
                 <button onClick={handleAbnahme} disabled={abnahmeLoading||fehlendeFelderAbnahme.some(f=>!abnahmeFelder[f.key])} style={{width:'100%',marginTop:6,padding:'10px 0',border:'none',borderRadius:9,background:'linear-gradient(135deg,#16a34a,#15803d)',fontSize:13,fontWeight:700,cursor:'pointer',color:'#fff',opacity:(abnahmeLoading||fehlendeFelderAbnahme.some(f=>!abnahmeFelder[f.key]))?0.5:1}}>
