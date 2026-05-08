@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { BarChart2, TrendingUp, Award, Calendar, ChevronLeft, ChevronRight, Target, User, TrendingDown } from 'lucide-react';
+import { BarChart2, TrendingUp, Award, Calendar, ChevronLeft, ChevronRight, Target, User } from 'lucide-react';
 
 const COLORS = ['#2563eb','#f59e0b','#10b981','#8b5cf6','#ef4444','#06b6d4'];
 
@@ -56,131 +56,6 @@ function Gauge({ ist, soll, name, farbe }: { ist: number; soll: number; name: st
           {pct >= 100 ? '✓ Ziel erreicht' : pct >= 80 ? '⚠ Fast am Ziel' : '✗ Unter Ziel'}
         </span>
       </div>
-
-      {/* ── EINZELPERSON ──────────────────────────────────────── */}
-      {ansicht === 'person' && (
-        <>
-          {/* Prüfer-Auswahl */}
-          <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-            <span style={{ fontSize:13, fontWeight:600, color:'#64748b' }}>Prüfer:</span>
-            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-              {allePrueférNamen.map((name, i) => (
-                <button key={name} onClick={() => setSelectedPerson(name)}
-                  style={{ padding:'7px 16px', borderRadius:20, border:`2px solid ${name===aktivePerson ? COLORS[i%COLORS.length] : '#e2e8f0'}`, fontSize:12, fontWeight:700, cursor:'pointer', background:name===aktivePerson ? COLORS[i%COLORS.length]+'18' : '#fff', color:name===aktivePerson ? COLORS[i%COLORS.length] : '#64748b', transition:'all .15s' }}>
-                  {name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {!personStats ? (
-            <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'64px', textAlign:'center', color:'#94a3b8' }}>
-              <User size={40} style={{ marginBottom:12, opacity:.2 }} />
-              <p style={{ fontSize:15, fontWeight:600, margin:0 }}>Keine Daten für diese Person</p>
-            </div>
-          ) : (
-            <>
-              {/* Person Header */}
-              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'24px', display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
-                <div style={{ width:64, height:64, borderRadius:20, background:personStats.farbe+'18', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <span style={{ fontSize:22, fontWeight:900, color:personStats.farbe }}>{personStats.kuerzel}</span>
-                </div>
-                <div style={{ flex:1 }}>
-                  <h2 style={{ fontSize:22, fontWeight:900, color:'#0f172a', margin:'0 0 4px', letterSpacing:'-.02em' }}>{personStats.name}</h2>
-                  <p style={{ fontSize:13, color:'#94a3b8', margin:0 }}>
-                    {personStats.monatList.length} Monate mit Messungen · {personStats.aktivTageGes} aktive Prüftage gesamt
-                  </p>
-                </div>
-                {/* Gauge */}
-                <Gauge ist={personStats.avgMonat} soll={personStats.soll} name="Ø Monat" farbe={personStats.farbe} />
-              </div>
-
-              {/* KPI Cards */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
-                {[
-                  { label:'Messungen gesamt',  value:personStats.gesamtIst.toLocaleString('de-DE'),  sub:`über ${personStats.monatList.length} Monate`,       icon:BarChart2,    color:personStats.farbe },
-                  { label:'Ø pro Monat',       value:personStats.avgMonat.toLocaleString('de-DE'),   sub:`Soll: ${personStats.soll}  ·  ${personStats.avgScore}%`, icon:TrendingUp,   color:scoreColor(personStats.avgScore) },
-                  { label:'Bester Monat',      value:personStats.bestMonat ? personStats.bestMonat.ist.toLocaleString('de-DE') : '–', sub:personStats.bestMonat ? fmtMonat(personStats.bestMonat.monat) : '–', icon:Award, color:'#10b981' },
-                  { label:'Aktive Prüftage',   value:personStats.aktivTageGes.toLocaleString('de-DE'), sub:`Ø ${personStats.monatList.length>0?Math.round(personStats.aktivTageGes/personStats.monatList.length):0}/Monat`, icon:Calendar, color:'#2563eb' },
-                ].map((k, i) => (
-                  <div key={i} style={{ background:'#fff', border:'1px solid #f1f5f9', borderRadius:16, padding:'18px 20px', position:'relative', overflow:'hidden' }}>
-                    <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color, borderRadius:'16px 16px 0 0' }}/>
-                    <k.icon size={17} style={{ color:k.color, marginBottom:10 }} />
-                    <p style={{ fontSize:20, fontWeight:900, color:'#0f172a', margin:'0 0 1px', letterSpacing:'-.02em' }}>{k.value}</p>
-                    <p style={{ fontSize:11, fontWeight:600, color:'#64748b', margin:'0 0 2px' }}>{k.label}</p>
-                    <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{k.sub}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Monats-Verlauf als Balkendiagramm */}
-              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'24px' }}>
-                <h3 style={{ fontSize:15, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Monatlicher Verlauf</h3>
-                <p style={{ fontSize:12, color:'#94a3b8', margin:'0 0 20px' }}>Messungen pro Monat · Linie = Soll</p>
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {personStats.monatList.map(m => {
-                    const maxVal = Math.max(...personStats.monatList.map(x => x.ist), personStats.soll || 1);
-                    return (
-                      <div key={m.monat} style={{ display:'flex', alignItems:'center', gap:12 }}>
-                        <div style={{ width:52, fontSize:11, fontWeight:600, color:'#64748b', flexShrink:0, textAlign:'right' }}>{fmtMonat(m.monat)}</div>
-                        <div style={{ flex:1, height:32, background:'#f8fafc', borderRadius:8, overflow:'hidden', position:'relative' }}>
-                          <div style={{ height:'100%', width:`${(m.ist/maxVal)*100}%`, background:`linear-gradient(90deg,${personStats.farbe},${scoreColor(m.score)})`, borderRadius:8, transition:'width .5s ease', display:'flex', alignItems:'center', paddingLeft:10, boxSizing:'border-box' as const }}>
-                            {(m.ist/maxVal)*100 > 15 && <span style={{ fontSize:11, fontWeight:700, color:'#fff' }}>{m.ist.toLocaleString('de-DE')}</span>}
-                          </div>
-                          {personStats.soll > 0 && (
-                            <div style={{ position:'absolute', top:0, bottom:0, left:`${Math.min((personStats.soll/maxVal)*100, 98)}%`, width:2, background:'#94a3b8', opacity:.5 }}/>
-                          )}
-                        </div>
-                        <div style={{ width:64, flexShrink:0, textAlign:'right' }}>
-                          <span style={{ fontSize:13, fontWeight:800, color:scoreColor(m.score) }}>{m.ist.toLocaleString('de-DE')}</span>
-                          <span style={{ fontSize:10, color:'#94a3b8', marginLeft:3 }}>({m.score}%)</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Monats-Detail-Tabelle */}
-              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', overflow:'hidden' }}>
-                <div style={{ padding:'18px 20px', borderBottom:'1px solid #f1f5f9' }}>
-                  <h3 style={{ fontSize:15, fontWeight:700, color:'#0f172a', margin:'0 0 3px' }}>Monats-Details</h3>
-                  <p style={{ fontSize:12, color:'#94a3b8', margin:0 }}>Produktivität · aktive Tage · Tagesdurchschnitt · bester Tag</p>
-                </div>
-                {personStats.monatList.map((m, idx) => (
-                  <div key={m.monat} style={{ padding:'16px 20px', borderBottom:idx<personStats.monatList.length-1?'1px solid #f8fafc':'none' }}>
-                    {/* Monat Header + Bar */}
-                    <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#0f172a', width:60, flexShrink:0 }}>{fmtMonat(m.monat)}</span>
-                      <div style={{ flex:1, height:7, background:'#f1f5f9', borderRadius:99, overflow:'hidden' }}>
-                        <div style={{ height:'100%', width:`${Math.min(m.score,100)}%`, background:`linear-gradient(90deg,${personStats.farbe},${scoreColor(m.score)})`, borderRadius:99 }}/>
-                      </div>
-                      <span style={{ fontSize:15, fontWeight:900, color:scoreColor(m.score), width:44, textAlign:'right' }}>{m.score}%</span>
-                    </div>
-                    {/* Detail-Kacheln */}
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
-                      {[
-                        { label:'Messungen',   value:m.ist.toLocaleString('de-DE'),                                        sub:`Soll: ${m.soll}`,       color:scoreColor(m.score) },
-                        { label:'Aktive Tage', value:m.aktivTage+'',                                                       sub:`Ø ${m.avgPerTag}/Tag`,  color:'#2563eb' },
-                        { label:'Bester Tag',  value:m.topTag ? m.topTag[1]+'' : '–',                                      sub:m.topTag ? new Date(m.topTag[0]).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}) : '–', color:'#8b5cf6' },
-                        { label:'Status',      value:m.score>=100?'✓ Ziel':m.score>=80?'~ Fast':'✗ Unter',               sub:m.score>=100?'erreicht':m.score>=80?'am Ziel':'Ziel verfehlt', color:scoreColor(m.score) },
-                      ].map(s => (
-                        <div key={s.label} style={{ background:'#f8fafc', borderRadius:10, padding:'10px 12px' }}>
-                          <p style={{ fontSize:16, fontWeight:800, color:s.color, margin:'0 0 2px' }}>{s.value}</p>
-                          <p style={{ fontSize:10, fontWeight:600, color:'#64748b', margin:'0 0 1px', textTransform:'uppercase' as const, letterSpacing:'.04em' }}>{s.label}</p>
-                          <p style={{ fontSize:10, color:'#94a3b8', margin:0 }}>{s.sub}</p>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Heatmap */}
-                    <Heatmap tage={m.tage} farbe={personStats.farbe} />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </>
-      )}
     </div>
   );
 }
@@ -208,131 +83,6 @@ function Heatmap({ tage, farbe }: { tage: Record<string,number>; farbe: string }
           );
         })}
       </div>
-
-      {/* ── EINZELPERSON ──────────────────────────────────────── */}
-      {ansicht === 'person' && (
-        <>
-          {/* Prüfer-Auswahl */}
-          <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-            <span style={{ fontSize:13, fontWeight:600, color:'#64748b' }}>Prüfer:</span>
-            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-              {allePrueférNamen.map((name, i) => (
-                <button key={name} onClick={() => setSelectedPerson(name)}
-                  style={{ padding:'7px 16px', borderRadius:20, border:`2px solid ${name===aktivePerson ? COLORS[i%COLORS.length] : '#e2e8f0'}`, fontSize:12, fontWeight:700, cursor:'pointer', background:name===aktivePerson ? COLORS[i%COLORS.length]+'18' : '#fff', color:name===aktivePerson ? COLORS[i%COLORS.length] : '#64748b', transition:'all .15s' }}>
-                  {name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {!personStats ? (
-            <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'64px', textAlign:'center', color:'#94a3b8' }}>
-              <User size={40} style={{ marginBottom:12, opacity:.2 }} />
-              <p style={{ fontSize:15, fontWeight:600, margin:0 }}>Keine Daten für diese Person</p>
-            </div>
-          ) : (
-            <>
-              {/* Person Header */}
-              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'24px', display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
-                <div style={{ width:64, height:64, borderRadius:20, background:personStats.farbe+'18', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <span style={{ fontSize:22, fontWeight:900, color:personStats.farbe }}>{personStats.kuerzel}</span>
-                </div>
-                <div style={{ flex:1 }}>
-                  <h2 style={{ fontSize:22, fontWeight:900, color:'#0f172a', margin:'0 0 4px', letterSpacing:'-.02em' }}>{personStats.name}</h2>
-                  <p style={{ fontSize:13, color:'#94a3b8', margin:0 }}>
-                    {personStats.monatList.length} Monate mit Messungen · {personStats.aktivTageGes} aktive Prüftage gesamt
-                  </p>
-                </div>
-                {/* Gauge */}
-                <Gauge ist={personStats.avgMonat} soll={personStats.soll} name="Ø Monat" farbe={personStats.farbe} />
-              </div>
-
-              {/* KPI Cards */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
-                {[
-                  { label:'Messungen gesamt',  value:personStats.gesamtIst.toLocaleString('de-DE'),  sub:`über ${personStats.monatList.length} Monate`,       icon:BarChart2,    color:personStats.farbe },
-                  { label:'Ø pro Monat',       value:personStats.avgMonat.toLocaleString('de-DE'),   sub:`Soll: ${personStats.soll}  ·  ${personStats.avgScore}%`, icon:TrendingUp,   color:scoreColor(personStats.avgScore) },
-                  { label:'Bester Monat',      value:personStats.bestMonat ? personStats.bestMonat.ist.toLocaleString('de-DE') : '–', sub:personStats.bestMonat ? fmtMonat(personStats.bestMonat.monat) : '–', icon:Award, color:'#10b981' },
-                  { label:'Aktive Prüftage',   value:personStats.aktivTageGes.toLocaleString('de-DE'), sub:`Ø ${personStats.monatList.length>0?Math.round(personStats.aktivTageGes/personStats.monatList.length):0}/Monat`, icon:Calendar, color:'#2563eb' },
-                ].map((k, i) => (
-                  <div key={i} style={{ background:'#fff', border:'1px solid #f1f5f9', borderRadius:16, padding:'18px 20px', position:'relative', overflow:'hidden' }}>
-                    <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color, borderRadius:'16px 16px 0 0' }}/>
-                    <k.icon size={17} style={{ color:k.color, marginBottom:10 }} />
-                    <p style={{ fontSize:20, fontWeight:900, color:'#0f172a', margin:'0 0 1px', letterSpacing:'-.02em' }}>{k.value}</p>
-                    <p style={{ fontSize:11, fontWeight:600, color:'#64748b', margin:'0 0 2px' }}>{k.label}</p>
-                    <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{k.sub}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Monats-Verlauf als Balkendiagramm */}
-              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'24px' }}>
-                <h3 style={{ fontSize:15, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Monatlicher Verlauf</h3>
-                <p style={{ fontSize:12, color:'#94a3b8', margin:'0 0 20px' }}>Messungen pro Monat · Linie = Soll</p>
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {personStats.monatList.map(m => {
-                    const maxVal = Math.max(...personStats.monatList.map(x => x.ist), personStats.soll || 1);
-                    return (
-                      <div key={m.monat} style={{ display:'flex', alignItems:'center', gap:12 }}>
-                        <div style={{ width:52, fontSize:11, fontWeight:600, color:'#64748b', flexShrink:0, textAlign:'right' }}>{fmtMonat(m.monat)}</div>
-                        <div style={{ flex:1, height:32, background:'#f8fafc', borderRadius:8, overflow:'hidden', position:'relative' }}>
-                          <div style={{ height:'100%', width:`${(m.ist/maxVal)*100}%`, background:`linear-gradient(90deg,${personStats.farbe},${scoreColor(m.score)})`, borderRadius:8, transition:'width .5s ease', display:'flex', alignItems:'center', paddingLeft:10, boxSizing:'border-box' as const }}>
-                            {(m.ist/maxVal)*100 > 15 && <span style={{ fontSize:11, fontWeight:700, color:'#fff' }}>{m.ist.toLocaleString('de-DE')}</span>}
-                          </div>
-                          {personStats.soll > 0 && (
-                            <div style={{ position:'absolute', top:0, bottom:0, left:`${Math.min((personStats.soll/maxVal)*100, 98)}%`, width:2, background:'#94a3b8', opacity:.5 }}/>
-                          )}
-                        </div>
-                        <div style={{ width:64, flexShrink:0, textAlign:'right' }}>
-                          <span style={{ fontSize:13, fontWeight:800, color:scoreColor(m.score) }}>{m.ist.toLocaleString('de-DE')}</span>
-                          <span style={{ fontSize:10, color:'#94a3b8', marginLeft:3 }}>({m.score}%)</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Monats-Detail-Tabelle */}
-              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', overflow:'hidden' }}>
-                <div style={{ padding:'18px 20px', borderBottom:'1px solid #f1f5f9' }}>
-                  <h3 style={{ fontSize:15, fontWeight:700, color:'#0f172a', margin:'0 0 3px' }}>Monats-Details</h3>
-                  <p style={{ fontSize:12, color:'#94a3b8', margin:0 }}>Produktivität · aktive Tage · Tagesdurchschnitt · bester Tag</p>
-                </div>
-                {personStats.monatList.map((m, idx) => (
-                  <div key={m.monat} style={{ padding:'16px 20px', borderBottom:idx<personStats.monatList.length-1?'1px solid #f8fafc':'none' }}>
-                    {/* Monat Header + Bar */}
-                    <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#0f172a', width:60, flexShrink:0 }}>{fmtMonat(m.monat)}</span>
-                      <div style={{ flex:1, height:7, background:'#f1f5f9', borderRadius:99, overflow:'hidden' }}>
-                        <div style={{ height:'100%', width:`${Math.min(m.score,100)}%`, background:`linear-gradient(90deg,${personStats.farbe},${scoreColor(m.score)})`, borderRadius:99 }}/>
-                      </div>
-                      <span style={{ fontSize:15, fontWeight:900, color:scoreColor(m.score), width:44, textAlign:'right' }}>{m.score}%</span>
-                    </div>
-                    {/* Detail-Kacheln */}
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
-                      {[
-                        { label:'Messungen',   value:m.ist.toLocaleString('de-DE'),                                        sub:`Soll: ${m.soll}`,       color:scoreColor(m.score) },
-                        { label:'Aktive Tage', value:m.aktivTage+'',                                                       sub:`Ø ${m.avgPerTag}/Tag`,  color:'#2563eb' },
-                        { label:'Bester Tag',  value:m.topTag ? m.topTag[1]+'' : '–',                                      sub:m.topTag ? new Date(m.topTag[0]).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}) : '–', color:'#8b5cf6' },
-                        { label:'Status',      value:m.score>=100?'✓ Ziel':m.score>=80?'~ Fast':'✗ Unter',               sub:m.score>=100?'erreicht':m.score>=80?'am Ziel':'Ziel verfehlt', color:scoreColor(m.score) },
-                      ].map(s => (
-                        <div key={s.label} style={{ background:'#f8fafc', borderRadius:10, padding:'10px 12px' }}>
-                          <p style={{ fontSize:16, fontWeight:800, color:s.color, margin:'0 0 2px' }}>{s.value}</p>
-                          <p style={{ fontSize:10, fontWeight:600, color:'#64748b', margin:'0 0 1px', textTransform:'uppercase' as const, letterSpacing:'.04em' }}>{s.label}</p>
-                          <p style={{ fontSize:10, color:'#94a3b8', margin:0 }}>{s.sub}</p>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Heatmap */}
-                    <Heatmap tage={m.tage} farbe={personStats.farbe} />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </>
-      )}
     </div>
   );
 }
@@ -392,131 +142,6 @@ function RadialChart({ monatsData }: { monatsData: { monat: string; pruefer: Rec
           Außen = mehr Messungen<br/>Innen = weniger Messungen
         </div>
       </div>
-
-      {/* ── EINZELPERSON ──────────────────────────────────────── */}
-      {ansicht === 'person' && (
-        <>
-          {/* Prüfer-Auswahl */}
-          <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-            <span style={{ fontSize:13, fontWeight:600, color:'#64748b' }}>Prüfer:</span>
-            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-              {allePrueférNamen.map((name, i) => (
-                <button key={name} onClick={() => setSelectedPerson(name)}
-                  style={{ padding:'7px 16px', borderRadius:20, border:`2px solid ${name===aktivePerson ? COLORS[i%COLORS.length] : '#e2e8f0'}`, fontSize:12, fontWeight:700, cursor:'pointer', background:name===aktivePerson ? COLORS[i%COLORS.length]+'18' : '#fff', color:name===aktivePerson ? COLORS[i%COLORS.length] : '#64748b', transition:'all .15s' }}>
-                  {name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {!personStats ? (
-            <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'64px', textAlign:'center', color:'#94a3b8' }}>
-              <User size={40} style={{ marginBottom:12, opacity:.2 }} />
-              <p style={{ fontSize:15, fontWeight:600, margin:0 }}>Keine Daten für diese Person</p>
-            </div>
-          ) : (
-            <>
-              {/* Person Header */}
-              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'24px', display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
-                <div style={{ width:64, height:64, borderRadius:20, background:personStats.farbe+'18', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <span style={{ fontSize:22, fontWeight:900, color:personStats.farbe }}>{personStats.kuerzel}</span>
-                </div>
-                <div style={{ flex:1 }}>
-                  <h2 style={{ fontSize:22, fontWeight:900, color:'#0f172a', margin:'0 0 4px', letterSpacing:'-.02em' }}>{personStats.name}</h2>
-                  <p style={{ fontSize:13, color:'#94a3b8', margin:0 }}>
-                    {personStats.monatList.length} Monate mit Messungen · {personStats.aktivTageGes} aktive Prüftage gesamt
-                  </p>
-                </div>
-                {/* Gauge */}
-                <Gauge ist={personStats.avgMonat} soll={personStats.soll} name="Ø Monat" farbe={personStats.farbe} />
-              </div>
-
-              {/* KPI Cards */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
-                {[
-                  { label:'Messungen gesamt',  value:personStats.gesamtIst.toLocaleString('de-DE'),  sub:`über ${personStats.monatList.length} Monate`,       icon:BarChart2,    color:personStats.farbe },
-                  { label:'Ø pro Monat',       value:personStats.avgMonat.toLocaleString('de-DE'),   sub:`Soll: ${personStats.soll}  ·  ${personStats.avgScore}%`, icon:TrendingUp,   color:scoreColor(personStats.avgScore) },
-                  { label:'Bester Monat',      value:personStats.bestMonat ? personStats.bestMonat.ist.toLocaleString('de-DE') : '–', sub:personStats.bestMonat ? fmtMonat(personStats.bestMonat.monat) : '–', icon:Award, color:'#10b981' },
-                  { label:'Aktive Prüftage',   value:personStats.aktivTageGes.toLocaleString('de-DE'), sub:`Ø ${personStats.monatList.length>0?Math.round(personStats.aktivTageGes/personStats.monatList.length):0}/Monat`, icon:Calendar, color:'#2563eb' },
-                ].map((k, i) => (
-                  <div key={i} style={{ background:'#fff', border:'1px solid #f1f5f9', borderRadius:16, padding:'18px 20px', position:'relative', overflow:'hidden' }}>
-                    <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color, borderRadius:'16px 16px 0 0' }}/>
-                    <k.icon size={17} style={{ color:k.color, marginBottom:10 }} />
-                    <p style={{ fontSize:20, fontWeight:900, color:'#0f172a', margin:'0 0 1px', letterSpacing:'-.02em' }}>{k.value}</p>
-                    <p style={{ fontSize:11, fontWeight:600, color:'#64748b', margin:'0 0 2px' }}>{k.label}</p>
-                    <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{k.sub}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Monats-Verlauf als Balkendiagramm */}
-              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'24px' }}>
-                <h3 style={{ fontSize:15, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Monatlicher Verlauf</h3>
-                <p style={{ fontSize:12, color:'#94a3b8', margin:'0 0 20px' }}>Messungen pro Monat · Linie = Soll</p>
-                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                  {personStats.monatList.map(m => {
-                    const maxVal = Math.max(...personStats.monatList.map(x => x.ist), personStats.soll || 1);
-                    return (
-                      <div key={m.monat} style={{ display:'flex', alignItems:'center', gap:12 }}>
-                        <div style={{ width:52, fontSize:11, fontWeight:600, color:'#64748b', flexShrink:0, textAlign:'right' }}>{fmtMonat(m.monat)}</div>
-                        <div style={{ flex:1, height:32, background:'#f8fafc', borderRadius:8, overflow:'hidden', position:'relative' }}>
-                          <div style={{ height:'100%', width:`${(m.ist/maxVal)*100}%`, background:`linear-gradient(90deg,${personStats.farbe},${scoreColor(m.score)})`, borderRadius:8, transition:'width .5s ease', display:'flex', alignItems:'center', paddingLeft:10, boxSizing:'border-box' as const }}>
-                            {(m.ist/maxVal)*100 > 15 && <span style={{ fontSize:11, fontWeight:700, color:'#fff' }}>{m.ist.toLocaleString('de-DE')}</span>}
-                          </div>
-                          {personStats.soll > 0 && (
-                            <div style={{ position:'absolute', top:0, bottom:0, left:`${Math.min((personStats.soll/maxVal)*100, 98)}%`, width:2, background:'#94a3b8', opacity:.5 }}/>
-                          )}
-                        </div>
-                        <div style={{ width:64, flexShrink:0, textAlign:'right' }}>
-                          <span style={{ fontSize:13, fontWeight:800, color:scoreColor(m.score) }}>{m.ist.toLocaleString('de-DE')}</span>
-                          <span style={{ fontSize:10, color:'#94a3b8', marginLeft:3 }}>({m.score}%)</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Monats-Detail-Tabelle */}
-              <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', overflow:'hidden' }}>
-                <div style={{ padding:'18px 20px', borderBottom:'1px solid #f1f5f9' }}>
-                  <h3 style={{ fontSize:15, fontWeight:700, color:'#0f172a', margin:'0 0 3px' }}>Monats-Details</h3>
-                  <p style={{ fontSize:12, color:'#94a3b8', margin:0 }}>Produktivität · aktive Tage · Tagesdurchschnitt · bester Tag</p>
-                </div>
-                {personStats.monatList.map((m, idx) => (
-                  <div key={m.monat} style={{ padding:'16px 20px', borderBottom:idx<personStats.monatList.length-1?'1px solid #f8fafc':'none' }}>
-                    {/* Monat Header + Bar */}
-                    <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#0f172a', width:60, flexShrink:0 }}>{fmtMonat(m.monat)}</span>
-                      <div style={{ flex:1, height:7, background:'#f1f5f9', borderRadius:99, overflow:'hidden' }}>
-                        <div style={{ height:'100%', width:`${Math.min(m.score,100)}%`, background:`linear-gradient(90deg,${personStats.farbe},${scoreColor(m.score)})`, borderRadius:99 }}/>
-                      </div>
-                      <span style={{ fontSize:15, fontWeight:900, color:scoreColor(m.score), width:44, textAlign:'right' }}>{m.score}%</span>
-                    </div>
-                    {/* Detail-Kacheln */}
-                    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
-                      {[
-                        { label:'Messungen',   value:m.ist.toLocaleString('de-DE'),                                        sub:`Soll: ${m.soll}`,       color:scoreColor(m.score) },
-                        { label:'Aktive Tage', value:m.aktivTage+'',                                                       sub:`Ø ${m.avgPerTag}/Tag`,  color:'#2563eb' },
-                        { label:'Bester Tag',  value:m.topTag ? m.topTag[1]+'' : '–',                                      sub:m.topTag ? new Date(m.topTag[0]).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}) : '–', color:'#8b5cf6' },
-                        { label:'Status',      value:m.score>=100?'✓ Ziel':m.score>=80?'~ Fast':'✗ Unter',               sub:m.score>=100?'erreicht':m.score>=80?'am Ziel':'Ziel verfehlt', color:scoreColor(m.score) },
-                      ].map(s => (
-                        <div key={s.label} style={{ background:'#f8fafc', borderRadius:10, padding:'10px 12px' }}>
-                          <p style={{ fontSize:16, fontWeight:800, color:s.color, margin:'0 0 2px' }}>{s.value}</p>
-                          <p style={{ fontSize:10, fontWeight:600, color:'#64748b', margin:'0 0 1px', textTransform:'uppercase' as const, letterSpacing:'.04em' }}>{s.label}</p>
-                          <p style={{ fontSize:10, color:'#94a3b8', margin:0 }}>{s.sub}</p>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Heatmap */}
-                    <Heatmap tage={m.tage} farbe={personStats.farbe} />
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </>
-      )}
     </div>
   );
 }
@@ -524,8 +149,8 @@ function RadialChart({ monatsData }: { monatsData: { monat: string; pruefer: Rec
 // ── Haupt-Seite ───────────────────────────────────────────────────────────
 export default function DGUVMessAuswertung() {
   const [ansicht, setAnsicht]           = useState<'monat'|'jahr'|'person'>('monat');
-  const [selectedPerson, setSelectedPerson] = useState<string>('');
   const [selectedMonat, setSelectedMonat] = useState('');
+  const [selectedPerson, setSelectedPerson] = useState<string>('');
 
   // Prüfer laden
   const { data: pruefer = [] } = useQuery({
@@ -611,31 +236,25 @@ export default function DGUVMessAuswertung() {
       .map(([monat,prData]) => ({ monat, pruefer:prData }));
   }, [jahresRaw, pruefer]);
 
-  // Alle Messungen einer Person (über alle Monate)
+  // ── Einzelperson-Daten ─────────────────────────────────
   const allePrueférNamen = useMemo(() => {
     const namen = new Set<string>();
-    (jahresRaw as any[]).forEach((r: any) => namen.add(r.pruefer_name));
-    (pruefer as any[]).forEach((p: any) => namen.add(p.name));
-    return [...namen].filter(Boolean).sort();
-  }, [jahresRaw, pruefer]);
+    (jahresRaw as any[]).forEach((r: any) => { if (r.pruefer_name) namen.add(r.pruefer_name); });
+    return [...namen].sort();
+  }, [jahresRaw]);
 
   const aktivePerson = selectedPerson || allePrueférNamen[0] || '';
 
   const personStats = useMemo(() => {
-    if (!aktivePerson) return null;
+    if (!aktivePerson || !(jahresRaw as any[]).length) return null;
     const p = pruefer as any[];
     const soll = p[0]?.soll_monat ?? 0;
     const matched = p.find((pr: any) => pr.name?.toLowerCase().trim() === aktivePerson.toLowerCase().trim());
     const farbe = COLORS[allePrueférNamen.indexOf(aktivePerson) % COLORS.length];
-
-    // Alle Messungen dieser Person
     const meineRaw = (jahresRaw as any[]).filter((r: any) =>
       r.pruefer_name?.toLowerCase().trim() === aktivePerson.toLowerCase().trim()
     );
-
     if (meineRaw.length === 0) return null;
-
-    // Nach Monat gruppieren
     const byMonat: Record<string, { ist: number; tage: Record<string,number> }> = {};
     meineRaw.forEach((r: any) => {
       const m = r.import_monat;
@@ -644,40 +263,21 @@ export default function DGUVMessAuswertung() {
       const tag = r.pruef_datum?.slice(0, 10);
       if (tag) byMonat[m].tage[tag] = (byMonat[m].tage[tag] ?? 0) + 1;
     });
-
-    const monatList = Object.entries(byMonat)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([monat, d]) => ({
-        monat,
-        ist: d.ist,
-        soll,
-        score: soll > 0 ? Math.round(d.ist / soll * 100) : 0,
-        tage: d.tage,
-        aktivTage: Object.keys(d.tage).length,
-        avgPerTag: Object.keys(d.tage).length > 0 ? Math.round(d.ist / Object.keys(d.tage).length) : 0,
-        topTag: Object.entries(d.tage).sort(([,a],[,b]) => b - a)[0] ?? null,
-      }));
-
-    const gesamtIst   = monatList.reduce((s, m) => s + m.ist, 0);
-    const avgMonat    = monatList.length > 0 ? Math.round(gesamtIst / monatList.length) : 0;
-    const avgScore    = soll > 0 ? Math.round(avgMonat / soll * 100) : 0;
-    const bestMonat   = [...monatList].sort((a, b) => b.ist - a.ist)[0] ?? null;
-    const worstMonat  = [...monatList].sort((a, b) => a.ist - b.ist)[0] ?? null;
-    const alleTage    = meineRaw.reduce((s: number) => s + 1, 0);
-    const aktivTageGes = new Set(meineRaw.map((r: any) => r.pruef_datum?.slice(0, 10)).filter(Boolean)).size;
-
+    const monatList = Object.entries(byMonat).sort(([a],[b]) => a.localeCompare(b)).map(([monat, d]) => ({
+      monat, ist: d.ist, soll, score: soll > 0 ? Math.round(d.ist / soll * 100) : 0, tage: d.tage,
+      aktivTage: Object.keys(d.tage).length,
+      avgPerTag: Object.keys(d.tage).length > 0 ? Math.round(d.ist / Object.keys(d.tage).length) : 0,
+      topTag: Object.entries(d.tage).sort(([,a],[,b]) => (b as number) - (a as number))[0] ?? null,
+    }));
+    const gesamtIst2  = monatList.reduce((s, m) => s + m.ist, 0);
+    const avgMonat2   = monatList.length > 0 ? Math.round(gesamtIst2 / monatList.length) : 0;
+    const avgScore2   = soll > 0 ? Math.round(avgMonat2 / soll * 100) : 0;
+    const bestMonat2  = [...monatList].sort((a, b) => b.ist - a.ist)[0] ?? null;
+    const aktivTageGes2 = new Set(meineRaw.map((r: any) => r.pruef_datum?.slice(0, 10)).filter(Boolean)).size;
     return {
-      name: matched?.name ?? aktivePerson,
-      kuerzel: matched?.kuerzel ?? aktivePerson.slice(0, 2).toUpperCase(),
-      farbe,
-      soll,
-      gesamtIst,
-      avgMonat,
-      avgScore,
-      bestMonat,
-      worstMonat,
-      aktivTageGes,
-      monatList,
+      name: matched?.name ?? aktivePerson, kuerzel: matched?.kuerzel ?? aktivePerson.slice(0, 2).toUpperCase(),
+      farbe, soll, gesamtIst: gesamtIst2, avgMonat: avgMonat2, avgScore: avgScore2,
+      bestMonat: bestMonat2, aktivTageGes: aktivTageGes2, monatList,
     };
   }, [aktivePerson, jahresRaw, pruefer, allePrueférNamen]);
 
@@ -698,7 +298,7 @@ export default function DGUVMessAuswertung() {
           <h1 style={{ fontSize:24, fontWeight:800, color:'#0f172a', margin:0, letterSpacing:'-.03em' }}>
             Messungen <span style={{ color:'#f59e0b' }}>Auswertung</span>
           </h1>
-          <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>Produktivität · Soll/Ist · Jahresrückblick · Einzelperson</p>
+          <p style={{ fontSize:13, color:'#94a3b8', margin:'4px 0 0' }}>Produktivität · Soll/Ist · Jahresrückblick · alle Monate</p>
         </div>
         <div style={{ display:'flex', gap:3, background:'#f1f5f9', borderRadius:12, padding:4 }}>
           {([['monat','Monatsansicht'],['jahr','Jahresrückblick'],['person','Einzelperson']] as const).map(([k,l]) => (
@@ -986,17 +586,15 @@ export default function DGUVMessAuswertung() {
           )}
         </>
       )}
-
       {/* ── EINZELPERSON ──────────────────────────────────────── */}
       {ansicht === 'person' && (
         <>
-          {/* Prüfer-Auswahl */}
-          <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-            <span style={{ fontSize:13, fontWeight:600, color:'#64748b' }}>Prüfer:</span>
+          <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+            <span style={{ fontSize:13, fontWeight:600, color:'#64748b' }}>Prüfer wählen:</span>
             <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
               {allePrueférNamen.map((name, i) => (
                 <button key={name} onClick={() => setSelectedPerson(name)}
-                  style={{ padding:'7px 16px', borderRadius:20, border:`2px solid ${name===aktivePerson ? COLORS[i%COLORS.length] : '#e2e8f0'}`, fontSize:12, fontWeight:700, cursor:'pointer', background:name===aktivePerson ? COLORS[i%COLORS.length]+'18' : '#fff', color:name===aktivePerson ? COLORS[i%COLORS.length] : '#64748b', transition:'all .15s' }}>
+                  style={{ padding:'7px 16px', borderRadius:20, border:`2px solid ${name===aktivePerson?COLORS[i%COLORS.length]:'#e2e8f0'}`, fontSize:12, fontWeight:700, cursor:'pointer', background:name===aktivePerson?COLORS[i%COLORS.length]+'18':'#fff', color:name===aktivePerson?COLORS[i%COLORS.length]:'#64748b', transition:'all .15s' }}>
                   {name}
                 </button>
               ))}
@@ -1010,58 +608,53 @@ export default function DGUVMessAuswertung() {
             </div>
           ) : (
             <>
-              {/* Person Header */}
+              {/* Header */}
               <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'24px', display:'flex', alignItems:'center', gap:20, flexWrap:'wrap' }}>
-                <div style={{ width:64, height:64, borderRadius:20, background:personStats.farbe+'18', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <span style={{ fontSize:22, fontWeight:900, color:personStats.farbe }}>{personStats.kuerzel}</span>
+                <div style={{ width:60, height:60, borderRadius:18, background:personStats.farbe+'18', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <span style={{ fontSize:20, fontWeight:900, color:personStats.farbe }}>{personStats.kuerzel}</span>
                 </div>
                 <div style={{ flex:1 }}>
-                  <h2 style={{ fontSize:22, fontWeight:900, color:'#0f172a', margin:'0 0 4px', letterSpacing:'-.02em' }}>{personStats.name}</h2>
-                  <p style={{ fontSize:13, color:'#94a3b8', margin:0 }}>
-                    {personStats.monatList.length} Monate mit Messungen · {personStats.aktivTageGes} aktive Prüftage gesamt
-                  </p>
+                  <h2 style={{ fontSize:22, fontWeight:900, color:'#0f172a', margin:'0 0 4px' }}>{personStats.name}</h2>
+                  <p style={{ fontSize:13, color:'#94a3b8', margin:0 }}>{personStats.monatList.length} Monate · {personStats.aktivTageGes} aktive Prüftage</p>
                 </div>
-                {/* Gauge */}
                 <Gauge ist={personStats.avgMonat} soll={personStats.soll} name="Ø Monat" farbe={personStats.farbe} />
               </div>
 
               {/* KPI Cards */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
                 {[
-                  { label:'Messungen gesamt',  value:personStats.gesamtIst.toLocaleString('de-DE'),  sub:`über ${personStats.monatList.length} Monate`,       icon:BarChart2,    color:personStats.farbe },
-                  { label:'Ø pro Monat',       value:personStats.avgMonat.toLocaleString('de-DE'),   sub:`Soll: ${personStats.soll}  ·  ${personStats.avgScore}%`, icon:TrendingUp,   color:scoreColor(personStats.avgScore) },
-                  { label:'Bester Monat',      value:personStats.bestMonat ? personStats.bestMonat.ist.toLocaleString('de-DE') : '–', sub:personStats.bestMonat ? fmtMonat(personStats.bestMonat.monat) : '–', icon:Award, color:'#10b981' },
-                  { label:'Aktive Prüftage',   value:personStats.aktivTageGes.toLocaleString('de-DE'), sub:`Ø ${personStats.monatList.length>0?Math.round(personStats.aktivTageGes/personStats.monatList.length):0}/Monat`, icon:Calendar, color:'#2563eb' },
+                  { label:'Messungen gesamt', value:personStats.gesamtIst.toLocaleString('de-DE'), sub:`über ${personStats.monatList.length} Monate`, icon:BarChart2, color:personStats.farbe },
+                  { label:'Ø pro Monat', value:personStats.avgMonat.toLocaleString('de-DE'), sub:`Soll: ${personStats.soll} · ${personStats.avgScore}%`, icon:TrendingUp, color:scoreColor(personStats.avgScore) },
+                  { label:'Bester Monat', value:personStats.bestMonat?personStats.bestMonat.ist.toLocaleString('de-DE'):'–', sub:personStats.bestMonat?fmtMonat(personStats.bestMonat.monat):'–', icon:Award, color:'#10b981' },
+                  { label:'Aktive Prüftage', value:personStats.aktivTageGes.toLocaleString('de-DE'), sub:`Ø ${personStats.monatList.length>0?Math.round(personStats.aktivTageGes/personStats.monatList.length):0}/Monat`, icon:Calendar, color:'#2563eb' },
                 ].map((k, i) => (
                   <div key={i} style={{ background:'#fff', border:'1px solid #f1f5f9', borderRadius:16, padding:'18px 20px', position:'relative', overflow:'hidden' }}>
                     <div style={{ position:'absolute', top:0, left:0, right:0, height:3, background:k.color, borderRadius:'16px 16px 0 0' }}/>
                     <k.icon size={17} style={{ color:k.color, marginBottom:10 }} />
-                    <p style={{ fontSize:20, fontWeight:900, color:'#0f172a', margin:'0 0 1px', letterSpacing:'-.02em' }}>{k.value}</p>
+                    <p style={{ fontSize:20, fontWeight:900, color:'#0f172a', margin:'0 0 1px' }}>{k.value}</p>
                     <p style={{ fontSize:11, fontWeight:600, color:'#64748b', margin:'0 0 2px' }}>{k.label}</p>
                     <p style={{ fontSize:11, color:'#94a3b8', margin:0 }}>{k.sub}</p>
                   </div>
                 ))}
               </div>
 
-              {/* Monats-Verlauf als Balkendiagramm */}
+              {/* Monatsverlauf */}
               <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', padding:'24px' }}>
                 <h3 style={{ fontSize:15, fontWeight:700, color:'#0f172a', margin:'0 0 4px' }}>Monatlicher Verlauf</h3>
-                <p style={{ fontSize:12, color:'#94a3b8', margin:'0 0 20px' }}>Messungen pro Monat · Linie = Soll</p>
+                <p style={{ fontSize:12, color:'#94a3b8', margin:'0 0 20px' }}>Messungen pro Monat · graue Linie = Soll</p>
                 <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
                   {personStats.monatList.map(m => {
                     const maxVal = Math.max(...personStats.monatList.map(x => x.ist), personStats.soll || 1);
                     return (
                       <div key={m.monat} style={{ display:'flex', alignItems:'center', gap:12 }}>
                         <div style={{ width:52, fontSize:11, fontWeight:600, color:'#64748b', flexShrink:0, textAlign:'right' }}>{fmtMonat(m.monat)}</div>
-                        <div style={{ flex:1, height:32, background:'#f8fafc', borderRadius:8, overflow:'hidden', position:'relative' }}>
-                          <div style={{ height:'100%', width:`${(m.ist/maxVal)*100}%`, background:`linear-gradient(90deg,${personStats.farbe},${scoreColor(m.score)})`, borderRadius:8, transition:'width .5s ease', display:'flex', alignItems:'center', paddingLeft:10, boxSizing:'border-box' as const }}>
-                            {(m.ist/maxVal)*100 > 15 && <span style={{ fontSize:11, fontWeight:700, color:'#fff' }}>{m.ist.toLocaleString('de-DE')}</span>}
+                        <div style={{ flex:1, height:30, background:'#f8fafc', borderRadius:8, overflow:'hidden', position:'relative' }}>
+                          <div style={{ height:'100%', width:`${(m.ist/maxVal)*100}%`, background:`linear-gradient(90deg,${personStats.farbe},${scoreColor(m.score)})`, borderRadius:8, display:'flex', alignItems:'center', paddingLeft:8, boxSizing:'border-box' as const }}>
+                            {(m.ist/maxVal)*100 > 12 && <span style={{ fontSize:11, fontWeight:700, color:'#fff' }}>{m.ist.toLocaleString('de-DE')}</span>}
                           </div>
-                          {personStats.soll > 0 && (
-                            <div style={{ position:'absolute', top:0, bottom:0, left:`${Math.min((personStats.soll/maxVal)*100, 98)}%`, width:2, background:'#94a3b8', opacity:.5 }}/>
-                          )}
+                          {personStats.soll > 0 && <div style={{ position:'absolute', top:0, bottom:0, left:`${Math.min((personStats.soll/maxVal)*100,98)}%`, width:2, background:'#94a3b8', opacity:.5 }}/>}
                         </div>
-                        <div style={{ width:64, flexShrink:0, textAlign:'right' }}>
+                        <div style={{ width:60, flexShrink:0, textAlign:'right' }}>
                           <span style={{ fontSize:13, fontWeight:800, color:scoreColor(m.score) }}>{m.ist.toLocaleString('de-DE')}</span>
                           <span style={{ fontSize:10, color:'#94a3b8', marginLeft:3 }}>({m.score}%)</span>
                         </div>
@@ -1071,29 +664,27 @@ export default function DGUVMessAuswertung() {
                 </div>
               </div>
 
-              {/* Monats-Detail-Tabelle */}
+              {/* Monats-Details */}
               <div style={{ background:'#fff', borderRadius:18, border:'1px solid #f1f5f9', overflow:'hidden' }}>
                 <div style={{ padding:'18px 20px', borderBottom:'1px solid #f1f5f9' }}>
                   <h3 style={{ fontSize:15, fontWeight:700, color:'#0f172a', margin:'0 0 3px' }}>Monats-Details</h3>
-                  <p style={{ fontSize:12, color:'#94a3b8', margin:0 }}>Produktivität · aktive Tage · Tagesdurchschnitt · bester Tag</p>
+                  <p style={{ fontSize:12, color:'#94a3b8', margin:0 }}>Soll/Ist · aktive Tage · bester Tag · Heatmap</p>
                 </div>
                 {personStats.monatList.map((m, idx) => (
                   <div key={m.monat} style={{ padding:'16px 20px', borderBottom:idx<personStats.monatList.length-1?'1px solid #f8fafc':'none' }}>
-                    {/* Monat Header + Bar */}
                     <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
-                      <span style={{ fontSize:13, fontWeight:700, color:'#0f172a', width:60, flexShrink:0 }}>{fmtMonat(m.monat)}</span>
+                      <span style={{ fontSize:13, fontWeight:700, color:'#0f172a', width:56, flexShrink:0 }}>{fmtMonat(m.monat)}</span>
                       <div style={{ flex:1, height:7, background:'#f1f5f9', borderRadius:99, overflow:'hidden' }}>
                         <div style={{ height:'100%', width:`${Math.min(m.score,100)}%`, background:`linear-gradient(90deg,${personStats.farbe},${scoreColor(m.score)})`, borderRadius:99 }}/>
                       </div>
                       <span style={{ fontSize:15, fontWeight:900, color:scoreColor(m.score), width:44, textAlign:'right' }}>{m.score}%</span>
                     </div>
-                    {/* Detail-Kacheln */}
                     <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8 }}>
                       {[
-                        { label:'Messungen',   value:m.ist.toLocaleString('de-DE'),                                        sub:`Soll: ${m.soll}`,       color:scoreColor(m.score) },
-                        { label:'Aktive Tage', value:m.aktivTage+'',                                                       sub:`Ø ${m.avgPerTag}/Tag`,  color:'#2563eb' },
-                        { label:'Bester Tag',  value:m.topTag ? m.topTag[1]+'' : '–',                                      sub:m.topTag ? new Date(m.topTag[0]).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}) : '–', color:'#8b5cf6' },
-                        { label:'Status',      value:m.score>=100?'✓ Ziel':m.score>=80?'~ Fast':'✗ Unter',               sub:m.score>=100?'erreicht':m.score>=80?'am Ziel':'Ziel verfehlt', color:scoreColor(m.score) },
+                        { label:'Messungen',   value:m.ist.toLocaleString('de-DE'), sub:`Soll: ${m.soll}`, color:scoreColor(m.score) },
+                        { label:'Aktive Tage', value:m.aktivTage+'', sub:`Ø ${m.avgPerTag}/Tag`, color:'#2563eb' },
+                        { label:'Bester Tag',  value:m.topTag?String(m.topTag[1]):'–', sub:m.topTag?new Date(m.topTag[0]).toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'}):'–', color:'#8b5cf6' },
+                        { label:'Status',      value:m.score>=100?'✓ Ziel':m.score>=80?'~ Fast':'✗ Unter', sub:m.score>=100?'Ziel erreicht':m.score>=80?'fast am Ziel':'verfehlt', color:scoreColor(m.score) },
                       ].map(s => (
                         <div key={s.label} style={{ background:'#f8fafc', borderRadius:10, padding:'10px 12px' }}>
                           <p style={{ fontSize:16, fontWeight:800, color:s.color, margin:'0 0 2px' }}>{s.value}</p>
@@ -1102,7 +693,6 @@ export default function DGUVMessAuswertung() {
                         </div>
                       ))}
                     </div>
-                    {/* Heatmap */}
                     <Heatmap tage={m.tage} farbe={personStats.farbe} />
                   </div>
                 ))}
