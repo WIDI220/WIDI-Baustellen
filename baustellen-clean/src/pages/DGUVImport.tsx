@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -103,14 +103,14 @@ export default function DGUVImport() {
     const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.xlsm') || name.endsWith('.xlsb') || name.endsWith('.ods');
     const isCSV   = name.endsWith('.csv') || name.endsWith('.txt');
     if (!isExcel && !isCSV) {
-      setFileError(`Nicht unterstütztes Format: "${file.name}". Erlaubt: CSV, Excel (xlsx, xls, xlsm, xlsb, ods)`);
+      setFileError(`Format nicht unterstützt: "${file.name}". Erlaubt: CSV, XLSX, XLS, XLSM, XLSB, ODS`);
       return;
     }
     try {
       let csvText: string;
       if (isExcel) {
         const buf = await file.arrayBuffer();
-        const wb  = XLSX.read(buf, { type: 'array', cellDates: true });
+        const wb  = XLSX.read(buf, { type: 'array', cellDates: false });
         const ws  = wb.Sheets[wb.SheetNames[0]];
         csvText   = XLSX.utils.sheet_to_csv(ws, { FS: ';' });
       } else {
@@ -121,9 +121,8 @@ export default function DGUVImport() {
           r.readAsText(file, 'ISO-8859-1');
         });
       }
-
       const rows = parseCSVMessungen(csvText);
-      if (rows.length === 0) { toast.error('Keine gültigen Zeilen gefunden — prüfe das Format'); return; }
+      if (rows.length === 0) { toast.error('Keine gültigen Zeilen — prüfe das Format'); return; }
 
       // Monat aus erstem gültigen Datum ableiten
       const ersteDatum = rows.find(r => r.pruef_datum)?.pruef_datum ?? '';
@@ -243,54 +242,39 @@ export default function DGUVImport() {
           onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
           onDragOver={e  => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
           onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }}
-          onDrop={e => {
-            e.preventDefault(); e.stopPropagation(); setDragOver(false);
-            const f = e.dataTransfer.files?.[0];
-            if (f) handleFile(f);
-          }}
+          onDrop={e => { e.preventDefault(); e.stopPropagation(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
           style={{
             background: dragOver ? '#fffbeb' : '#fff',
-            borderRadius: 20,
+            borderRadius: 18,
             border: `2.5px dashed ${dragOver ? '#f59e0b' : '#e2e8f0'}`,
             padding: '52px 32px',
-            textAlign: 'center',
+            textAlign: 'center' as const,
             cursor: 'pointer',
             transition: 'all .2s',
             transform: dragOver ? 'scale(1.01)' : 'scale(1)',
-            boxShadow: dragOver ? '0 8px 32px rgba(245,158,11,0.12)' : '0 2px 8px rgba(0,0,0,0.04)',
+            boxShadow: dragOver ? '0 8px 32px rgba(245,158,11,0.12)' : '0 2px 8px rgba(0,0,0,0.03)',
           }}>
-          {/* Animiertes Icon */}
-          <div style={{ width:72, height:72, borderRadius:20, background: dragOver ? '#fef3c7' : '#f8fafc', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', transition:'all .2s', boxShadow: dragOver ? '0 4px 16px rgba(245,158,11,0.2)' : 'none' }}>
+          <div style={{ width:72, height:72, borderRadius:20, background: dragOver ? '#fef3c7' : '#f8fafc', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', transition:'all .2s' }}>
             <Upload size={32} style={{ color: dragOver ? '#f59e0b' : '#94a3b8', transition:'all .2s' }} />
           </div>
-          <p style={{ fontSize:17, fontWeight:800, color:'#0f172a', margin:'0 0 8px', letterSpacing:'-.02em' }}>
-            {dragOver ? 'Datei loslassen …' : 'Datei hierher ziehen'}
+          <p style={{ fontSize:17, fontWeight:800, color:'#0f172a', margin:'0 0 8px' }}>
+            {dragOver ? 'Datei hier loslassen …' : 'Datei hierher ziehen'}
           </p>
-          <p style={{ fontSize:13, color:'#94a3b8', margin:'0 0 20px' }}>
-            oder klicken um eine Datei auszuwählen
-          </p>
-          {/* Format-Badges */}
-          <div style={{ display:'flex', gap:6, justifyContent:'center', flexWrap:'wrap' }}>
-            {['CSV', 'XLSX', 'XLS', 'XLSM', 'XLSB', 'ODS', 'TXT'].map(fmt => (
-              <span key={fmt} style={{ padding:'4px 10px', borderRadius:8, background:'#f1f5f9', fontSize:11, fontWeight:700, color:'#64748b', letterSpacing:'.05em' }}>{fmt}</span>
+          <p style={{ fontSize:13, color:'#94a3b8', margin:'0 0 18px' }}>oder klicken zum Auswählen</p>
+          <div style={{ display:'flex', gap:6, justifyContent:'center', flexWrap:'wrap' as const }}>
+            {['CSV', 'XLSX', 'XLS', 'XLSM', 'XLSB', 'ODS', 'TXT'].map(f => (
+              <span key={f} style={{ padding:'3px 9px', borderRadius:7, background:'#f1f5f9', fontSize:11, fontWeight:700, color:'#64748b' }}>{f}</span>
             ))}
           </div>
-          <p style={{ fontSize:11, color:'#cbd5e1', marginTop:12 }}>
-            Rohdaten-Export aus dem Prüfgerät · erkennt automatisch Prüfer und Datum
-          </p>
           <input ref={fileRef} type="file" accept=".csv,.txt,.xlsx,.xls,.xlsm,.xlsb,.ods" style={{ display:'none' }}
             onChange={e => { const f=e.target.files?.[0]; if(f) handleFile(f); e.target.value=''; }} />
         </div>
       )}
-
-      {/* Datei-Fehler */}
       {fileError && (
-        <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:12, padding:'12px 16px', display:'flex', gap:10, alignItems:'flex-start' }}>
-          <AlertTriangle size={16} style={{ color:'#ef4444', flexShrink:0, marginTop:1 }} />
-          <div>
-            <p style={{ fontSize:13, fontWeight:600, color:'#dc2626', margin:0 }}>{fileError}</p>
-            <button onClick={() => setFileError(null)} style={{ fontSize:12, color:'#94a3b8', background:'none', border:'none', cursor:'pointer', padding:0, marginTop:4 }}>Schließen</button>
-          </div>
+        <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:12, padding:'12px 16px', display:'flex', gap:10, alignItems:'center' }}>
+          <AlertTriangle size={15} style={{ color:'#ef4444', flexShrink:0 }} />
+          <span style={{ fontSize:13, color:'#dc2626', fontWeight:500 }}>{fileError}</span>
+          <button onClick={() => setFileError(null)} style={{ marginLeft:'auto', fontSize:12, color:'#94a3b8', background:'none', border:'none', cursor:'pointer' }}>✕</button>
         </div>
       )}
 
