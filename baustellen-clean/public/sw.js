@@ -1,17 +1,41 @@
-const CACHE = 'widi-v2';
-const OFFLINE = ['/'];
+// Cache-Version wird bei jedem Build aus version.json gelesen
+// Dadurch wird bei jedem Deploy der alte Cache automatisch invalidiert
+const CACHE_BASE = 'widi-cache';
+let CACHE = CACHE_BASE + '-v2'; // Fallback
+
+// Version aus version.json laden und Cache aktualisieren
+async function getVersion() {
+  try {
+    const res = await fetch('/version.json?_=' + Date.now());
+    const data = await res.json();
+    return CACHE_BASE + '-' + data.t;
+  } catch {
+    return CACHE;
+  }
+}
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(OFFLINE)));
+  e.waitUntil(
+    getVersion().then(version => {
+      CACHE = version;
+      return caches.open(CACHE).then(c => c.addAll(['/']));
+    })
+  );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
-  // Alle alten Caches löschen (auch widi-v1)
-  e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-  ));
-  self.clients.claim();
+  e.waitUntil(
+    getVersion().then(version => {
+      CACHE = version;
+      return caches.keys().then(keys =>
+        Promise.all(keys.filter(k => k !== CACHE).map(k => {
+          console.log('[SW] Deleting old cache:', k);
+          return caches.delete(k);
+        }))
+      );
+    }).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener('fetch', e => {
@@ -19,21 +43,21 @@ self.addEventListener('fetch', e => {
 
   const url = e.request.url;
 
-  // API-Calls NIEMALS cachen – direkt durchleiten
+  // API-Calls NIEMALS cachen
   if (
     url.includes('supabase.co') ||
     url.includes('/rest/v1/') ||
     url.includes('/auth/v1/') ||
-    url.includes('/storage/v1/')
+    url.includes('/storage/v1/') ||
+    url.includes('version.json')
   ) {
-    return; // kein e.respondWith → Browser macht normalen Fetch
+    return;
   }
 
-  // Alles andere: Network first, Cache als Fallback
+  // Network First → bei Erfolg cachen → bei Fehler Cache-Fallback
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        // Nur gültige Responses cachen
         if (res && res.status === 200 && res.type === 'basic') {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
@@ -42,4 +66,11 @@ self.addEventListener('fetch', e => {
       })
       .catch(() => caches.match(e.request))
   );
+});
+
+// Nachricht vom App-Code empfangen um Cache-Update zu erzwingen
+self.addEventListener('message', e => {
+  if (e.data === 'skipWaiting') {
+    self.skipWaiting();
+  }
 });
