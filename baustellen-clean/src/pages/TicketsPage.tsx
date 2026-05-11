@@ -250,6 +250,7 @@ export default function TicketsPage() {
   const [emailNote, setEmailNote] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [ticketComments, setTicketComments] = useState<Record<string, string>>({});
 
   const { data, isLoading } = useQuery({
     queryKey: ['tickets-list', search, statusFilter, gewerkFilter, page, activeMonth, monthFilter],
@@ -329,42 +330,75 @@ export default function TicketsPage() {
       };
       const selectedTickets = tickets.filter((t: any) => selected.has(t.id));
 
+      const statusStyle: Record<string, string> = {
+        erledigt:         'color:#166534;background:#dcfce7;',
+        in_bearbeitung:   'color:#1e40af;background:#dbeafe;',
+        zur_unterschrift: 'color:#92400e;background:#fef3c7;',
+        abrechenbar:      'color:#9a3412;background:#ffedd5;',
+        abgerechnet:      'color:#374151;background:#f3f4f6;',
+      };
+      const gewerkStyle: Record<string, string> = {
+        Elektro: 'color:#1e40af;background:#dbeafe;',
+        Hochbau: 'color:#166534;background:#dcfce7;',
+      };
+
       const ticketCards = selectedTickets.map((t: any) => {
         const wl = t.ticket_worklogs ?? [];
-        const ma = [...new Set(wl.map((w: any) => w.employees?.kuerzel).filter(Boolean))].join(', ') || '–';
+        const ma = [...new Set(wl.map((w: any) => w.employees?.kuerzel).filter(Boolean))].join(', ') || null;
         const stunden = wl.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
-        const statusLabel = STATUS_LABELS[t.status] ?? t.status;
-        const statusColor = t.status === 'erledigt' ? '#166534;background:#f0fdf4' : t.status === 'in_bearbeitung' ? '#1d4ed8;background:#eff6ff' : t.status === 'zur_unterschrift' ? '#92400e;background:#fffbeb' : t.status === 'abrechenbar' ? '#9a3412;background:#fff7ed' : '#475569;background:#f1f5f9';
-        const gewerkColor = t.gewerk === 'Elektro' ? '#1d4ed8;background:#eff6ff' : '#166534;background:#f0fdf4';
+        const kommentar = ticketComments[t.id] ?? '';
+        const sSt = statusStyle[t.status] ?? 'color:#374151;background:#f3f4f6;';
+        const gSt = gewerkStyle[t.gewerk] ?? 'color:#374151;background:#f3f4f6;';
+
         const rows = [
-          t.eingangsdatum ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;width:120px;">Eingangsdatum</td><td style="padding:3px 0;font-size:11px;">${new Date(t.eingangsdatum).toLocaleDateString('de-DE')}</td></tr>` : '',
-          t.melder && t.melder !== 'NULL' ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;">Melder</td><td style="padding:3px 0;font-size:11px;">${t.melder}</td></tr>` : '',
-          t.raumnr ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;">Raum</td><td style="padding:3px 0;font-size:11px;">${t.raumnr}</td></tr>` : '',
-          t.auftragstext ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;vertical-align:top;">Auftragstext</td><td style="padding:3px 0;font-size:11px;">${t.auftragstext}</td></tr>` : '',
-          ma !== '–' || stunden > 0 ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;">Mitarbeiter</td><td style="padding:3px 0;font-size:11px;">${ma}${stunden > 0 ? ` · ${stunden}h` : ''}</td></tr>` : '',
+          t.eingangsdatum ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;width:130px;vertical-align:top;">Eingang</td><td style="padding:4px 0;font-size:12px;color:#111827;">${new Date(t.eingangsdatum).toLocaleDateString('de-DE')}</td></tr>` : '',
+          t.melder && t.melder !== 'NULL' ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;vertical-align:top;">Melder</td><td style="padding:4px 0;font-size:12px;color:#111827;">${t.melder}</td></tr>` : '',
+          t.raumnr ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;vertical-align:top;">Raum</td><td style="padding:4px 0;font-size:12px;color:#111827;">${t.raumnr}</td></tr>` : '',
+          t.auftragstext ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;vertical-align:top;">Auftrag</td><td style="padding:4px 0;font-size:12px;color:#111827;">${t.auftragstext}</td></tr>` : '',
+          (ma || stunden > 0) ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;vertical-align:top;">Mitarbeiter</td><td style="padding:4px 0;font-size:12px;color:#111827;">${ma ?? '–'}${stunden > 0 ? ` &nbsp;·&nbsp; ${stunden}h` : ''}</td></tr>` : '',
         ].filter(Boolean).join('');
-        return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:12px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;">
-            <span style="font-family:monospace;font-size:14px;font-weight:700;color:#0f172a;">${t.a_nummer}</span>
-            <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;color:${gewerkColor};">${t.gewerk ?? '–'}</span>
-            <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;color:${statusColor};">${statusLabel}</span>
-          </div>
-          <table style="width:100%;border-collapse:collapse;">${rows}</table>
-        </div>`;
+
+        const kommentarBlock = kommentar ? `
+          <div style="margin-top:10px;padding:10px 12px;background:#fefce8;border-left:3px solid #eab308;border-radius:0 6px 6px 0;">
+            <div style="font-size:10px;font-weight:600;color:#713f12;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Korrektur / Kommentar</div>
+            <div style="font-size:12px;color:#78350f;line-height:1.5;">${kommentar}</div>
+          </div>` : '';
+
+        return `
+          <div style="border:1px solid #e5e7eb;border-radius:10px;padding:0;margin-bottom:14px;overflow:hidden;">
+            <div style="background:#f9fafb;padding:10px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #e5e7eb;">
+              <span style="font-family:Consolas,monospace;font-size:14px;font-weight:700;color:#0f172a;">${t.a_nummer}</span>
+              <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;${gSt}">${t.gewerk ?? '–'}</span>
+              <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;${sSt}">${STATUS_LABELS[t.status] ?? t.status}</span>
+            </div>
+            <div style="padding:10px 14px;">
+              <table style="width:100%;border-collapse:collapse;">${rows}</table>
+              ${kommentarBlock}
+            </div>
+          </div>`;
       }).join('');
 
-      const content = `<div style="font-family:'Segoe UI',system-ui,sans-serif;max-width:600px;margin:0 auto;">
-        <div style="background:#1e3a5f;border-radius:12px 12px 0 0;padding:18px 22px;">
-          <span style="font-size:18px;font-weight:700;color:#fff;letter-spacing:-.02em;">WIDI</span>
-          <span style="font-size:11px;color:#93c5fd;margin-left:10px;">Controlling System · Ticket-Rückmeldung</span>
-        </div>
-        <div style="background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px;padding:22px;">
-          ${emailNote ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin-bottom:20px;"><div style="font-size:10px;font-weight:600;color:#92400e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Anliegen</div><div style="font-size:13px;color:#78350f;line-height:1.6;">${emailNote}</div></div>` : ''}
-          <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #f1f5f9;">Betroffene Tickets (${selectedTickets.length})</div>
-          ${ticketCards}
-          <div style="margin-top:20px;padding-top:14px;border-top:1px solid #f1f5f9;font-size:10px;color:#94a3b8;text-align:center;">WIDI Hellersen · Controlling System · ${new Date().toLocaleDateString('de-DE')}</div>
-        </div>
-      </div>`;
+      const content = `
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff;">
+          <div style="background:#1e3a5f;padding:18px 24px;border-radius:10px 10px 0 0;">
+            <span style="font-size:18px;font-weight:700;color:#ffffff;letter-spacing:-.02em;">WIDI</span>
+            <span style="font-size:11px;color:#93c5fd;margin-left:10px;">Controlling System &nbsp;·&nbsp; Ticket-Rückmeldung</span>
+          </div>
+          <div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 10px 10px;padding:22px 24px;">
+            ${emailNote ? `
+            <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin-bottom:20px;">
+              <div style="font-size:10px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;">Anliegen</div>
+              <div style="font-size:13px;color:#78350f;line-height:1.6;">${emailNote}</div>
+            </div>` : ''}
+            <div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #f3f4f6;">
+              Betroffene Tickets (${selectedTickets.length})
+            </div>
+            ${ticketCards}
+            <div style="margin-top:18px;padding-top:14px;border-top:1px solid #f3f4f6;font-size:10px;color:#9ca3af;text-align:center;">
+              WIDI Hellersen &nbsp;·&nbsp; Controlling System &nbsp;·&nbsp; ${new Date().toLocaleDateString('de-DE')}
+            </div>
+          </div>
+        </div>`;
 
       emailjs.init(EMAILJS_KEY);
       await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
@@ -378,7 +412,7 @@ export default function TicketsPage() {
       toast.success('E-Mail erfolgreich gesendet!');
       setTimeout(() => {
         setShowEmail(false); setEmailSent(false);
-        setEmailTo(''); setEmailNote(''); setEmailSubject('');
+        setEmailTo(''); setEmailNote(''); setEmailSubject(''); setTicketComments({});
       }, 2000);
     } catch (e: any) {
       toast.error('E-Mail Fehler: ' + (e?.text ?? e?.message ?? 'Unbekannt'));
@@ -625,36 +659,49 @@ export default function TicketsPage() {
 
       {/* E-Mail Rückmeldung Dialog */}
       <Dialog open={showEmail} onOpenChange={setShowEmail}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5 text-blue-500" />Rückmeldung per E-Mail
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div>
-              <Label className="text-xs text-gray-500 mb-1 block">Empfänger E-Mail</Label>
-              <Input placeholder="empfaenger@beispiel.de" value={emailTo} onChange={e => setEmailTo(e.target.value)} className="rounded-xl" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <Label className="text-xs text-gray-500 mb-1 block">Empfänger E-Mail</Label>
+                <Input placeholder="empfaenger@beispiel.de" value={emailTo} onChange={e => setEmailTo(e.target.value)} className="rounded-xl" />
+              </div>
+              <div>
+                <Label className="text-xs text-gray-500 mb-1 block">Betreff</Label>
+                <Input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} className="rounded-xl" />
+              </div>
             </div>
             <div>
-              <Label className="text-xs text-gray-500 mb-1 block">Betreff</Label>
-              <Input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} className="rounded-xl" />
+              <Label className="text-xs text-gray-500 mb-1 block">Allgemeines Anliegen (optional)</Label>
+              <Textarea placeholder="z.B. Diese Tickets haben falsche Zeiten, bitte prüfen..." value={emailNote} onChange={e => setEmailNote(e.target.value)} className="rounded-xl min-h-[70px]" />
             </div>
             <div>
-              <Label className="text-xs text-gray-500 mb-1 block">Begründung / Anliegen</Label>
-              <Textarea placeholder="Beschreiben Sie Ihr Anliegen zu den markierten Tickets..." value={emailNote} onChange={e => setEmailNote(e.target.value)} className="rounded-xl min-h-[100px]" />
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-xs font-semibold text-gray-500 mb-2">Markierte Tickets ({selected.size}):</p>
-              <div className="space-y-1 max-h-48 overflow-y-auto">
+              <p className="text-xs font-semibold text-gray-500 mb-2">Tickets mit Kommentar ({selected.size}):</p>
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 {tickets.filter((t: any) => selected.has(t.id)).map((t: any) => {
                   const st = STATUS_OPTIONS.find(s => s.value === t.status);
                   return (
-                    <div key={t.id} className="flex items-center gap-2 text-xs bg-white rounded-lg px-3 py-2 border border-gray-100">
-                      <span className="font-mono font-bold text-[#1e3a5f]">{t.a_nummer}</span>
-                      <span className="text-gray-400">{t.gewerk}</span>
-                      <span className={`px-2 py-0.5 rounded-full font-medium ${st?.bg} ${st?.text}`}>{st?.label}</span>
-                      {t.eingangsdatum && <span className="text-gray-400 ml-auto">{new Date(t.eingangsdatum).toLocaleDateString('de-DE')}</span>}
+                    <div key={t.id} style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ background: '#f9fafb', padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: ticketComments[t.id] ? '1px solid #e5e7eb' : 'none' }}>
+                        <span className="font-mono font-bold text-[#1e3a5f] text-sm">{t.a_nummer}</span>
+                        <span className="text-gray-400 text-xs">{t.gewerk}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${st?.bg} ${st?.text}`}>{st?.label}</span>
+                        {t.eingangsdatum && <span className="text-gray-400 text-xs ml-auto">{new Date(t.eingangsdatum).toLocaleDateString('de-DE')}</span>}
+                      </div>
+                      <div style={{ padding: '8px 12px', background: '#fff' }}>
+                        <Input
+                          placeholder="Kommentar / Korrektur zu diesem Ticket (optional)..."
+                          value={ticketComments[t.id] ?? ''}
+                          onChange={e => setTicketComments(prev => ({ ...prev, [t.id]: e.target.value }))}
+                          className="text-xs h-8 rounded-lg border-dashed"
+                          style={{ fontSize: 12 }}
+                        />
+                      </div>
                     </div>
                   );
                 })}
