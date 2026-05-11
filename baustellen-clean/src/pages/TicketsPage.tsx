@@ -351,27 +351,27 @@ export default function TicketsPage() {
         const gSt = gewerkStyle[t.gewerk] ?? 'color:#374151;background:#f3f4f6;';
 
         const rows = [
-          t.eingangsdatum ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;width:130px;vertical-align:top;">Eingang</td><td style="padding:4px 0;font-size:12px;color:#111827;">${new Date(t.eingangsdatum).toLocaleDateString('de-DE')}</td></tr>` : '',
-          t.melder && t.melder !== 'NULL' ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;vertical-align:top;">Melder</td><td style="padding:4px 0;font-size:12px;color:#111827;">${t.melder}</td></tr>` : '',
-          t.raumnr ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;vertical-align:top;">Raum</td><td style="padding:4px 0;font-size:12px;color:#111827;">${t.raumnr}</td></tr>` : '',
-          t.auftragstext ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;vertical-align:top;">Auftrag</td><td style="padding:4px 0;font-size:12px;color:#111827;">${t.auftragstext}</td></tr>` : '',
-          (ma || stunden > 0) ? `<tr><td style="padding:4px 0;color:#6b7280;font-size:12px;vertical-align:top;">Mitarbeiter</td><td style="padding:4px 0;font-size:12px;color:#111827;">${ma ?? '–'}${stunden > 0 ? ` &nbsp;·&nbsp; ${stunden}h` : ''}</td></tr>` : '',
+          t.eingangsdatum ? `<tr><td style="padding:5px 0;color:#9ca3af;font-size:12px;width:130px;vertical-align:top;">Eingang</td><td style="padding:5px 0;font-size:12px;color:#374151;">${new Date(t.eingangsdatum).toLocaleDateString('de-DE')}</td></tr>` : '',
+          t.melder && t.melder !== 'NULL' ? `<tr><td style="padding:5px 0;color:#9ca3af;font-size:12px;vertical-align:top;">Melder</td><td style="padding:5px 0;font-size:12px;color:#374151;">${t.melder}</td></tr>` : '',
+          t.raumnr ? `<tr><td style="padding:5px 0;color:#9ca3af;font-size:12px;vertical-align:top;">Raum</td><td style="padding:5px 0;font-size:12px;color:#374151;">${t.raumnr}</td></tr>` : '',
+          t.auftragstext ? `<tr><td style="padding:5px 0;color:#9ca3af;font-size:12px;vertical-align:top;">Auftrag</td><td style="padding:5px 0;font-size:12px;color:#374151;">${t.auftragstext}</td></tr>` : '',
+          (ma || stunden > 0) ? `<tr><td style="padding:5px 0;color:#9ca3af;font-size:12px;vertical-align:top;">Mitarbeiter</td><td style="padding:5px 0;font-size:12px;color:#374151;">${ma ?? '–'}${stunden > 0 ? ` &nbsp;·&nbsp; <strong>${stunden}h</strong>` : ''}</td></tr>` : '',
         ].filter(Boolean).join('');
 
         const kommentarBlock = kommentar ? `
-          <div style="margin-top:10px;padding:10px 12px;background:#fefce8;border-left:3px solid #eab308;border-radius:0 6px 6px 0;">
-            <div style="font-size:10px;font-weight:600;color:#713f12;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">Korrektur / Kommentar</div>
-            <div style="font-size:12px;color:#78350f;line-height:1.5;">${kommentar}</div>
+          <div style="margin-top:14px;padding:12px 16px;background:#fefce8;border-left:3px solid #eab308;border-radius:0 8px 8px 0;">
+            <div style="font-size:10px;font-weight:700;color:#a16207;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;">Korrektur / Kommentar</div>
+            <div style="font-size:13px;color:#78350f;line-height:1.6;">${kommentar}</div>
           </div>` : '';
 
         return `
-          <div style="border:1px solid #e5e7eb;border-radius:10px;padding:0;margin-bottom:14px;overflow:hidden;">
-            <div style="background:#f9fafb;padding:10px 14px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #e5e7eb;">
-              <span style="font-family:Consolas,monospace;font-size:14px;font-weight:700;color:#0f172a;">${t.a_nummer}</span>
-              <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;${gSt}">${t.gewerk ?? '–'}</span>
-              <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;${sSt}">${STATUS_LABELS[t.status] ?? t.status}</span>
+          <div style="border:1px solid #e5e7eb;border-radius:12px;margin-bottom:20px;overflow:hidden;background:#ffffff;">
+            <div style="padding:14px 20px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #f3f4f6;">
+              <span style="font-family:Consolas,monospace;font-size:15px;font-weight:700;color:#0f172a;letter-spacing:-.01em;">${t.a_nummer}</span>
+              <span style="font-size:10px;font-weight:600;padding:3px 10px;border-radius:20px;${gSt}">${t.gewerk ?? '–'}</span>
+              <span style="font-size:10px;font-weight:600;padding:3px 10px;border-radius:20px;${sSt}">${STATUS_LABELS[t.status] ?? t.status}</span>
             </div>
-            <div style="padding:10px 14px;">
+            <div style="padding:14px 20px;">
               <table style="width:100%;border-collapse:collapse;">${rows}</table>
               ${kommentarBlock}
             </div>
@@ -379,22 +379,22 @@ export default function TicketsPage() {
       }).join('');
 
       const content = `
-        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:600px;margin:0 auto;background:#ffffff;">
-          <div style="background:#1e3a5f;padding:18px 24px;border-radius:10px 10px 0 0;">
-            <span style="font-size:18px;font-weight:700;color:#ffffff;letter-spacing:-.02em;">WIDI</span>
-            <span style="font-size:11px;color:#93c5fd;margin-left:10px;">Controlling System &nbsp;·&nbsp; Ticket-Rückmeldung</span>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:620px;margin:0 auto;background:#f8fafc;padding:32px 16px;">
+          <div style="background:#1e3a5f;padding:20px 28px;border-radius:12px 12px 0 0;">
+            <span style="font-size:19px;font-weight:700;color:#ffffff;letter-spacing:-.02em;">WIDI</span>
+            <span style="font-size:11px;color:#93c5fd;margin-left:12px;">Controlling System &nbsp;·&nbsp; Ticket-Rückmeldung</span>
           </div>
-          <div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 10px 10px;padding:22px 24px;">
+          <div style="background:#ffffff;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:28px 28px 24px;">
             ${emailNote ? `
-            <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin-bottom:20px;">
-              <div style="font-size:10px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px;">Anliegen</div>
-              <div style="font-size:13px;color:#78350f;line-height:1.6;">${emailNote}</div>
+            <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 18px;margin-bottom:28px;">
+              <div style="font-size:10px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px;">Anliegen</div>
+              <div style="font-size:13px;color:#78350f;line-height:1.7;">${emailNote}</div>
             </div>` : ''}
-            <div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #f3f4f6;">
+            <div style="font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em;margin-bottom:20px;padding-bottom:10px;border-bottom:1px solid #f3f4f6;">
               Betroffene Tickets (${selectedTickets.length})
             </div>
             ${ticketCards}
-            <div style="margin-top:18px;padding-top:14px;border-top:1px solid #f3f4f6;font-size:10px;color:#9ca3af;text-align:center;">
+            <div style="margin-top:24px;padding-top:16px;border-top:1px solid #f3f4f6;font-size:11px;color:#9ca3af;text-align:center;letter-spacing:.02em;">
               WIDI Hellersen &nbsp;·&nbsp; Controlling System &nbsp;·&nbsp; ${new Date().toLocaleDateString('de-DE')}
             </div>
           </div>
