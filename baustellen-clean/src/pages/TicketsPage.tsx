@@ -659,7 +659,7 @@ export default function TicketsPage() {
 
       {/* E-Mail Rückmeldung Dialog */}
       <Dialog open={showEmail} onOpenChange={setShowEmail}>
-        <DialogContent className="max-w-2xl" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+        <DialogContent className="max-w-2xl overflow-y-auto max-h-[90vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5 text-blue-500" />Rückmeldung per E-Mail
