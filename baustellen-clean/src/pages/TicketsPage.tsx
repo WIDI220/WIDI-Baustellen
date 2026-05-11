@@ -328,10 +328,43 @@ export default function TicketsPage() {
         'zur_unterschrift': 'Zur Unterschrift', 'abrechenbar': 'Abrechenbar', 'abgerechnet': 'Abgerechnet',
       };
       const selectedTickets = tickets.filter((t: any) => selected.has(t.id));
-      const ticketLines = selectedTickets.map((t: any) =>
-        `• ${t.a_nummer} | ${t.gewerk ?? '–'} | ${STATUS_LABELS[t.status] ?? t.status} | Eingang: ${t.eingangsdatum ? new Date(t.eingangsdatum).toLocaleDateString('de-DE') : '–'}`
-      ).join('\n');
-      const content = `${emailNote ? 'Anliegen:\n' + emailNote + '\n\n' : ''}Betroffene Tickets (${selectedTickets.length}):\n${ticketLines}\n\n---\nGesendet von WIDI Controlling System\n${new Date().toLocaleDateString('de-DE')}`;
+
+      const ticketCards = selectedTickets.map((t: any) => {
+        const wl = t.ticket_worklogs ?? [];
+        const ma = [...new Set(wl.map((w: any) => w.employees?.kuerzel).filter(Boolean))].join(', ') || '–';
+        const stunden = wl.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+        const statusLabel = STATUS_LABELS[t.status] ?? t.status;
+        const statusColor = t.status === 'erledigt' ? '#166534;background:#f0fdf4' : t.status === 'in_bearbeitung' ? '#1d4ed8;background:#eff6ff' : t.status === 'zur_unterschrift' ? '#92400e;background:#fffbeb' : t.status === 'abrechenbar' ? '#9a3412;background:#fff7ed' : '#475569;background:#f1f5f9';
+        const gewerkColor = t.gewerk === 'Elektro' ? '#1d4ed8;background:#eff6ff' : '#166534;background:#f0fdf4';
+        const rows = [
+          t.eingangsdatum ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;width:120px;">Eingangsdatum</td><td style="padding:3px 0;font-size:11px;">${new Date(t.eingangsdatum).toLocaleDateString('de-DE')}</td></tr>` : '',
+          t.melder && t.melder !== 'NULL' ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;">Melder</td><td style="padding:3px 0;font-size:11px;">${t.melder}</td></tr>` : '',
+          t.raumnr ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;">Raum</td><td style="padding:3px 0;font-size:11px;">${t.raumnr}</td></tr>` : '',
+          t.auftragstext ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;vertical-align:top;">Auftragstext</td><td style="padding:3px 0;font-size:11px;">${t.auftragstext}</td></tr>` : '',
+          ma !== '–' || stunden > 0 ? `<tr><td style="padding:3px 0;color:#94a3b8;font-size:11px;">Mitarbeiter</td><td style="padding:3px 0;font-size:11px;">${ma}${stunden > 0 ? ` · ${stunden}h` : ''}</td></tr>` : '',
+        ].filter(Boolean).join('');
+        return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #e2e8f0;">
+            <span style="font-family:monospace;font-size:14px;font-weight:700;color:#0f172a;">${t.a_nummer}</span>
+            <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;color:${gewerkColor};">${t.gewerk ?? '–'}</span>
+            <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;color:${statusColor};">${statusLabel}</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;">${rows}</table>
+        </div>`;
+      }).join('');
+
+      const content = `<div style="font-family:'Segoe UI',system-ui,sans-serif;max-width:600px;margin:0 auto;">
+        <div style="background:#1e3a5f;border-radius:12px 12px 0 0;padding:18px 22px;">
+          <span style="font-size:18px;font-weight:700;color:#fff;letter-spacing:-.02em;">WIDI</span>
+          <span style="font-size:11px;color:#93c5fd;margin-left:10px;">Controlling System · Ticket-Rückmeldung</span>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px;padding:22px;">
+          ${emailNote ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin-bottom:20px;"><div style="font-size:10px;font-weight:600;color:#92400e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Anliegen</div><div style="font-size:13px;color:#78350f;line-height:1.6;">${emailNote}</div></div>` : ''}
+          <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #f1f5f9;">Betroffene Tickets (${selectedTickets.length})</div>
+          ${ticketCards}
+          <div style="margin-top:20px;padding-top:14px;border-top:1px solid #f1f5f9;font-size:10px;color:#94a3b8;text-align:center;">WIDI Hellersen · Controlling System · ${new Date().toLocaleDateString('de-DE')}</div>
+        </div>
+      </div>`;
 
       emailjs.init(EMAILJS_KEY);
       await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
