@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import emailjs from '@emailjs/browser';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
@@ -25,6 +26,9 @@ const STATUS_OPTIONS = [
 
 const PAGE_SIZE = 50;
 
+const EMAILJS_SERVICE = 'service_6iygm7t';
+const EMAILJS_TEMPLATE = 'template_npuusos';
+const EMAILJS_KEY = 'y7g5YcPgorv_NmH0y';
 
 export default function TicketsPage() {
   const user = getLocalSession();
@@ -246,7 +250,6 @@ export default function TicketsPage() {
   const [emailNote, setEmailNote] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['tickets-list', search, statusFilter, gewerkFilter, page, activeMonth, monthFilter],
@@ -325,62 +328,24 @@ export default function TicketsPage() {
         'zur_unterschrift': 'Zur Unterschrift', 'abrechenbar': 'Abrechenbar', 'abgerechnet': 'Abgerechnet',
       };
       const selectedTickets = tickets.filter((t: any) => selected.has(t.id));
+      const ticketLines = selectedTickets.map((t: any) =>
+        `• ${t.a_nummer} | ${t.gewerk ?? '–'} | ${STATUS_LABELS[t.status] ?? t.status} | Eingang: ${t.eingangsdatum ? new Date(t.eingangsdatum).toLocaleDateString('de-DE') : '–'}`
+      ).join('\n');
+      const content = `${emailNote ? 'Anliegen:\n' + emailNote + '\n\n' : ''}Betroffene Tickets (${selectedTickets.length}):\n${ticketLines}\n\n---\nGesendet von WIDI Controlling System\n${new Date().toLocaleDateString('de-DE')}`;
 
-      // Für jedes Ticket Worklogs + Notizen laden
-      const ticketsPayload = await Promise.all(selectedTickets.map(async (t: any) => {
-        const [{ data: worklogs }, { data: notes }] = await Promise.all([
-          supabase.from('ticket_worklogs').select('stunden, leistungsdatum, employees(name, kuerzel)').eq('ticket_id', t.id),
-          supabase.from('ticket_notes').select('note').eq('ticket_id', t.id).order('created_at', { ascending: false }),
-        ]);
-        return {
-          a_nummer: t.a_nummer,
-          gewerk: t.gewerk ?? '–',
-          status_label: STATUS_LABELS[t.status] ?? t.status,
-          eingangsdatum: t.eingangsdatum ? new Date(t.eingangsdatum).toLocaleDateString('de-DE') : '–',
-          melder: t.melder ?? '',
-          raumnr: t.raumnr ?? '',
-          auftragstext: t.auftragstext ?? '',
-          worklogs: (worklogs ?? []).map((w: any) => ({
-            employee_name: w.employees?.name ?? '–',
-            kuerzel: w.employees?.kuerzel ?? '–',
-            stunden: w.stunden,
-            datum: w.leistungsdatum ? new Date(w.leistungsdatum).toLocaleDateString('de-DE') : '–',
-          })),
-          notes: (notes ?? []).map((n: any) => ({ note: n.note })),
-        };
-      }));
-
-      // PDF zu base64 konvertieren
-      let pdf_base64: string | null = null;
-      let pdf_name: string | null = null;
-      if (pdfFile) {
-        pdf_name = pdfFile.name;
-        pdf_base64 = await new Promise<string>((res, rej) => {
-          const reader = new FileReader();
-          reader.onload = () => res((reader.result as string).split(',')[1]);
-          reader.onerror = () => rej(new Error('PDF lesen fehlgeschlagen'));
-          reader.readAsDataURL(pdfFile);
-        });
-      }
-
-      const { error } = await supabase.functions.invoke('send-email', {
-        body: {
-          to: emailTo,
-          subject: emailSubject || `Rückmeldung zu ${selectedTickets.length} Ticket(s)`,
-          tickets: ticketsPayload,
-          anliegen: emailNote || null,
-          pdf_base64,
-          pdf_name,
-        },
+      emailjs.init(EMAILJS_KEY);
+      await emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
+        to_email: emailTo,
+        to_name: emailTo,
+        subject: emailSubject || `Rückmeldung zu ${selectedTickets.length} Ticket(s)`,
+        message: content,
       });
-
-      if (error) throw error;
 
       setEmailSent(true);
       toast.success('E-Mail erfolgreich gesendet!');
       setTimeout(() => {
         setShowEmail(false); setEmailSent(false);
-        setEmailTo(''); setEmailNote(''); setEmailSubject(''); setPdfFile(null);
+        setEmailTo(''); setEmailNote(''); setEmailSubject('');
       }, 2000);
     } catch (e: any) {
       toast.error('E-Mail Fehler: ' + (e?.text ?? e?.message ?? 'Unbekannt'));
@@ -660,16 +625,6 @@ export default function TicketsPage() {
                     </div>
                   );
                 })}
-              </div>
-            </div>
-            <div>
-              <Label className="text-xs text-gray-500 mb-1 block">PDF anhängen (optional)</Label>
-              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <label style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', background:'#f1f5f9', border:'1px dashed #cbd5e1', borderRadius:10, cursor:'pointer', fontSize:12, color:'#64748b', fontWeight:500 }}>
-                  📎 {pdfFile ? pdfFile.name : 'PDF auswählen...'}
-                  <input type="file" accept=".pdf" style={{ display:'none' }} onChange={e => setPdfFile(e.target.files?.[0] ?? null)} />
-                </label>
-                {pdfFile && <button onClick={() => setPdfFile(null)} style={{ fontSize:11, color:'#ef4444', background:'none', border:'none', cursor:'pointer' }}>✕ entfernen</button>}
               </div>
             </div>
             <div className="flex gap-3 pt-2">
