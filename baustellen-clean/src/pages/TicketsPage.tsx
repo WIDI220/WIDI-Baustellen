@@ -26,8 +26,8 @@ const STATUS_OPTIONS = [
 
 const PAGE_SIZE = 50;
 
-const EMAILJS_SERVICE = 'service_bhia75n';
-const EMAILJS_TEMPLATE = 'template_s043jzj';
+const EMAILJS_SERVICE = 'service_6iygm7t';
+const EMAILJS_TEMPLATE = 'template_2do7nil';
 const EMAILJS_KEY = 'y7g5YcPgorv_NmH0y';
 
 export default function TicketsPage() {
@@ -338,7 +338,7 @@ export default function TicketsPage() {
         to_email: emailTo,
         to_name: emailTo,
         subject: emailSubject || `Rückmeldung zu ${selectedTickets.length} Ticket(s)`,
-        content,
+        message: content,
       });
 
       setEmailSent(true);
