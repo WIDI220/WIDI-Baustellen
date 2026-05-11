@@ -27,7 +27,7 @@ const STATUS_OPTIONS = [
 const PAGE_SIZE = 50;
 
 const EMAILJS_SERVICE = 'service_6iygm7t';
-const EMAILJS_TEMPLATE = 'template_2do7nil';
+const EMAILJS_TEMPLATE = 'template_npuusos';
 const EMAILJS_KEY = 'y7g5YcPgorv_NmH0y';
 
 export default function TicketsPage() {
