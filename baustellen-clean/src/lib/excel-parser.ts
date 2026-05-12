@@ -1,22 +1,37 @@
 import * as XLSX from 'xlsx';
 
+export type FehlerTyp =
+  | 'ungueltige_anummer'    // A-Nummer hat falsches Format
+  | 'duplikat_datei'        // doppelt in der Datei
+  | 'duplikat_db'           // bereits in der Datenbank
+  | 'kein_datum'            // Datum fehlt
+  | 'falsches_datum'        // Datum außerhalb des Referenzmonats
+  | 'kein_gewerk'           // Werkstatt fehlt/unbekannt
+  | 'kein_auftragstext';    // Auftragstext fehlt
+
+export type PruefStatus = 'ok' | 'warnung' | 'fehler' | 'duplikat_datei' | 'duplikat_db';
+
 export interface ParsedTicketRow {
+  zeilennr: number;          // Originale Zeile in der Datei
   a_nummer: string;
-  gewerk: 'Hochbau' | 'Elektro';
+  gewerk: 'Hochbau' | 'Elektro' | 'Unbekannt';
   eingangsdatum: Date | null;
   melder: string;
   raumnr: string;
   auftragstext: string;
-  rowIndex: number;
-  isDuplicate: boolean;
-  warning?: string;
+  // Prüfergebnis
+  pruefStatus: PruefStatus;
+  fehler: FehlerTyp[];       // Alle Fehler dieser Zeile
+  hinweis: string;           // Lesbarer Hinweis für die UI
+  isDuplicate: boolean;      // Duplikat in Datei
 }
 
 export interface ExcelParseResult {
   rows: ParsedTicketRow[];
-  errors: string[];
-  warnings: string[];
+  parserFehler: string[];    // Fatale Fehler beim Parsen
 }
+
+// ─── Hilfsfunktionen ──────────────────────────────────────────────────────────
 
 function excelSerialToDate(serial: number): Date {
   const base = new Date(1899, 11, 30);
@@ -34,7 +49,7 @@ function parseAnyDate(raw: unknown, ticketYear: number, refMonth: number): Date 
   if (raw === null || raw === undefined || raw === '') return null;
   if (typeof raw === 'number') {
     const d = excelSerialToDate(raw);
-    if (d.getFullYear() >= 2020 && d.getFullYear() <= 2030) return d;
+    if (d.getFullYear() >= 2020 && d.getFullYear() <= 2035) return d;
     return null;
   }
   const text = String(raw).trim();
@@ -52,7 +67,7 @@ function parseAnyDate(raw: unknown, ticketYear: number, refMonth: number): Date 
   return null;
 }
 
-function normalizeTicketNummer(raw: unknown, refYear: number): string | null {
+function normalizeANummer(raw: unknown, refYear: number): string | null {
   if (raw === null || raw === undefined || raw === '') return null;
   const str = String(raw).trim().toUpperCase().replace(/\s+/g, '');
   if (!str) return null;
@@ -63,118 +78,187 @@ function normalizeTicketNummer(raw: unknown, refYear: number): string | null {
   return null;
 }
 
-// Erkennt ob CSV (Semikolon) oder Excel
-function isCSV(buffer: ArrayBuffer): boolean {
-  const bytes = new Uint8Array(buffer.slice(0, 3));
-  // UTF-8 BOM oder Textstart
-  const text = new TextDecoder('windows-1252').decode(new Uint8Array(buffer.slice(0, 200)));
-  return text.includes(';') && (text.toLowerCase().includes('auftrags') || text.toLowerCase().includes('datum'));
+function normalizeGewerk(raw: unknown): 'Hochbau' | 'Elektro' | 'Unbekannt' {
+  const text = String(raw ?? '').trim().toLowerCase();
+  if (text === 'hochbau') return 'Hochbau';
+  if (text.includes('elektro') || text.includes('nachricht')) return 'Elektro';
+  if (text === '') return 'Unbekannt';
+  return 'Unbekannt';
 }
 
-function parseCSV(buffer: ArrayBuffer, refYear: number, refMonth: number): { rows: any[][], headers: string[] } {
+function isCSV(buffer: ArrayBuffer): boolean {
+  const text = new TextDecoder('windows-1252').decode(new Uint8Array(buffer.slice(0, 500)));
+  return text.includes(';') && (
+    text.toLowerCase().includes('auftrags_id') ||
+    text.toLowerCase().includes('auftrags-id') ||
+    text.toLowerCase().includes('datum')
+  );
+}
+
+function parseCSV(buffer: ArrayBuffer): { rows: string[][], headers: string[] } {
   const text = new TextDecoder('windows-1252').decode(new Uint8Array(buffer));
   const lines = text.split('\n').filter(l => l.trim());
-  const headers = lines[0].split(';').map(h => h.trim().replace(/\r/g, ''));
+  const headers = lines[0].split(';').map(h => h.trim().replace(/\r/g, '').toLowerCase());
   const rows = lines.slice(1).map(l => l.split(';').map(c => c.trim().replace(/\r/g, '')));
   return { rows, headers };
 }
+
+// ─── Haupt-Parser ─────────────────────────────────────────────────────────────
 
 export function parseExcelFile(buffer: ArrayBuffer, refYearMonth: string): ExcelParseResult {
   const [refYearStr, refMonthStr] = refYearMonth.split('-');
   const refYear = parseInt(refYearStr, 10);
   const refMonth = parseInt(refMonthStr, 10);
 
-  const errors: string[] = [];
-  const warnings: string[] = [];
+  const parserFehler: string[] = [];
   const rows: ParsedTicketRow[] = [];
-  const seenNummern = new Map<string, number>();
+  const seenNummern = new Map<string, number>(); // a_nummer → zeilennr
 
-  // Erkenne CSV vs Excel
   const csvMode = isCSV(buffer);
 
+  // Rohdaten lesen
+  let rawRows: Array<{ zeilennr: number; rawId: unknown; rawDatum: unknown; rawWerk: unknown; rawMelder: unknown; rawRaum: unknown; rawText: unknown }> = [];
+
   if (csvMode) {
-    // ── CSV Format: auftrags_id;datum;werkstatt;melder;telefonnummer;raumnr;auftragstext ──
-    const { rows: rawRows, headers } = parseCSV(buffer, refYear, refMonth);
-    // Header-Mapping (case-insensitive)
-    const hi = (name: string) => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
-    const colId      = hi('auftrags_id') >= 0 ? hi('auftrags_id') : 0;
-    const colDatum   = hi('datum') >= 0 ? hi('datum') : 1;
-    const colWerk    = hi('werkstatt') >= 0 ? hi('werkstatt') : 2;
-    const colMelder  = hi('melder') >= 0 ? hi('melder') : 3;
-    const colTel     = hi('telefon') >= 0 ? hi('telefon') : 4;
-    const colRaum    = hi('raumnr') >= 0 ? hi('raumnr') : 5;
-    const colText    = hi('auftragstext') >= 0 ? hi('auftragstext') : 6;
+    const { rows: csvRows, headers } = parseCSV(buffer);
+    const hi = (name: string) => headers.findIndex(h => h.includes(name));
+    const colId    = hi('auftrags_id') >= 0 ? hi('auftrags_id') : (hi('auftrags-id') >= 0 ? hi('auftrags-id') : 0);
+    const colDatum = hi('datum') >= 0 ? hi('datum') : 1;
+    const colWerk  = hi('werkstatt') >= 0 ? hi('werkstatt') : 2;
+    const colMeld  = hi('melder') >= 0 ? hi('melder') : 3;
+    const colRaum  = hi('raumnr') >= 0 ? hi('raumnr') : (hi('raum_id') >= 0 ? hi('raum_id') : 5);
+    const colText  = hi('auftragstext') >= 0 ? hi('auftragstext') : 6;
 
-    for (let i = 0; i < rawRows.length; i++) {
-      const row = rawRows[i];
-      if (!row || !row[colId]) continue;
-
-      const a_nummer = normalizeTicketNummer(row[colId], refYear);
-      if (!a_nummer) {
-        warnings.push(`Zeile ${i + 2}: Ungültige Ticket-Nr. "${row[colId]}" – übersprungen`);
-        continue;
-      }
-
-      const ticketYear = yearFromANummer(a_nummer) ?? refYear;
-      const eingangsdatum = parseAnyDate(row[colDatum], ticketYear, refMonth);
-      if (row[colDatum] && !eingangsdatum) {
-        warnings.push(`Zeile ${i + 2}: Datum "${row[colDatum]}" nicht erkannt`);
-      }
-
-      // Gewerk: Elektrotechnik + Nachrichtentechnik → Elektro, Hochbau → Hochbau
-      const werkRaw = String(row[colWerk] ?? '').trim().toLowerCase();
-      const gewerk: 'Hochbau' | 'Elektro' = werkRaw === 'hochbau' ? 'Hochbau' : 'Elektro';
-
-      const melder      = String(row[colMelder] ?? '').trim();
-      const raumnr      = String(row[colRaum]   ?? '').trim();
-      const auftragstext = String(row[colText]  ?? '').trim();
-
-      let isDuplicate = false;
-      if (seenNummern.has(a_nummer)) {
-        isDuplicate = true;
-        warnings.push(`Zeile ${i + 2}: Duplikat von Zeile ${seenNummern.get(a_nummer)} (${a_nummer})`);
-      } else {
-        seenNummern.set(a_nummer, i + 2);
-      }
-
-      rows.push({ a_nummer, gewerk, eingangsdatum, melder, raumnr, auftragstext, rowIndex: i + 2, isDuplicate });
-    }
+    csvRows.forEach((row, i) => {
+      if (!row || row.every(c => !c)) return; // leere Zeile
+      rawRows.push({
+        zeilennr: i + 2,
+        rawId:    row[colId],
+        rawDatum: row[colDatum],
+        rawWerk:  row[colWerk],
+        rawMeld:  row[colMeld],
+        rawRaum:  row[colRaum],
+        rawText:  row[colText],
+      } as any);
+    });
   } else {
-    // ── Excel Format (altes Format) ──
-    const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true }) as unknown[][];
-
-    for (let i = 1; i < rawData.length; i++) {
-      const row = rawData[i] as unknown[];
-      if (!row || row.length === 0 || !row[0]) continue;
-
-      const a_nummer = normalizeTicketNummer(row[0], refYear);
-      if (!a_nummer) {
-        warnings.push(`Zeile ${i + 1}: Ungültige Ticket-Nr. "${row[0]}" – übersprungen`);
-        continue;
-      }
-
-      const ticketYear = yearFromANummer(a_nummer) ?? refYear;
-      const eingangsdatum = parseAnyDate(row[1], ticketYear, refMonth);
-
-      const gewerkText = String(row[2] ?? '').trim().toLowerCase();
-      const elektroMark = String(row[3] ?? '').trim().toLowerCase();
-      const gewerk: 'Hochbau' | 'Elektro' =
-        gewerkText === 'elektro' ? 'Elektro' :
-        elektroMark === 'x' ? 'Elektro' : 'Hochbau';
-
-      let isDuplicate = false;
-      if (seenNummern.has(a_nummer)) {
-        isDuplicate = true;
-        warnings.push(`Zeile ${i + 1}: Duplikat (${a_nummer})`);
-      } else {
-        seenNummern.set(a_nummer, i + 1);
-      }
-
-      rows.push({ a_nummer, gewerk, eingangsdatum, melder: '', raumnr: '', auftragstext: '', rowIndex: i + 1, isDuplicate });
+    // Excel-Format
+    try {
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true }) as unknown[][];
+      data.slice(1).forEach((row, i) => {
+        if (!row || !row[0]) return;
+        rawRows.push({
+          zeilennr: i + 2,
+          rawId:    row[0],
+          rawDatum: row[1],
+          rawWerk:  row[2],
+          rawMeld:  '',
+          rawRaum:  '',
+          rawText:  '',
+        } as any);
+      });
+    } catch (e: any) {
+      parserFehler.push(`Excel-Datei konnte nicht gelesen werden: ${e.message}`);
+      return { rows, parserFehler };
     }
   }
 
-  return { rows, errors, warnings };
+  // Jede Zeile validieren
+  for (const raw of rawRows) {
+    const fehler: FehlerTyp[] = [];
+    const hinweise: string[] = [];
+
+    // A-Nummer
+    const a_nummer = normalizeANummer((raw as any).rawId, refYear);
+    if (!a_nummer) {
+      fehler.push('ungueltige_anummer');
+      hinweise.push(`Ungültige A-Nummer: "${(raw as any).rawId}"`);
+    }
+
+    // Datum
+    const ticketYear = a_nummer ? (yearFromANummer(a_nummer) ?? refYear) : refYear;
+    const eingangsdatum = parseAnyDate((raw as any).rawDatum, ticketYear, refMonth);
+    if (!(raw as any).rawDatum || (raw as any).rawDatum === '') {
+      fehler.push('kein_datum');
+      hinweise.push('Kein Datum');
+    } else if (!eingangsdatum) {
+      fehler.push('kein_datum');
+      hinweise.push(`Datum nicht erkannt: "${(raw as any).rawDatum}"`);
+    } else {
+      if (eingangsdatum.getFullYear() !== refYear || eingangsdatum.getMonth() + 1 !== refMonth) {
+        fehler.push('falsches_datum');
+        hinweise.push(`Datum ${eingangsdatum.toLocaleDateString('de-DE')} ≠ ${refMonth}/${refYear}`);
+      }
+    }
+
+    // Gewerk
+    const gewerk = normalizeGewerk((raw as any).rawWerk);
+    if (gewerk === 'Unbekannt') {
+      fehler.push('kein_gewerk');
+      hinweise.push(`Unbekanntes Gewerk: "${(raw as any).rawWerk ?? '–'}"`);
+    }
+
+    // Auftragstext
+    const auftragstext = String((raw as any).rawText ?? '').trim();
+    if (!auftragstext) {
+      fehler.push('kein_auftragstext');
+      hinweise.push('Kein Auftragstext');
+    }
+
+    // Duplikat in Datei
+    let isDuplicate = false;
+    if (a_nummer) {
+      if (seenNummern.has(a_nummer)) {
+        isDuplicate = true;
+        fehler.push('duplikat_datei');
+        hinweise.push(`Duplikat von Zeile ${seenNummern.get(a_nummer)}`);
+      } else {
+        seenNummern.set(a_nummer, raw.zeilennr);
+      }
+    }
+
+    // Status bestimmen
+    let pruefStatus: PruefStatus = 'ok';
+    if (fehler.includes('ungueltige_anummer') || fehler.includes('duplikat_datei')) {
+      pruefStatus = isDuplicate ? 'duplikat_datei' : 'fehler';
+    } else if (fehler.length > 0) {
+      pruefStatus = 'warnung';
+    }
+
+    rows.push({
+      zeilennr: raw.zeilennr,
+      a_nummer: a_nummer ?? String((raw as any).rawId ?? '').trim(),
+      gewerk,
+      eingangsdatum,
+      melder: String((raw as any).rawMeld ?? '').trim(),
+      raumnr: String((raw as any).rawRaum ?? '').trim(),
+      auftragstext,
+      pruefStatus,
+      fehler,
+      hinweis: hinweise.join(' · '),
+      isDuplicate,
+    });
+  }
+
+  return { rows, parserFehler };
+}
+
+// Zweiter Pass: DB-Duplikate markieren (wird nach dem DB-Query aufgerufen)
+export function markiereDbDuplikate(
+  rows: ParsedTicketRow[],
+  existingSet: Set<string>
+): ParsedTicketRow[] {
+  return rows.map(row => {
+    if (!row.fehler.includes('ungueltige_anummer') && existingSet.has(row.a_nummer)) {
+      return {
+        ...row,
+        pruefStatus: 'duplikat_db' as PruefStatus,
+        fehler: [...row.fehler, 'duplikat_db' as FehlerTyp],
+        hinweis: row.hinweis ? `${row.hinweis} · Bereits in DB` : 'Bereits in DB',
+      };
+    }
+    return row;
+  });
 }
