@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { FileText, CheckCircle, AlertTriangle, XCircle, Info, History, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileText, CheckCircle, Info, History, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { parsePdfTickets, TicketParseResult } from '@/lib/pdf-ticket-parser';
 
 interface VorschauZeile {
@@ -17,6 +17,9 @@ interface VorschauZeile {
   ausschliessen: boolean;
   custom_stunden: number;
   gewerk: 'Elektro' | 'Hochbau';
+  // Neu: geht in Prüfqueue statt normal importiert
+  pruefqueue: boolean;
+  pruefqueue_grund: string;
 }
 
 export default function PdfRuecklauf() {
@@ -43,11 +46,18 @@ export default function PdfRuecklauf() {
 
   const { data: employees = [] } = useQuery({
     queryKey: ['pdf-employees'],
-    queryFn: async () => { const { data } = await supabase.from('employees').select('id,name,kuerzel').eq('aktiv', true); return data ?? []; }
+    queryFn: async () => {
+      const { data } = await supabase.from('employees').select('id,name,kuerzel').eq('aktiv', true);
+      return data ?? [];
+    }
   });
+
   const { data: tickets = [] } = useQuery({
     queryKey: ['pdf-tickets'],
-    queryFn: async () => { const { data } = await supabase.from('tickets').select('id,a_nummer,status,eingangsdatum'); return data ?? []; }
+    queryFn: async () => {
+      const { data } = await supabase.from('tickets').select('id,a_nummer,status,eingangsdatum');
+      return data ?? [];
+    }
   });
 
   function findMA(name: string | null): string | null {
@@ -70,6 +80,19 @@ export default function PdfRuecklauf() {
     return { id: data?.id ?? null, gefunden: !!data, gewerk: (data?.gewerk as 'Elektro' | 'Hochbau') ?? 'Elektro' };
   }
 
+  // Prüft ob ein Ticket in die Prüfqueue soll und warum
+  function pruefqueueGrund(parse: TicketParseResult, duplikat: boolean, ticket_gefunden: boolean): string {
+    if (parse.istSonderformat) return 'Sonderformat (gesplittetes App-Ticket)';
+    if (parse.stundenNegativOderNull) return `Stunden ungültig (${parse.stunden}h)`;
+    if (parse.stunden === null || parse.stunden === 0) return 'Stunden nicht erkannt (0h)';
+    if (duplikat) return 'Duplikat in dieser PDF';
+    // Duplikat im System: Ticket bereits erledigt
+    if (ticket_gefunden) {
+      // Wird im analyseieren geprüft — hier Platzhalter
+    }
+    return '';
+  }
+
   const analyseieren = useCallback(async () => {
     if (!dateien.length) { toast.error('Keine Dateien ausgewählt'); return; }
     setLaden(true);
@@ -81,11 +104,46 @@ export default function PdfRuecklauf() {
       try {
         const ergebnisse = await parsePdfTickets(datei);
         for (const parse of ergebnisse) {
-          const { id: ticket_id, gefunden: ticket_gefunden, gewerk: ticket_gewerk } = await findTicket(parse.a_nummer);
+          // Sonderformat: findTicket nicht aufrufen, macht keinen Sinn
+          const { id: ticket_id, gefunden: ticket_gefunden, gewerk: ticket_gewerk } =
+            parse.istSonderformat
+              ? { id: null, gefunden: false, gewerk: 'Elektro' as 'Elektro' }
+              : await findTicket(parse.a_nummer);
+
           const ma_id = findMA(parse.mitarbeiter);
+
+          // Duplikat innerhalb derselben PDF-Ladung
           const key = `${parse.a_nummer}-${ma_id}-${parse.datumISO}`;
           const duplikat = seenKeys.has(key);
           if (!duplikat && parse.a_nummer) seenKeys.add(key);
+
+          // Duplikat im System: Ticket bereits erledigt
+          let duplikatImSystem = false;
+          if (ticket_gefunden && !parse.istSonderformat) {
+            const { data: vorhandeneWorklogs } = await supabase
+              .from('ticket_worklogs')
+              .select('id')
+              .eq('ticket_id', ticket_id!)
+              .limit(1);
+            duplikatImSystem = !!(vorhandeneWorklogs && vorhandeneWorklogs.length > 0);
+          }
+
+          // Prüfqueue-Logik
+          let inPruefqueue = false;
+          let grund = '';
+          if (parse.istSonderformat) {
+            inPruefqueue = true;
+            grund = 'Sonderformat (gesplittetes App-Ticket)';
+          } else if (parse.stundenNegativOderNull || parse.stunden === null || parse.stunden === 0) {
+            inPruefqueue = true;
+            grund = `Stunden ungültig (${parse.stunden ?? 0}h)`;
+          } else if (duplikat) {
+            inPruefqueue = true;
+            grund = 'Duplikat in dieser PDF';
+          } else if (duplikatImSystem) {
+            inPruefqueue = true;
+            grund = 'Ticket bereits im System abgeschlossen';
+          }
 
           alleZeilen.push({
             idx: alleZeilen.length,
@@ -96,9 +154,11 @@ export default function PdfRuecklauf() {
             ma_id,
             ma_gefunden: !!ma_id,
             duplikat,
-            ausschliessen: duplikat,
+            ausschliessen: inPruefqueue, // Prüfqueue-Tickets werden nicht direkt importiert
             custom_stunden: parse.stunden ?? 0,
-            gewerk: ticket_gewerk,
+            gewerk: ticket_gewerk as 'Elektro' | 'Hochbau',
+            pruefqueue: inPruefqueue,
+            pruefqueue_grund: grund,
           });
         }
       } catch (err: any) {
@@ -109,7 +169,8 @@ export default function PdfRuecklauf() {
     setZeilen(alleZeilen);
     setLaden(false);
     const bereit = alleZeilen.filter(z => !z.ausschliessen).length;
-    toast.success(`${alleZeilen.length} Seiten analysiert · ${bereit} bereit`);
+    const pruefAnz = alleZeilen.filter(z => z.pruefqueue).length;
+    toast.success(`${alleZeilen.length} Tickets analysiert · ${bereit} bereit · ${pruefAnz} zur Prüfung`);
   }, [dateien, employees, tickets]);
 
   const toggle = (idx: number) =>
@@ -123,17 +184,19 @@ export default function PdfRuecklauf() {
 
   const buchen = async () => {
     const zuBuchen = zeilen.filter(z => !z.ausschliessen && z.ma_id && z.parse.datumISO);
-    if (!zuBuchen.length) { toast.error('Nichts zum Buchen'); return; }
-    setBuchend(true);
-    let ok = 0, fehler = 0;
+    const zuPruefqueue = zeilen.filter(z => z.pruefqueue);
 
+    if (!zuBuchen.length && !zuPruefqueue.length) { toast.error('Nichts zum Buchen'); return; }
+    setBuchend(true);
+    let ok = 0, fehler = 0, pruefOk = 0;
+
+    // ── Normale Tickets importieren ──
     for (const z of zuBuchen) {
       const stunden = z.custom_stunden;
       if (stunden <= 0) { fehler++; continue; }
       try {
         let ticketId = z.ticket_id;
 
-        // Ticket nicht in DB -> automatisch anlegen
         if (!ticketId && z.parse.a_nummer) {
           const { data: newTicket } = await supabase.from('tickets').insert({
             a_nummer: z.parse.a_nummer,
@@ -146,18 +209,15 @@ export default function PdfRuecklauf() {
 
         if (!ticketId) { fehler++; continue; }
 
-        // Ticket auf erledigt setzen + Gewerk korrigieren
         await supabase.from('tickets').update({ status: 'erledigt', gewerk: z.gewerk }).eq('id', ticketId);
 
-        // Stunden buchen mit LEISTUNGSDATUM (Erledigungsmonat)
         await supabase.from('ticket_worklogs').insert({
           ticket_id: ticketId,
           employee_id: z.ma_id,
           stunden,
-          leistungsdatum: z.parse.datumISO,  // ← Erledigungsdatum, nicht Eingangsdatum
+          leistungsdatum: z.parse.datumISO,
         });
 
-        // Erledigungsbemerkung direkt ins Ticket-Feld speichern
         if (z.parse.bemerkung) {
           await supabase.from('tickets')
             .update({ erledigungsbemerkung: z.parse.bemerkung })
@@ -170,6 +230,28 @@ export default function PdfRuecklauf() {
       }
     }
 
+    // ── Prüfqueue-Tickets speichern ──
+    for (const z of zuPruefqueue) {
+      try {
+        await supabase.from('ticket_pruefqueue').insert({
+          a_nummer: z.parse.a_nummer,
+          mitarbeiter_name: z.parse.mitarbeiter,
+          mitarbeiter_id: z.ma_id,
+          datum: z.parse.datumISO,
+          stunden: z.custom_stunden,
+          gewerk: z.gewerk,
+          grund: z.pruefqueue_grund,
+          seite: z.parse.seite,
+          dateiname: z.dateiName,
+          bemerkung: z.parse.bemerkung,
+          status: 'offen',
+        });
+        pruefOk++;
+      } catch (e: any) {
+        console.error('Prüfqueue Fehler:', e);
+      }
+    }
+
     // Rücklauf-Run speichern
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -177,18 +259,25 @@ export default function PdfRuecklauf() {
         created_by: userData.user?.id,
         user_email: userData.user?.email,
         dateiname: dateien.map(d => d.name).join(', '),
-        seiten_gesamt: zuBuchen.length,
+        seiten_gesamt: zuBuchen.length + zuPruefqueue.length,
         erfolgreich: ok,
         fehler,
-        details: zuBuchen.map(z => ({ a_nummer: z.parse.a_nummer, mitarbeiter: z.parse.mitarbeiter, stunden: z.custom_stunden, datum: z.parse.datum })),
+        details: zuBuchen.map(z => ({
+          a_nummer: z.parse.a_nummer,
+          mitarbeiter: z.parse.mitarbeiter,
+          stunden: z.custom_stunden,
+          datum: z.parse.datum,
+        })),
       });
       refetchHistorie();
     } catch {}
-    setBericht({ ok, fehler, gesamt: zuBuchen.length });
+
+    setBericht({ ok, fehler, gesamt: zuBuchen.length, pruefqueue: pruefOk });
     setBuchend(false);
     qc.invalidateQueries({ queryKey: ['tickets'] });
     qc.invalidateQueries({ queryKey: ['pdf-tickets'] });
-    toast.success(`${ok} Tickets abgeschlossen`);
+    qc.invalidateQueries({ queryKey: ['ticket-pruefqueue'] });
+    toast.success(`${ok} Tickets abgeschlossen · ${pruefOk} in Prüfqueue`);
   };
 
   const reset = () => {
@@ -197,17 +286,19 @@ export default function PdfRuecklauf() {
   };
 
   const bereit = zeilen.filter(z => !z.ausschliessen).length;
+  const pruefAnzahl = zeilen.filter(z => z.pruefqueue).length;
 
   const statusFarbe = (z: VorschauZeile) => {
+    if (z.pruefqueue) return '#f59e0b';
     if (z.ausschliessen) return '#94a3b8';
     if (!z.ticket_gefunden) return '#ef4444';
-    if (!z.ma_gefunden || z.parse.fehler.some(f => !f.includes('Stunden'))) return '#f59e0b';
+    if (!z.ma_gefunden) return '#f59e0b';
     return '#10b981';
   };
 
   const statusText = (z: VorschauZeile) => {
+    if (z.pruefqueue) return `⚠ Prüfqueue: ${z.pruefqueue_grund}`;
     if (z.ausschliessen) return 'Ausgeschlossen';
-    if (z.duplikat) return 'Duplikat';
     if (!z.ticket_gefunden && z.parse.a_nummer) return `⚠ ${z.parse.a_nummer} wird neu angelegt`;
     if (!z.ticket_gefunden) return '⚠ A-Nummer nicht erkannt';
     if (!z.ma_gefunden) return `MA "${z.parse.mitarbeiter}" nicht erkannt`;
@@ -267,8 +358,8 @@ export default function PdfRuecklauf() {
             {[
               { label: 'Gefunden', value: zeilen.length, color: '#0f172a', bg: '#f8fafc', border: '#e2e8f0' },
               { label: 'Bereit', value: bereit, color: '#10b981', bg: '#f0fdf4', border: '#bbf7d0' },
-              { label: 'Warnung', value: zeilen.filter(z => !z.ausschliessen && (z.parse.fehler.length > 0 || !z.ma_gefunden)).length, color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
-              { label: 'Ausgeschlossen', value: zeilen.filter(z => z.ausschliessen).length, color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
+              { label: 'Zur Prüfung', value: pruefAnzahl, color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
+              { label: 'Ausgeschlossen', value: zeilen.filter(z => z.ausschliessen && !z.pruefqueue).length, color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
             ].map(s => (
               <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: '12px 16px' }}>
                 <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
@@ -277,9 +368,20 @@ export default function PdfRuecklauf() {
             ))}
           </div>
 
+          {/* Prüfqueue-Hinweis */}
+          {pruefAnzahl > 0 && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#92400e' }}>
+              <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>
+                <strong>{pruefAnzahl} Ticket{pruefAnzahl !== 1 ? 's' : ''} werden in die Prüfqueue verschoben</strong> (Sonderformat, Null-Stunden oder Duplikat).
+                Diese Tickets werden importiert aber als "zur Prüfung" markiert — du kannst sie unter dem <strong>Prüfung</strong>-Button auf der Tickets-Seite abarbeiten.
+              </span>
+            </div>
+          )}
+
           <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '8px 14px', marginBottom: 12, fontSize: 12, color: '#1d4ed8' }}>
             <Info size={13} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-            Zeile anklicken = aus-/einschließen · Stunden direkt editierbar · Gleiche A-Nummer mit verschiedenen MA = beide behalten
+            Zeile anklicken = aus-/einschließen · Stunden direkt editierbar · Seite zeigt die PDF-Seite des Tickets
           </div>
 
           <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f1f5f9', overflow: 'hidden', marginBottom: 20 }}>
@@ -287,21 +389,33 @@ export default function PdfRuecklauf() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                    {['', 'A-Nummer', 'Gewerk', 'Mitarbeiter', 'Erledigungsdatum', 'Stunden', 'Bemerkung', 'Status'].map(h => (
+                    {['', 'Seite', 'A-Nummer', 'Gewerk', 'Mitarbeiter', 'Erledigungsdatum', 'Stunden', 'Status'].map(h => (
                       <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {zeilen.map((z, i) => (
-                    <tr key={i} onClick={() => toggle(i)}
-                      style={{ borderBottom: '1px solid #f8fafc', cursor: 'pointer', opacity: z.ausschliessen ? 0.4 : 1, background: z.ausschliessen ? '#f8fafc' : 'transparent' }}>
+                    <tr key={i} onClick={() => !z.pruefqueue && toggle(i)}
+                      style={{
+                        borderBottom: '1px solid #f8fafc',
+                        cursor: z.pruefqueue ? 'default' : 'pointer',
+                        opacity: z.ausschliessen && !z.pruefqueue ? 0.4 : 1,
+                        background: z.pruefqueue ? '#fffbeb' : z.ausschliessen ? '#f8fafc' : 'transparent',
+                      }}>
                       <td style={{ padding: '8px 12px' }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusFarbe(z) }} />
                       </td>
+                      {/* Seitenzahl */}
+                      <td style={{ padding: '8px 12px', color: '#94a3b8', fontWeight: 600, fontSize: 11 }}>
+                        S.{z.parse.seite}
+                      </td>
                       <td style={{ padding: '8px 12px', fontWeight: 700, color: z.ticket_gefunden ? '#0f172a' : '#f59e0b', whiteSpace: 'nowrap' }}
-                        title={!z.parse.a_nummer ? `Rohtext: ${z.parse.rawText?.slice(0,200)}` : ''}>
+                        title={!z.parse.a_nummer ? `Rohtext: ${z.parse.rawText?.slice(0, 200)}` : ''}>
                         {z.parse.a_nummer ?? <span style={{ color: '#ef4444' }}>❌ Nicht erkannt</span>}
+                        {z.parse.istSonderformat && (
+                          <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 4, padding: '1px 4px', marginLeft: 4 }}>APP</span>
+                        )}
                       </td>
                       <td style={{ padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
                         <select value={z.gewerk} onChange={e => setGewerk(i, e.target.value as 'Elektro' | 'Hochbau')}
@@ -318,16 +432,13 @@ export default function PdfRuecklauf() {
                         {z.parse.datum ?? '–'}
                       </td>
                       <td style={{ padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
-                        <input type="number" step="0.25" min="0.25" max="24"
+                        <input type="number" step="0.25" min="0" max="24"
                           value={z.custom_stunden}
                           onChange={e => setStunden(i, parseFloat(e.target.value) || 0)}
-                          style={{ width: 58, fontSize: 12, padding: '3px 6px', border: '1px solid #e2e8f0', borderRadius: 6, color: '#0f172a', background: '#fff' }} />
+                          style={{ width: 58, fontSize: 12, padding: '3px 6px', border: `1px solid ${z.parse.stundenNegativOderNull ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 6, color: z.parse.stundenNegativOderNull ? '#ef4444' : '#0f172a', background: '#fff' }} />
                         <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>h</span>
                       </td>
-                      <td style={{ padding: '8px 12px', color: '#64748b', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={z.parse.bemerkung ?? ''}>
-                        {z.parse.bemerkung?.slice(0, 60) ?? '–'}
-                      </td>
-                      <td style={{ padding: '8px 12px', fontSize: 11, color: statusFarbe(z) }}>
+                      <td style={{ padding: '8px 12px', fontSize: 11, color: statusFarbe(z), maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={statusText(z)}>
                         {statusText(z)}
                       </td>
                     </tr>
@@ -337,13 +448,14 @@ export default function PdfRuecklauf() {
             </div>
           </div>
 
-          {/* Prüfschritt: Zusammenfassung was gebucht wird */}
+          {/* Buchungsvorschau */}
           {bereit > 0 && (
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px 20px', marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>Buchungsvorschau — bitte prüfen:</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto', marginBottom: 12 }}>
                 {zeilen.filter(z => !z.ausschliessen && z.ma_id && z.parse.datumISO).map((z, i) => (
                   <div key={i} style={{ display: 'flex', gap: 12, fontSize: 12, padding: '6px 10px', background: z.ticket_gefunden ? '#f0fdf4' : '#fffbeb', borderRadius: 8, border: `1px solid ${z.ticket_gefunden ? '#bbf7d0' : '#fde68a'}` }}>
+                    <span style={{ fontWeight: 600, color: '#94a3b8', minWidth: 30, fontSize: 11 }}>S.{z.parse.seite}</span>
                     <span style={{ fontWeight: 700, color: '#0f172a', minWidth: 100 }}>{z.parse.a_nummer}</span>
                     <span style={{ color: '#64748b', minWidth: 130 }}>{z.parse.mitarbeiter}</span>
                     <span style={{ color: '#64748b', minWidth: 80 }}>{z.parse.datum}</span>
@@ -364,9 +476,9 @@ export default function PdfRuecklauf() {
           )}
 
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={buchen} disabled={buchend || !bereit || !buchungBestaetigt}
+            <button onClick={buchen} disabled={buchend || (!bereit && !pruefAnzahl) || !buchungBestaetigt}
               style={{ padding: '12px 28px', background: buchend ? '#94a3b8' : 'linear-gradient(135deg,#2563eb,#1d4ed8)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: buchend ? 'wait' : 'pointer', boxShadow: '0 4px 14px rgba(37,99,235,.25)' }}>
-              {buchend ? '⏳ Buche Stunden...' : `✓ ${bereit} Tickets abschließen & Stunden buchen`}
+              {buchend ? '⏳ Buche Stunden...' : `✓ ${bereit} Tickets abschließen${pruefAnzahl > 0 ? ` · ${pruefAnzahl} in Prüfqueue` : ''}`}
             </button>
             <button onClick={reset} style={{ padding: '12px 20px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>
               Neu starten
@@ -381,20 +493,32 @@ export default function PdfRuecklauf() {
             <CheckCircle size={22} style={{ color: '#10b981' }} />
             <span style={{ fontSize: 16, fontWeight: 700, color: '#065f46' }}>Buchung abgeschlossen</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 16 }}>
-            {[{ label: 'Tickets abgeschlossen', value: bericht.ok, color: '#10b981' }, { label: 'Gesamt versucht', value: bericht.gesamt, color: '#6366f1' }, { label: 'Fehler', value: bericht.fehler, color: bericht.fehler > 0 ? '#ef4444' : '#94a3b8' }].map(s => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'Tickets abgeschlossen', value: bericht.ok, color: '#10b981' },
+              { label: 'In Prüfqueue', value: bericht.pruefqueue, color: '#f59e0b' },
+              { label: 'Gesamt versucht', value: bericht.gesamt, color: '#6366f1' },
+              { label: 'Fehler', value: bericht.fehler, color: bericht.fehler > 0 ? '#ef4444' : '#94a3b8' },
+            ].map(s => (
               <div key={s.label} style={{ background: '#fff', borderRadius: 10, padding: '12px 16px', border: '1px solid #d1fae5' }}>
                 <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
                 <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{s.label}</div>
               </div>
             ))}
           </div>
+          {bericht.pruefqueue > 0 && (
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#92400e' }}>
+              <AlertTriangle size={13} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              <strong>{bericht.pruefqueue} Tickets</strong> wurden in die Prüfqueue verschoben. Gehe zu <strong>Tickets → Prüfung</strong> um sie abzuarbeiten.
+            </div>
+          )}
           <button onClick={reset} style={{ padding: '10px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             Neuen Rücklauf starten
           </button>
         </div>
       )}
-      {/* ── Rücklauf-Historie ── */}
+
+      {/* Rücklauf-Historie */}
       <div style={{ marginTop: 32, border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden' }}>
         <div
           onClick={() => setShowHistorie(!showHistorie)}
@@ -414,7 +538,7 @@ export default function PdfRuecklauf() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                    {['Datum', 'Von', 'Datei', 'Gebucht', 'Fehler', 'Details'].map(h => (
+                    {['Datum', 'Von', 'Datei', 'Gebucht', 'Prüfqueue', 'Fehler', 'Details'].map(h => (
                       <th key={h} style={{ padding: '8px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
                     ))}
                   </tr>
@@ -428,9 +552,10 @@ export default function PdfRuecklauf() {
                       <td style={{ padding: '10px 16px', color: '#64748b' }}>{run.user_email?.split('@')[0] ?? '–'}</td>
                       <td style={{ padding: '10px 16px', color: '#0f172a', fontWeight: 500, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={run.dateiname}>{run.dateiname ?? '–'}</td>
                       <td style={{ padding: '10px 16px', color: '#10b981', fontWeight: 700 }}>{run.erfolgreich ?? 0}</td>
+                      <td style={{ padding: '10px 16px', color: '#f59e0b', fontWeight: 700 }}>{run.pruefqueue_anzahl ?? 0}</td>
                       <td style={{ padding: '10px 16px', color: (run.fehler ?? 0) > 0 ? '#ef4444' : '#94a3b8', fontWeight: 700 }}>{run.fehler ?? 0}</td>
                       <td style={{ padding: '10px 16px', fontSize: 11, color: '#64748b' }}>
-                        {run.details ? (run.details as any[]).slice(0,3).map((d: any) => d.a_nummer).join(', ') + ((run.details as any[]).length > 3 ? ` +${(run.details as any[]).length - 3}` : '') : '–'}
+                        {run.details ? (run.details as any[]).slice(0, 3).map((d: any) => d.a_nummer).join(', ') + ((run.details as any[]).length > 3 ? ` +${(run.details as any[]).length - 3}` : '') : '–'}
                       </td>
                     </tr>
                   ))}
@@ -440,7 +565,6 @@ export default function PdfRuecklauf() {
           </div>
         )}
       </div>
-
     </div>
   );
 }
