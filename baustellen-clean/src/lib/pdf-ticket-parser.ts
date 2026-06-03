@@ -15,8 +15,7 @@ export interface TicketParseResult {
   bemerkung: string | null;
   fehler: string[];
   rawText: string;
-  // Neu: Flags für Prüfqueue
-  istSonderformat: boolean;   // z.B. 9214(#8773) — wird nicht importiert
+  istSonderformat: boolean;
   stundenNegativOderNull: boolean;
 }
 
@@ -31,7 +30,6 @@ export async function parsePdfTickets(file: File): Promise<TicketParseResult[]> 
     const content = await page.getTextContent();
     const items = content.items as any[];
 
-    // Alle Textstücke sammeln mit Y-Position
     const chunks: { text: string; y: number; x: number }[] = [];
     for (const item of items) {
       if (item.str && item.str.trim()) {
@@ -43,10 +41,8 @@ export async function parsePdfTickets(file: File): Promise<TicketParseResult[]> 
       }
     }
 
-    // Nach Y sortieren (von oben nach unten), dann X
     chunks.sort((a, b) => b.y - a.y || a.x - b.x);
 
-    // Text mit Zeilenumbrüchen zusammenbauen
     let text = '';
     let lastY = -1;
     for (const chunk of chunks) {
@@ -61,17 +57,12 @@ export async function parsePdfTickets(file: File): Promise<TicketParseResult[]> 
       .replace(/\bA\s*(\d{2})\s*-\s*(\d{5})\b/gi, 'A$1-$2')
       .replace(/\s+/g, ' ');
 
-    const parsed = parseTicketText(normalized, text, p);
-
     // Seiten ohne Ticket-Inhalt überspringen (z.B. reine Unterschriftsseiten)
-    if (!parsed.a_nummer && !parsed.mitarbeiter && parsed.stunden === null && parsed.fehler.length >= 2) {
-      // Prüfen ob es überhaupt ein Auftragsschein ist
-      if (!normalized.includes('Auftragsschein') && !normalized.includes('Arbeitsauftrag')) {
-        continue;
-      }
+    if (!normalized.includes('Auftragsschein') && !normalized.includes('Arbeitsauftrag')) {
+      continue;
     }
 
-    results.push(parsed);
+    results.push(parseTicketText(normalized, text, p));
   }
 
   return results;
@@ -87,7 +78,6 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
   };
 
   // ── A-Nummer ──────────────────────────────────────────────────────────────
-  // Standard: A26-07244
   const aNrPatterns = [
     /Arbeitsauftrag\s*#\s*(A\d{2}-\d{5})/i,
     /#\s*(A\d{2}-\d{5})/i,
@@ -99,13 +89,12 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
     if (m) { result.a_nummer = m[1].toUpperCase(); break; }
   }
 
-  // Sonderformat erkennen: z.B. "9214(#8773)" oder "9673(#9612)"
-  // Diese werden NICHT importiert, landen in der Prüfqueue
+  // Sonderformat: z.B. "9214(#8773)" — nicht importierbar
   if (!result.a_nummer) {
     const sonderMatch = text.match(/Arbeitsauftrag\s*#\s*(\d{4,5}\s*\(#\d{4,5}\))/i)
       || text.match(/#\s*(\d{4,5}\s*\(#\d{4,5}\))/i);
     if (sonderMatch) {
-      result.a_nummer = sonderMatch[1].trim(); // Rohnummer speichern für Anzeige
+      result.a_nummer = sonderMatch[1].trim();
       result.istSonderformat = true;
       result.fehler.push('Sonderformat — nicht importierbar (gesplittetes App-Ticket)');
     }
@@ -114,48 +103,60 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
   if (!result.a_nummer) result.fehler.push('A-Nummer nicht gefunden');
 
   // ── Mitarbeiter ───────────────────────────────────────────────────────────
-  // Im PDF steht "Mitarbeiter [Vorname Nachname]" mit dem Namen auf der GLEICHEN
-  // oder der NÄCHSTEN Zeile direkt dahinter, fett.
-  // Strategie: alles nach "Mitarbeiter" bis zum nächsten Label nehmen,
-  // dann nur den ersten vollen Namen extrahieren.
-  const maRaw = text.match(
-    /Mitarbeiter\s*:?\s*\n?\s*([A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+(?:\s+[A-ZÄÖÜ][a-zA-ZäöüÄÖÜß\-]+)*)/
+  // Das PDF hat eine klare Struktur: "Mitarbeiter [Leerzeichen] Vorname Nachname"
+  // Der Name steht fett direkt nach dem Label — durch pdfjs kommen Label und Wert
+  // oft in einer Zeile zusammen als "Mitarbeiter Caspar Epe Termin Datum ..."
+  // Strategie: nach "Mitarbeiter" den nächsten 2-3 Wörter nehmen, 
+  // stoppen sobald ein bekanntes Label kommt.
+  const maMatch = text.match(
+    /Mitarbeiter\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,2})/
   );
-  if (maRaw) {
-    // Nur bis zum ersten Leerzeichen nach einem vollständigen Namen
-    // Sicherstellen dass kein Label wie "Termin" oder "Datum" mitkommt
-    const candidate = maRaw[1].trim();
-    // Wenn Kandidat ein bekanntes Label enthält → verwerfen
-    const verboteneWoerter = ['Termin', 'Datum', 'Uhrzeit', 'Werkstatt', 'Telefon', 'Melder', 'Kostenstelle', 'Konto', 'Vorortung'];
-    const istSauber = !verboteneWoerter.some(w => candidate.includes(w));
-    if (istSauber && candidate.length >= 3) {
-      result.mitarbeiter = candidate;
+  if (maMatch) {
+    // Sicherstellen dass kein Folge-Label reingekommen ist
+    const name = maMatch[1].trim();
+    const stoppWoerter = ['Termin', 'Datum', 'Uhrzeit', 'Werkstatt', 'Telefon',
+                          'Melder', 'Kostenstelle', 'Konto', 'Vorortung', 'Kundennummer',
+                          'Objektnummer'];
+    // Ersten Stoppwort-Index finden und Name dort abschneiden
+    let sauberName = name;
+    for (const stopp of stoppWoerter) {
+      const idx = name.indexOf(stopp);
+      if (idx !== -1) {
+        sauberName = name.slice(0, idx).trim();
+        break;
+      }
     }
+    if (sauberName.length >= 3) {
+      result.mitarbeiter = sauberName;
+    }
+  }
+
+  // Fallback: altes Pattern
+  if (!result.mitarbeiter) {
+    const altMatch = text.match(
+      /Mitarbeiter\s*:?\s*([A-ZÄÖÜ][a-zäöüß]+(?: [A-ZÄÖÜ][a-zäöüß]+)+)/
+    );
+    if (altMatch) result.mitarbeiter = altMatch[1].trim();
   }
 
   if (!result.mitarbeiter) result.fehler.push('Mitarbeiter nicht gefunden');
 
   // ── Stunden ───────────────────────────────────────────────────────────────
-  // Logik: Die Gesamtzeit steht als "(HH:MM Std.)" in der Arbeitszeiten-Zeile.
-  // Format 1: "Arbeitszeiten (01:45 Std.):" — Summe steht direkt nach "Arbeitszeiten"
-  // Format 2: Nur eine Zeile "14.04.2026 10:08 - 10:23 Uhr (00:15 Std.)"
-  // Wir nehmen IMMER die erste "(HH:MM Std.)" die nach dem Wort "Arbeitszeiten" kommt.
-  
-  const arbZeitBlock = text.match(/Arbeitszeiten[^]*?(?=Die aufgef|Datum\s+\d|$)/i);
-  if (arbZeitBlock) {
-    const block = arbZeitBlock[0];
-    
-    // Gesamtzeit: steht entweder direkt "Arbeitszeiten (01:45 Std.):" 
-    // oder am Ende der letzten Einzelzeile als Summenangabe
-    // → Wir suchen die ERSTE (HH:MM Std.) im Block
+  // Die Gesamtzeit steht IMMER als erste "(HH:MM Std.)" im Arbeitszeiten-Block.
+  // Format A: "Arbeitszeiten (01:45 Std.):" — Summe direkt nach dem Label
+  // Format B: "Arbeitszeiten:\n14.04.2026 10:08 - 10:23 Uhr (00:15 Std.)"
+  // In beiden Fällen nehmen wir die ERSTE (HH:MM Std.) nach "Arbeitszeiten".
+
+  const arbBlock = text.match(/Arbeitszeiten[\s\S]*?(?=Die aufgef|Datum\s+\d|$)/i);
+  if (arbBlock) {
+    const block = arbBlock[0];
     const gesamtMatch = block.match(/\((\d{1,2}):(\d{2})\s*Std\.\)/i);
     if (gesamtMatch) {
       const h = parseInt(gesamtMatch[1], 10);
       const m = parseInt(gesamtMatch[2], 10);
       result.stunden = Math.round((h + m / 60) * 4) / 4;
     }
-
-    // Datum: erstes Datum im Arbeitszeiten-Block
+    // Datum aus erstem Datum im Block
     const datumMatch = block.match(/(\d{2}\.\d{2}\.\d{4})/);
     if (datumMatch) result.datum = datumMatch[1];
   }
@@ -166,14 +167,14 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
     if (terminMatch) result.datum = terminMatch[1];
   }
 
-  if (!result.stunden && result.stunden !== 0) {
+  if (result.stunden === null) {
     result.fehler.push('Arbeitszeiten nicht erkannt — Stunden bitte prüfen');
   }
 
   // Stunden-Plausibilität
   if (result.stunden !== null && result.stunden <= 0) {
     result.stundenNegativOderNull = true;
-    result.fehler.push(`Stunden ungültig (${result.stunden}h) — Ticket zur Prüfung`);
+    result.fehler.push(`Stunden ungültig (${result.stunden}h)`);
   }
 
   // Datum → ISO
