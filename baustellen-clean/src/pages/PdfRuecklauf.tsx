@@ -17,7 +17,6 @@ interface VorschauZeile {
   ausschliessen: boolean;
   custom_stunden: number;
   gewerk: 'Elektro' | 'Hochbau';
-  // Neu: geht in Prüfqueue statt normal importiert
   pruefqueue: boolean;
   pruefqueue_grund: string;
 }
@@ -30,8 +29,9 @@ export default function PdfRuecklauf() {
   const [zeilen, setZeilen] = useState<VorschauZeile[]>([]);
   const [buchend, setBuchend] = useState(false);
   const [bericht, setBericht] = useState<any>(null);
-  const [buchungBestaetigt, setBuchungBestaetigt] = useState(false);
   const [showHistorie, setShowHistorie] = useState(false);
+  // Schritt-Status: 'upload' | 'vorschau' | 'bestaetigt'
+  const [schritt, setSchritt] = useState<'upload' | 'vorschau' | 'bestaetigt'>('upload');
 
   const { data: ruecklaufHistorie = [], refetch: refetchHistorie } = useQuery({
     queryKey: ['pdf-ruecklauf-historie'],
@@ -47,12 +47,12 @@ export default function PdfRuecklauf() {
   const { data: employees = [] } = useQuery({
     queryKey: ['pdf-employees'],
     queryFn: async () => {
-      const { data } = await supabase.from('employees').select('id,name,kuerzel').eq('aktiv', true);
+      const { data } = await supabase.from('employees').select('id,name,kuerzel').eq('aktiv', true).order('name');
       return data ?? [];
     }
   });
 
-  const { data: tickets = [] } = useQuery({
+  const { data: allTickets = [] } = useQuery({
     queryKey: ['pdf-tickets'],
     queryFn: async () => {
       const { data } = await supabase.from('tickets').select('id,a_nummer,status,eingangsdatum');
@@ -64,39 +64,38 @@ export default function PdfRuecklauf() {
     if (!name) return null;
     const lower = name.trim().toLowerCase();
     const emps = employees as any[];
+    // Exakter Match
     let found = emps.find(e => e.name.toLowerCase() === lower);
     if (found) return found.id;
+    // Teilmatch: Vor- oder Nachname
     const parts = lower.split(/\s+/);
     found = emps.find(e => parts.some((p: string) => p.length > 2 && e.name.toLowerCase().includes(p)));
     return found?.id ?? null;
   }
 
-  async function findTicket(a_nummer: string | null): Promise<{ id: string | null; gefunden: boolean; gewerk: 'Elektro' | 'Hochbau' }> {
-    if (!a_nummer) return { id: null, gefunden: false, gewerk: 'Elektro' };
+  async function findTicket(a_nummer: string | null): Promise<{ id: string | null; gefunden: boolean; gewerk: 'Elektro' | 'Hochbau'; bereitsErledigt: boolean }> {
+    if (!a_nummer) return { id: null, gefunden: false, gewerk: 'Elektro', bereitsErledigt: false };
     const { data } = await supabase.from('tickets')
       .select('id,a_nummer,status,gewerk')
       .eq('a_nummer', a_nummer)
       .maybeSingle();
-    return { id: data?.id ?? null, gefunden: !!data, gewerk: (data?.gewerk as 'Elektro' | 'Hochbau') ?? 'Elektro' };
-  }
-
-  // Prüft ob ein Ticket in die Prüfqueue soll und warum
-  function pruefqueueGrund(parse: TicketParseResult, duplikat: boolean, ticket_gefunden: boolean): string {
-    if (parse.istSonderformat) return 'Sonderformat (gesplittetes App-Ticket)';
-    if (parse.stundenNegativOderNull) return `Stunden ungültig (${parse.stunden}h)`;
-    if (parse.stunden === null || parse.stunden === 0) return 'Stunden nicht erkannt (0h)';
-    if (duplikat) return 'Duplikat in dieser PDF';
-    // Duplikat im System: Ticket bereits erledigt
-    if (ticket_gefunden) {
-      // Wird im analyseieren geprüft — hier Platzhalter
-    }
-    return '';
+    if (!data) return { id: null, gefunden: false, gewerk: 'Elektro', bereitsErledigt: false };
+    // Prüfen ob bereits Worklogs vorhanden
+    const { data: wl } = await supabase.from('ticket_worklogs').select('id').eq('ticket_id', data.id).limit(1);
+    const bereitsErledigt = !!(wl && wl.length > 0);
+    return {
+      id: data.id,
+      gefunden: true,
+      gewerk: (data.gewerk as 'Elektro' | 'Hochbau') ?? 'Elektro',
+      bereitsErledigt,
+    };
   }
 
   const analyseieren = useCallback(async () => {
     if (!dateien.length) { toast.error('Keine Dateien ausgewählt'); return; }
     setLaden(true);
     setZeilen([]);
+    setSchritt('upload');
     const alleZeilen: VorschauZeile[] = [];
     const seenKeys = new Set<string>();
 
@@ -104,29 +103,17 @@ export default function PdfRuecklauf() {
       try {
         const ergebnisse = await parsePdfTickets(datei);
         for (const parse of ergebnisse) {
-          // Sonderformat: findTicket nicht aufrufen, macht keinen Sinn
-          const { id: ticket_id, gefunden: ticket_gefunden, gewerk: ticket_gewerk } =
+          const { id: ticket_id, gefunden: ticket_gefunden, gewerk: ticket_gewerk, bereitsErledigt } =
             parse.istSonderformat
-              ? { id: null, gefunden: false, gewerk: 'Elektro' as 'Elektro' }
+              ? { id: null, gefunden: false, gewerk: 'Elektro' as 'Elektro', bereitsErledigt: false }
               : await findTicket(parse.a_nummer);
 
           const ma_id = findMA(parse.mitarbeiter);
 
-          // Duplikat innerhalb derselben PDF-Ladung
-          const key = `${parse.a_nummer}-${ma_id}-${parse.datumISO}`;
+          // Duplikat innerhalb PDF
+          const key = `${parse.a_nummer}-${parse.datumISO}`;
           const duplikat = seenKeys.has(key);
           if (!duplikat && parse.a_nummer) seenKeys.add(key);
-
-          // Duplikat im System: Ticket bereits erledigt
-          let duplikatImSystem = false;
-          if (ticket_gefunden && !parse.istSonderformat) {
-            const { data: vorhandeneWorklogs } = await supabase
-              .from('ticket_worklogs')
-              .select('id')
-              .eq('ticket_id', ticket_id!)
-              .limit(1);
-            duplikatImSystem = !!(vorhandeneWorklogs && vorhandeneWorklogs.length > 0);
-          }
 
           // Prüfqueue-Logik
           let inPruefqueue = false;
@@ -140,7 +127,7 @@ export default function PdfRuecklauf() {
           } else if (duplikat) {
             inPruefqueue = true;
             grund = 'Duplikat in dieser PDF';
-          } else if (duplikatImSystem) {
+          } else if (bereitsErledigt) {
             inPruefqueue = true;
             grund = 'Ticket bereits im System abgeschlossen';
           }
@@ -154,7 +141,7 @@ export default function PdfRuecklauf() {
             ma_id,
             ma_gefunden: !!ma_id,
             duplikat,
-            ausschliessen: inPruefqueue, // Prüfqueue-Tickets werden nicht direkt importiert
+            ausschliessen: false, // NICHTS wird automatisch ausgeschlossen — du entscheidest
             custom_stunden: parse.stunden ?? 0,
             gewerk: ticket_gewerk as 'Elektro' | 'Hochbau',
             pruefqueue: inPruefqueue,
@@ -168,10 +155,11 @@ export default function PdfRuecklauf() {
 
     setZeilen(alleZeilen);
     setLaden(false);
-    const bereit = alleZeilen.filter(z => !z.ausschliessen).length;
-    const pruefAnz = alleZeilen.filter(z => z.pruefqueue).length;
-    toast.success(`${alleZeilen.length} Tickets analysiert · ${bereit} bereit · ${pruefAnz} zur Prüfung`);
-  }, [dateien, employees, tickets]);
+    setSchritt('vorschau');
+    const normal = alleZeilen.filter(z => !z.pruefqueue).length;
+    const pruef = alleZeilen.filter(z => z.pruefqueue).length;
+    toast.success(`${alleZeilen.length} Tickets analysiert · ${normal} importierbar · ${pruef} zur Prüfung`);
+  }, [dateien, employees, allTickets]);
 
   const toggle = (idx: number) =>
     setZeilen(prev => prev.map((z, i) => i === idx ? { ...z, ausschliessen: !z.ausschliessen } : z));
@@ -182,16 +170,22 @@ export default function PdfRuecklauf() {
   const setGewerk = (idx: number, g: 'Elektro' | 'Hochbau') =>
     setZeilen(prev => prev.map((z, i) => i === idx ? { ...z, gewerk: g } : z));
 
-  const buchen = async () => {
-    const zuBuchen = zeilen.filter(z => !z.ausschliessen && z.ma_id && z.parse.datumISO);
-    const zuPruefqueue = zeilen.filter(z => z.pruefqueue);
+  const importieren = async () => {
+    // Normale Tickets: nicht ausgeschlossen, nicht Prüfqueue, hat Mitarbeiter und Datum
+    const zuImportieren = zeilen.filter(z => !z.ausschliessen && !z.pruefqueue && z.ma_id && z.parse.datumISO);
+    // Prüfqueue: alle die als pruefqueue markiert sind und nicht ausgeschlossen
+    const zuPruefqueue = zeilen.filter(z => z.pruefqueue && !z.ausschliessen);
 
-    if (!zuBuchen.length && !zuPruefqueue.length) { toast.error('Nichts zum Buchen'); return; }
+    if (!zuImportieren.length && !zuPruefqueue.length) {
+      toast.error('Nichts zum Importieren');
+      return;
+    }
+
     setBuchend(true);
     let ok = 0, fehler = 0, pruefOk = 0;
 
-    // ── Normale Tickets importieren ──
-    for (const z of zuBuchen) {
+    // ── Normale Tickets importieren ──────────────────────────────────────────
+    for (const z of zuImportieren) {
       const stunden = z.custom_stunden;
       if (stunden <= 0) { fehler++; continue; }
       try {
@@ -200,7 +194,7 @@ export default function PdfRuecklauf() {
         if (!ticketId && z.parse.a_nummer) {
           const { data: newTicket } = await supabase.from('tickets').insert({
             a_nummer: z.parse.a_nummer,
-            gewerk: 'Elektro',
+            gewerk: z.gewerk,
             status: 'erledigt',
             eingangsdatum: z.parse.datumISO,
           }).select('id').single();
@@ -209,7 +203,9 @@ export default function PdfRuecklauf() {
 
         if (!ticketId) { fehler++; continue; }
 
-        await supabase.from('tickets').update({ status: 'erledigt', gewerk: z.gewerk }).eq('id', ticketId);
+        await supabase.from('tickets')
+          .update({ status: 'erledigt', gewerk: z.gewerk })
+          .eq('id', ticketId);
 
         await supabase.from('ticket_worklogs').insert({
           ticket_id: ticketId,
@@ -230,7 +226,7 @@ export default function PdfRuecklauf() {
       }
     }
 
-    // ── Prüfqueue-Tickets speichern ──
+    // ── Prüfqueue speichern ──────────────────────────────────────────────────
     for (const z of zuPruefqueue) {
       try {
         await supabase.from('ticket_pruefqueue').insert({
@@ -252,57 +248,64 @@ export default function PdfRuecklauf() {
       }
     }
 
-    // Rücklauf-Run speichern
+    // ── Rücklauf-Run speichern ───────────────────────────────────────────────
     try {
       const { data: userData } = await supabase.auth.getUser();
       await supabase.from('pdf_ruecklauf_runs').insert({
         created_by: userData.user?.id,
         user_email: userData.user?.email,
         dateiname: dateien.map(d => d.name).join(', '),
-        seiten_gesamt: zuBuchen.length + zuPruefqueue.length,
+        seiten_gesamt: zuImportieren.length + zuPruefqueue.length,
         erfolgreich: ok,
         fehler,
-        details: zuBuchen.map(z => ({
+        pruefqueue_anzahl: pruefOk,
+        details: zuImportieren.map(z => ({
           a_nummer: z.parse.a_nummer,
           mitarbeiter: z.parse.mitarbeiter,
           stunden: z.custom_stunden,
           datum: z.parse.datum,
+          seite: z.parse.seite,
         })),
       });
       refetchHistorie();
     } catch {}
 
-    setBericht({ ok, fehler, gesamt: zuBuchen.length, pruefqueue: pruefOk });
+    setBericht({ ok, fehler, gesamt: zuImportieren.length, pruefqueue: pruefOk });
     setBuchend(false);
+    setSchritt('upload');
     qc.invalidateQueries({ queryKey: ['tickets'] });
     qc.invalidateQueries({ queryKey: ['pdf-tickets'] });
     qc.invalidateQueries({ queryKey: ['ticket-pruefqueue'] });
-    toast.success(`${ok} Tickets abgeschlossen · ${pruefOk} in Prüfqueue`);
+    qc.invalidateQueries({ queryKey: ['ticket-pruefqueue-count'] });
+    toast.success(`${ok} Tickets importiert · ${pruefOk} in Prüfqueue`);
   };
 
   const reset = () => {
-    setDateien([]); setZeilen([]); setBericht(null); setBuchungBestaetigt(false);
+    setDateien([]);
+    setZeilen([]);
+    setBericht(null);
+    setSchritt('upload');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const bereit = zeilen.filter(z => !z.ausschliessen).length;
-  const pruefAnzahl = zeilen.filter(z => z.pruefqueue).length;
+  const importierbar = zeilen.filter(z => !z.ausschliessen && !z.pruefqueue).length;
+  const pruefAnzahl = zeilen.filter(z => z.pruefqueue && !z.ausschliessen).length;
+  const ausgeschlossen = zeilen.filter(z => z.ausschliessen).length;
 
   const statusFarbe = (z: VorschauZeile) => {
-    if (z.pruefqueue) return '#f59e0b';
     if (z.ausschliessen) return '#94a3b8';
+    if (z.pruefqueue) return '#f59e0b';
     if (!z.ticket_gefunden) return '#ef4444';
     if (!z.ma_gefunden) return '#f59e0b';
     return '#10b981';
   };
 
   const statusText = (z: VorschauZeile) => {
-    if (z.pruefqueue) return `⚠ Prüfqueue: ${z.pruefqueue_grund}`;
     if (z.ausschliessen) return 'Ausgeschlossen';
-    if (!z.ticket_gefunden && z.parse.a_nummer) return `⚠ ${z.parse.a_nummer} wird neu angelegt`;
+    if (z.pruefqueue) return `⚠ Prüfqueue: ${z.pruefqueue_grund}`;
+    if (!z.ticket_gefunden && z.parse.a_nummer) return `⚠ wird neu angelegt`;
     if (!z.ticket_gefunden) return '⚠ A-Nummer nicht erkannt';
-    if (!z.ma_gefunden) return `MA "${z.parse.mitarbeiter}" nicht erkannt`;
-    if (z.parse.fehler.length > 0) return z.parse.fehler[0];
+    if (!z.ma_gefunden) return `⚠ MA nicht gefunden`;
     return '✓ Bereit';
   };
 
@@ -311,14 +314,11 @@ export default function PdfRuecklauf() {
       <h1 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', margin: '0 0 4px', letterSpacing: '-.03em' }}>
         PDF-Rücklauf <span style={{ color: '#2563eb' }}>Ticket-Abschluss</span>
       </h1>
-      <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 6px' }}>
-        Maschinell geschriebene PDFs hochladen — A-Nummer, Mitarbeiter, Datum und Stunden werden automatisch erkannt
+      <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 16px' }}>
+        PDF hochladen → Vorschau prüfen → Importieren bestätigen
       </p>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '8px 14px', marginBottom: 24, fontSize: 12, color: '#1d4ed8' }}>
-        <Info size={13} style={{ flexShrink: 0 }} />
-        <span><strong>Monats-Logik:</strong> Das Ticket bleibt im Eingangsdatum-Monat. Die Stunden werden dem Mitarbeiter im Erledigungsdatum-Monat gutgeschrieben.</span>
-      </div>
 
+      {/* ── SCHRITT 1: Upload ─────────────────────────────────────────────── */}
       {!zeilen.length && !bericht && (
         <div>
           <div onClick={() => fileInputRef.current?.click()}
@@ -351,15 +351,22 @@ export default function PdfRuecklauf() {
         </div>
       )}
 
+      {/* ── SCHRITT 2: Vorschau + Prüfung ───────────────────────────────────── */}
       {zeilen.length > 0 && !bericht && (
         <>
+          {/* Info-Banner */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '8px 14px', marginBottom: 16, fontSize: 12, color: '#1d4ed8' }}>
+            <Info size={13} style={{ flexShrink: 0 }} />
+            <span>Prüfe die Liste — klicke auf eine Zeile um sie auszuschließen. Stunden und Gewerk sind direkt editierbar. Erst nach deiner Bestätigung wird importiert.</span>
+          </div>
+
           {/* KPI */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
             {[
-              { label: 'Gefunden', value: zeilen.length, color: '#0f172a', bg: '#f8fafc', border: '#e2e8f0' },
-              { label: 'Bereit', value: bereit, color: '#10b981', bg: '#f0fdf4', border: '#bbf7d0' },
+              { label: 'Gesamt', value: zeilen.length, color: '#0f172a', bg: '#f8fafc', border: '#e2e8f0' },
+              { label: 'Importierbar', value: importierbar, color: '#10b981', bg: '#f0fdf4', border: '#bbf7d0' },
               { label: 'Zur Prüfung', value: pruefAnzahl, color: '#f59e0b', bg: '#fffbeb', border: '#fde68a' },
-              { label: 'Ausgeschlossen', value: zeilen.filter(z => z.ausschliessen && !z.pruefqueue).length, color: '#ef4444', bg: '#fef2f2', border: '#fecaca' },
+              { label: 'Ausgeschlossen', value: ausgeschlossen, color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0' },
             ].map(s => (
               <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 12, padding: '12px 16px' }}>
                 <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
@@ -373,46 +380,40 @@ export default function PdfRuecklauf() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#92400e' }}>
               <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
               <span>
-                <strong>{pruefAnzahl} Ticket{pruefAnzahl !== 1 ? 's' : ''} werden in die Prüfqueue verschoben</strong> (Sonderformat, Null-Stunden oder Duplikat).
-                Diese Tickets werden importiert aber als "zur Prüfung" markiert — du kannst sie unter dem <strong>Prüfung</strong>-Button auf der Tickets-Seite abarbeiten.
+                <strong>{pruefAnzahl} Ticket{pruefAnzahl !== 1 ? 's' : ''}</strong> werden in die Prüfqueue verschoben — du kannst sie dort manuell abschließen.
               </span>
             </div>
           )}
 
-          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '8px 14px', marginBottom: 12, fontSize: 12, color: '#1d4ed8' }}>
-            <Info size={13} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-            Zeile anklicken = aus-/einschließen · Stunden direkt editierbar · Seite zeigt die PDF-Seite des Tickets
-          </div>
-
+          {/* Tabelle */}
           <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f1f5f9', overflow: 'hidden', marginBottom: 20 }}>
-            <div style={{ overflowX: 'auto', maxHeight: 500, overflowY: 'auto' }}>
+            <div style={{ overflowX: 'auto', maxHeight: 520, overflowY: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                    {['', 'Seite', 'A-Nummer', 'Gewerk', 'Mitarbeiter', 'Erledigungsdatum', 'Stunden', 'Status'].map(h => (
+                    {['', 'S.', 'A-Nummer', 'Gewerk', 'Mitarbeiter', 'Datum', 'Stunden', 'Status'].map(h => (
                       <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {zeilen.map((z, i) => (
-                    <tr key={i} onClick={() => !z.pruefqueue && toggle(i)}
+                    <tr key={i}
+                      onClick={() => toggle(i)}
                       style={{
                         borderBottom: '1px solid #f8fafc',
-                        cursor: z.pruefqueue ? 'default' : 'pointer',
-                        opacity: z.ausschliessen && !z.pruefqueue ? 0.4 : 1,
-                        background: z.pruefqueue ? '#fffbeb' : z.ausschliessen ? '#f8fafc' : 'transparent',
+                        cursor: 'pointer',
+                        opacity: z.ausschliessen ? 0.35 : 1,
+                        background: z.ausschliessen ? '#f8fafc' : z.pruefqueue ? '#fffbeb' : 'transparent',
                       }}>
                       <td style={{ padding: '8px 12px' }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusFarbe(z) }} />
                       </td>
-                      {/* Seitenzahl */}
                       <td style={{ padding: '8px 12px', color: '#94a3b8', fontWeight: 600, fontSize: 11 }}>
-                        S.{z.parse.seite}
+                        {z.parse.seite}
                       </td>
-                      <td style={{ padding: '8px 12px', fontWeight: 700, color: z.ticket_gefunden ? '#0f172a' : '#f59e0b', whiteSpace: 'nowrap' }}
-                        title={!z.parse.a_nummer ? `Rohtext: ${z.parse.rawText?.slice(0, 200)}` : ''}>
-                        {z.parse.a_nummer ?? <span style={{ color: '#ef4444' }}>❌ Nicht erkannt</span>}
+                      <td style={{ padding: '8px 12px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' }}>
+                        {z.parse.a_nummer ?? <span style={{ color: '#ef4444' }}>❌</span>}
                         {z.parse.istSonderformat && (
                           <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', borderRadius: 4, padding: '1px 4px', marginLeft: 4 }}>APP</span>
                         )}
@@ -438,7 +439,7 @@ export default function PdfRuecklauf() {
                           style={{ width: 58, fontSize: 12, padding: '3px 6px', border: `1px solid ${z.parse.stundenNegativOderNull ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 6, color: z.parse.stundenNegativOderNull ? '#ef4444' : '#0f172a', background: '#fff' }} />
                         <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>h</span>
                       </td>
-                      <td style={{ padding: '8px 12px', fontSize: 11, color: statusFarbe(z), maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={statusText(z)}>
+                      <td style={{ padding: '8px 12px', fontSize: 11, color: statusFarbe(z), maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={statusText(z)}>
                         {statusText(z)}
                       </td>
                     </tr>
@@ -448,56 +449,42 @@ export default function PdfRuecklauf() {
             </div>
           </div>
 
-          {/* Buchungsvorschau */}
-          {bereit > 0 && (
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px 20px', marginBottom: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>Buchungsvorschau — bitte prüfen:</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto', marginBottom: 12 }}>
-                {zeilen.filter(z => !z.ausschliessen && z.ma_id && z.parse.datumISO).map((z, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 12, fontSize: 12, padding: '6px 10px', background: z.ticket_gefunden ? '#f0fdf4' : '#fffbeb', borderRadius: 8, border: `1px solid ${z.ticket_gefunden ? '#bbf7d0' : '#fde68a'}` }}>
-                    <span style={{ fontWeight: 600, color: '#94a3b8', minWidth: 30, fontSize: 11 }}>S.{z.parse.seite}</span>
-                    <span style={{ fontWeight: 700, color: '#0f172a', minWidth: 100 }}>{z.parse.a_nummer}</span>
-                    <span style={{ color: '#64748b', minWidth: 130 }}>{z.parse.mitarbeiter}</span>
-                    <span style={{ color: '#64748b', minWidth: 80 }}>{z.parse.datum}</span>
-                    <span style={{ fontWeight: 700, color: '#2563eb', minWidth: 50 }}>{z.custom_stunden}h</span>
-                    {!z.ticket_gefunden && <span style={{ color: '#b45309', fontSize: 11 }}>⚠ Ticket wird neu angelegt</span>}
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input type="checkbox" id="buchBestaetigt" checked={buchungBestaetigt}
-                  onChange={e => setBuchungBestaetigt(e.target.checked)}
-                  style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                <label htmlFor="buchBestaetigt" style={{ fontSize: 13, color: '#0f172a', fontWeight: 600, cursor: 'pointer' }}>
-                  Ich habe die Buchungsvorschau geprüft und bestätige
-                </label>
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={buchen} disabled={buchend || (!bereit && !pruefAnzahl) || !buchungBestaetigt}
-              style={{ padding: '12px 28px', background: buchend ? '#94a3b8' : 'linear-gradient(135deg,#2563eb,#1d4ed8)', color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: buchend ? 'wait' : 'pointer', boxShadow: '0 4px 14px rgba(37,99,235,.25)' }}>
-              {buchend ? '⏳ Buche Stunden...' : `✓ ${bereit} Tickets abschließen${pruefAnzahl > 0 ? ` · ${pruefAnzahl} in Prüfqueue` : ''}`}
+          {/* Aktions-Buttons */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
+              onClick={importieren}
+              disabled={buchend || (importierbar === 0 && pruefAnzahl === 0)}
+              style={{
+                padding: '12px 28px',
+                background: buchend ? '#94a3b8' : 'linear-gradient(135deg,#10b981,#059669)',
+                color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700,
+                cursor: buchend || (importierbar === 0 && pruefAnzahl === 0) ? 'not-allowed' : 'pointer',
+                boxShadow: '0 4px 14px rgba(16,185,129,.25)',
+              }}>
+              {buchend
+                ? '⏳ Importiere...'
+                : `✓ ${importierbar} Tickets importieren${pruefAnzahl > 0 ? ` · ${pruefAnzahl} in Prüfqueue` : ''}`}
             </button>
-            <button onClick={reset} style={{ padding: '12px 20px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>
+            <button onClick={reset}
+              style={{ padding: '12px 20px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>
               Neu starten
             </button>
           </div>
         </>
       )}
 
+      {/* ── SCHRITT 3: Ergebnis ─────────────────────────────────────────────── */}
       {bericht && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 16, padding: '20px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
             <CheckCircle size={22} style={{ color: '#10b981' }} />
-            <span style={{ fontSize: 16, fontWeight: 700, color: '#065f46' }}>Buchung abgeschlossen</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#065f46' }}>Import abgeschlossen</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
             {[
-              { label: 'Tickets abgeschlossen', value: bericht.ok, color: '#10b981' },
+              { label: 'Tickets importiert', value: bericht.ok, color: '#10b981' },
               { label: 'In Prüfqueue', value: bericht.pruefqueue, color: '#f59e0b' },
-              { label: 'Gesamt versucht', value: bericht.gesamt, color: '#6366f1' },
+              { label: 'Gesamt verarbeitet', value: bericht.gesamt + bericht.pruefqueue, color: '#6366f1' },
               { label: 'Fehler', value: bericht.fehler, color: bericht.fehler > 0 ? '#ef4444' : '#94a3b8' },
             ].map(s => (
               <div key={s.label} style={{ background: '#fff', borderRadius: 10, padding: '12px 16px', border: '1px solid #d1fae5' }}>
@@ -509,23 +496,24 @@ export default function PdfRuecklauf() {
           {bericht.pruefqueue > 0 && (
             <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#92400e' }}>
               <AlertTriangle size={13} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-              <strong>{bericht.pruefqueue} Tickets</strong> wurden in die Prüfqueue verschoben. Gehe zu <strong>Tickets → Prüfung</strong> um sie abzuarbeiten.
+              <strong>{bericht.pruefqueue} Tickets</strong> in der Prüfqueue — unter <strong>Prüfung</strong> in der Sidebar abarbeiten.
             </div>
           )}
-          <button onClick={reset} style={{ padding: '10px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <button onClick={reset}
+            style={{ padding: '10px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             Neuen Rücklauf starten
           </button>
         </div>
       )}
 
-      {/* Rücklauf-Historie */}
+      {/* ── Buchungs-Historie ───────────────────────────────────────────────── */}
       <div style={{ marginTop: 32, border: '1px solid #e2e8f0', borderRadius: 16, overflow: 'hidden' }}>
         <div
           onClick={() => setShowHistorie(!showHistorie)}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', background: '#f8fafc', cursor: 'pointer', userSelect: 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <History size={15} style={{ color: '#64748b' }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Buchungs-Historie</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Import-Historie</span>
             <span style={{ fontSize: 11, color: '#94a3b8' }}>({(ruecklaufHistorie as any[]).length} Einträge)</span>
           </div>
           {showHistorie ? <ChevronUp size={15} style={{ color: '#94a3b8' }} /> : <ChevronDown size={15} style={{ color: '#94a3b8' }} />}
@@ -533,13 +521,13 @@ export default function PdfRuecklauf() {
         {showHistorie && (
           <div>
             {(ruecklaufHistorie as any[]).length === 0 ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Noch keine Buchungen</div>
+              <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Noch keine Importe</div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-                    {['Datum', 'Von', 'Datei', 'Gebucht', 'Prüfqueue', 'Fehler', 'Details'].map(h => (
-                      <th key={h} style={{ padding: '8px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em' }}>{h}</th>
+                    {['Datum/Uhrzeit', 'Von', 'Datei', 'Importiert', 'Prüfqueue', 'Fehler', 'Importierte Tickets'].map(h => (
+                      <th key={h} style={{ padding: '8px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.06em', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -550,12 +538,17 @@ export default function PdfRuecklauf() {
                         {new Date(run.created_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </td>
                       <td style={{ padding: '10px 16px', color: '#64748b' }}>{run.user_email?.split('@')[0] ?? '–'}</td>
-                      <td style={{ padding: '10px 16px', color: '#0f172a', fontWeight: 500, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={run.dateiname}>{run.dateiname ?? '–'}</td>
+                      <td style={{ padding: '10px 16px', color: '#0f172a', fontWeight: 500, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={run.dateiname}>
+                        {run.dateiname ?? '–'}
+                      </td>
                       <td style={{ padding: '10px 16px', color: '#10b981', fontWeight: 700 }}>{run.erfolgreich ?? 0}</td>
                       <td style={{ padding: '10px 16px', color: '#f59e0b', fontWeight: 700 }}>{run.pruefqueue_anzahl ?? 0}</td>
                       <td style={{ padding: '10px 16px', color: (run.fehler ?? 0) > 0 ? '#ef4444' : '#94a3b8', fontWeight: 700 }}>{run.fehler ?? 0}</td>
-                      <td style={{ padding: '10px 16px', fontSize: 11, color: '#64748b' }}>
-                        {run.details ? (run.details as any[]).slice(0, 3).map((d: any) => d.a_nummer).join(', ') + ((run.details as any[]).length > 3 ? ` +${(run.details as any[]).length - 3}` : '') : '–'}
+                      <td style={{ padding: '10px 16px', fontSize: 11, color: '#64748b', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                        title={run.details ? (run.details as any[]).map((d: any) => `${d.a_nummer} (${d.mitarbeiter}, ${d.stunden}h)`).join(' · ') : ''}>
+                        {run.details && (run.details as any[]).length > 0
+                          ? (run.details as any[]).map((d: any) => d.a_nummer).join(', ')
+                          : '–'}
                       </td>
                     </tr>
                   ))}
