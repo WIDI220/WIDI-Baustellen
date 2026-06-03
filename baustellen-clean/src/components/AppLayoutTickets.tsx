@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useMonth } from '@/contexts/MonthContext';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
-import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home, ClipboardList, Timer } from 'lucide-react';
+import { LayoutDashboard, Ticket, FileSpreadsheet, FileText, Users, TrendingUp, LogOut, ChevronLeft, ChevronRight, ClipboardCheck, Home, ClipboardList, Timer, AlertTriangle } from 'lucide-react';
 import { useEffect } from 'react';
 import { logPageVisit } from '@/lib/activityLog';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -50,6 +50,7 @@ const NAV_ITEMS = [
   { to: '/tickets/liste',         icon: Ticket,          label: 'Tickets',       bereich: 'tickets'      },
   { to: '/tickets/import',        icon: FileSpreadsheet, label: 'Excel-Import',  bereich: 'excel_import' },
   { to: '/tickets/pdf-ruecklauf', icon: FileText,        label: 'PDF-Rücklauf',  bereich: 'pdf_ruecklauf'},
+  { to: '/tickets/pruefqueue',    icon: AlertTriangle,   label: 'Prüfung',       bereich: 'pdf_ruecklauf'},
   { to: '/tickets/mitarbeiter',   icon: Users,           label: 'Mitarbeiter',   bereich: 'mitarbeiter'  },
   { to: '/tickets/analyse',       icon: TrendingUp,      label: 'Analyse',       bereich: 'auswertung'   },
   { to: '/tickets/aufgaben',      icon: ClipboardCheck,  label: 'Begehungen',    bereich: 'begehungen'   },
@@ -99,6 +100,19 @@ export default function AppLayoutTickets({ children }: { children: ReactNode }) 
     },
     refetchInterval: 60000,
   });
+
+  const { data: pruefCount = 0 } = useQuery({
+    queryKey: ['ticket-pruefqueue-count'],
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('ticket_pruefqueue')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'offen');
+      return count ?? 0;
+    },
+    refetchInterval: 60000,
+  });
+
   const location = useLocation();
 
   useEffect(() => {
@@ -109,6 +123,7 @@ export default function AppLayoutTickets({ children }: { children: ReactNode }) 
           '/tickets/liste': 'Ticket-Liste',
           '/tickets/import': 'Excel-Import',
           '/tickets/pdf-ruecklauf': 'PDF-Rücklauf',
+          '/tickets/pruefqueue': 'Prüfqueue',
           '/tickets/mitarbeiter': 'Ticket-Mitarbeiter',
           '/tickets/analyse': 'Ticket-Analyse',
           '/tickets/aufgaben': 'Begehungen',
@@ -170,7 +185,16 @@ export default function AppLayoutTickets({ children }: { children: ReactNode }) 
         <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em', color: 'rgba(255,255,255,0.2)', fontWeight: 600, padding: '6px 16px 4px', margin: 0 }}>Navigation</p>
         <nav style={{ flex: 1, padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
           {NAV_ITEMS.filter(item => canSee(item.bereich)).map(({ to, icon, label }) => (
-            <NavItem key={to} to={to} icon={icon} badge={label === 'Verwaltung' ? openCount : undefined}>{label}</NavItem>
+            <NavItem
+              key={to}
+              to={to}
+              icon={icon}
+              badge={
+                label === 'Verwaltung' ? openCount :
+                label === 'Prüfung' ? pruefCount :
+                undefined
+              }
+            >{label}</NavItem>
           ))}
         </nav>
 
