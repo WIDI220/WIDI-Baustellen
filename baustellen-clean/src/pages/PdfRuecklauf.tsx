@@ -275,7 +275,20 @@ export default function PdfRuecklauf() {
       refetchHistorie();
     } catch {}
 
-    setBericht({ ok, fehler, gesamt: zuBuchen.length, pruefqueue: pruefOk });
+    // Monatsübersicht berechnen
+    const monatsMap: Record<string, { tickets: number; stunden: number }> = {};
+    for (const z of zuBuchen) {
+      if (!z.parse.datumISO) continue;
+      const monat = z.parse.datumISO.slice(0, 7);
+      if (!monatsMap[monat]) monatsMap[monat] = { tickets: 0, stunden: 0 };
+      monatsMap[monat].tickets++;
+      monatsMap[monat].stunden = Math.round((monatsMap[monat].stunden + z.custom_stunden) * 4) / 4;
+    }
+    const monatsUebersicht = Object.entries(monatsMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([monat, v]) => ({ monat, ...v }));
+
+    setBericht({ ok, fehler, gesamt: zuBuchen.length, pruefqueue: pruefOk, monatsUebersicht });
     setBuchend(false);
     qc.invalidateQueries({ queryKey: ['tickets'] });
     qc.invalidateQueries({ queryKey: ['pdf-tickets'] });
@@ -509,6 +522,28 @@ export default function PdfRuecklauf() {
               </div>
             ))}
           </div>
+          {/* Monatsübersicht */}
+          {bericht.monatsUebersicht && bericht.monatsUebersicht.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#065f46', marginBottom: 8 }}>
+                Importiert nach Monat:
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {bericht.monatsUebersicht.map((m: any) => (
+                  <div key={m.monat} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff', border: '1px solid #d1fae5', borderRadius: 8, padding: '8px 16px' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
+                      {new Date(m.monat + '-01').toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}
+                    </span>
+                    <div style={{ display: 'flex', gap: 20 }}>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>{m.tickets} Ticket{m.tickets !== 1 ? 's' : ''}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#10b981' }}>{m.stunden}h</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {bericht.pruefqueue > 0 && (
             <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#92400e' }}>
               <AlertTriangle size={13} style={{ verticalAlign: 'middle', marginRight: 6 }} />
