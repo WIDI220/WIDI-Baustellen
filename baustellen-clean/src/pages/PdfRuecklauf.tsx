@@ -454,8 +454,14 @@ export default function PdfRuecklauf() {
                           style={{ width: 58, fontSize: 12, padding: '3px 6px', border: `1px solid ${z.parse.stundenNegativOderNull ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 6, color: z.parse.stundenNegativOderNull ? '#ef4444' : '#0f172a', background: '#fff' }} />
                         <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>h</span>
                       </td>
-                      <td style={{ padding: '8px 12px', fontSize: 11, color: statusFarbe(z), maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={statusText(z)}>
-                        {statusText(z)}
+                      <td style={{ padding: '8px 12px', fontSize: 11, color: statusFarbe(z), maxWidth: 260 }}
+                        title={z.parse.bemerkung ? `${statusText(z)}\n\nBemerkung: ${z.parse.bemerkung}` : statusText(z)}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{statusText(z)}</div>
+                        {z.parse.bemerkungPruefen && z.parse.bemerkung && (
+                          <div style={{ fontSize: 10, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
+                            📝 {z.parse.bemerkung}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
