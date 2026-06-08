@@ -31,38 +31,41 @@ const MITARBEITER_VORNAMEN = [
   'Dimi', 'Kubista', 'Epe',
 ];
 
-function scanBemerkung(bemerkung: string | null): { pruefen: boolean; grund: string } {
-  if (!bemerkung || bemerkung.trim().length < 5) return { pruefen: false, grund: '' };
+// Scannt Bemerkung UND Arbeitsauftrag-Text auf zusätzliche Mitarbeiter/Zeiten
+// hauptMitarbeiter wird aus dem Scan ausgeschlossen — er ist ja bereits bekannt
+function scanBemerkung(bemerkung: string | null, arbeitsauftrag?: string | null, hauptMitarbeiter?: string | null): { pruefen: boolean; grund: string } {
+  const kombiniert = [bemerkung, arbeitsauftrag].filter(Boolean).join(' ');
+  if (!kombiniert || kombiniert.trim().length < 5) return { pruefen: false, grund: '' };
 
-  // HH:MM Std. Muster entfernen — das sind normale Arbeitszeiten, kein Hinweis
-  const bereinigt = bemerkung
+  // Normale Zeitformate entfernen die keine Hinweise sind
+  const bereinigt = kombiniert
     .replace(/\d{2}:\d{2}\s*Std\./gi, '')
-    .replace(/\d{2}\.\d{2}\.\d{4}/g, '') // Datumsangaben entfernen
-    .replace(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}\s*Uhr/gi, '') // Zeitspannen entfernen
+    .replace(/\d{2}\.\d{2}\.\d{4}/g, '')
+    .replace(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}\s*Uhr/gi, '')
     .trim();
 
   const gefundeneNamen: string[] = [];
   const gefundeneZeiten: string[] = [];
   const gefundeneSchluessel: string[] = [];
 
-  // Mitarbeiternamen suchen — nur Vornamen als eigenständige Wörter
+  // Mitarbeiternamen suchen — Hauptmitarbeiter ausschließen
+  const hauptVorname = hauptMitarbeiter?.split(' ')[0]?.toLowerCase() ?? '';
   for (const name of MITARBEITER_VORNAMEN) {
+    if (name.toLowerCase() === hauptVorname) continue; // Hauptmitarbeiter überspringen
     const regex = new RegExp(`\\b${name}\\b`, 'i');
     if (regex.test(bereinigt)) {
       if (!gefundeneNamen.includes(name)) gefundeneNamen.push(name);
     }
   }
 
-  // Zeitangaben — NUR echte Stundenangaben, keine HH:MM Formate
-  // "1 Stunde", "2 Stunden", "eine Stunde", aber NICHT "00:30 Std."
+  // Zeitangaben — echte Stundenangaben
   const zeitPatterns = [
-    /\b\d+\s+Stunden?\b/i,           // "1 Stunde", "2 Stunden"
-    /\beine\s+Stunde\b/i,             // "eine Stunde"
-    /\bzwei\s+Stunden?\b/i,           // "zwei Stunden"
-    /\bdrei\s+Stunden?\b/i,           // "drei Stunden"
-    /\b[1-9]\s*h\b(?!\s*\d)/,        // "1h", "2h" — aber nicht "10:00" oder "01:30"
-    /Arbeitszeit\s+am\s+\d/i,        // "Arbeitszeit am 2.4.2026"
-    /\b\d+\s*Min(?:uten?)?\s+(?:gearbeitet|vor\s+Ort)\b/i, // "30 Minuten vor Ort"
+    /\b\d+\s+Stunden?\b/i,
+    /\beine\s+Stunde\b/i,
+    /\bzwei\s+Stunden?\b/i,
+    /\bdrei\s+Stunden?\b/i,
+    /\b[1-9]\s*h\b(?!\s*\d)/,
+    /Arbeitszeit\s+am\s+\d/i,
   ];
 
   for (const pat of zeitPatterns) {
@@ -81,6 +84,8 @@ function scanBemerkung(bemerkung: string | null): { pruefen: boolean; grund: str
     { pat: /\bunterstütz/i, label: 'Unterstützung' },
     { pat: /\bund\s+[A-Z][a-z]+\s+\d+\s+Stunde/i, label: 'und [Name] X Stunden' },
     { pat: /[A-Z][a-z]+\s+und\s+[A-Z][a-z]+\s+\d+\s+Stunde/i, label: '[Name] und [Name] X Stunden' },
+    { pat: /\bhaben\s+(?:hier\s+)?geholfen\b/i, label: 'haben geholfen' },
+    { pat: /\bwar\s+(?:vor\s+Ort\s+)?mit\s+[A-Z]/i, label: 'war mit...' },
   ];
 
   for (const { pat, label } of schluesselmuster) {
@@ -89,17 +94,12 @@ function scanBemerkung(bemerkung: string | null): { pruefen: boolean; grund: str
     }
   }
 
-  // Nur in Prüfqueue wenn wirklich ein starker Hinweis da ist:
-  // Entweder ein Name + Zeit, oder ein Schlüsselwort, oder Name allein wenn klar im Kontext
   const hatNamen = gefundeneNamen.length > 0;
   const hatZeit = gefundeneZeiten.length > 0;
   const hatSchluessel = gefundeneSchluessel.length > 0;
 
-  // Nur prüfen wenn:
-  // - Name + Zeit zusammen (starker Hinweis)
-  // - Schlüsselwort (immer stark)
-  // - Name allein reicht NICHT — zu viele Fehlalarme
-  const pruefen = (hatNamen && hatZeit) || hatSchluessel;
+  // Jeder bekannte Vorname reicht — lieber zu viel prüfen als zu wenig
+  const pruefen = hatNamen || hatZeit || hatSchluessel;
 
   if (!pruefen) return { pruefen: false, grund: '' };
 
@@ -255,16 +255,22 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
     if (m) result.datumISO = `${m[3]}-${m[2]}-${m[1]}`;
   }
 
-  // ── Bemerkung — NUR den Text zwischen "Bemerkung:" und "Arbeitszeiten:" ──
-  // Wichtig: Arbeitszeiten-Block NICHT in die Bemerkung einschließen
+  // ── Bemerkung ─────────────────────────────────────────────────────────────
   const bemMatch = text.match(/Bemerkung\s*:?\s*\n?([\s\S]+?)(?=\nArbeitszeiten|\nDatum\s+\d|\nDie aufgef|$)/i);
   if (bemMatch) {
     result.bemerkung = bemMatch[1].replace(/\n/g, ' ').trim().slice(0, 400);
   }
 
-  // ── Bemerkung scannen — nur wenn nicht Sonderformat ──────────────────────
-  if (!result.istSonderformat && result.bemerkung) {
-    const scan = scanBemerkung(result.bemerkung);
+  // ── Arbeitsauftrag-Text extrahieren (für Scan auf zusätzliche MA) ─────────
+  let arbeitsauftragText: string | null = null;
+  const auftragsMatch = text.match(/Arbeitsauftrag\s*:?\s*\n?([\s\S]+?)(?=\nBemerkung|\nArbeitszeiten|\nDatum\s+\d|$)/i);
+  if (auftragsMatch) {
+    arbeitsauftragText = auftragsMatch[1].replace(/\n/g, ' ').trim().slice(0, 400);
+  }
+
+  // ── Scan auf zusätzliche MA/Zeiten in Bemerkung + Arbeitsauftrag ──────────
+  if (!result.istSonderformat) {
+    const scan = scanBemerkung(result.bemerkung, arbeitsauftragText, result.mitarbeiter);
     result.bemerkungPruefen = scan.pruefen;
     result.bemerkungPruefenGrund = scan.grund;
   }
