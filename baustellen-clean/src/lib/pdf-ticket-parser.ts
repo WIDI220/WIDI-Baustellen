@@ -21,14 +21,35 @@ export interface TicketParseResult {
   bemerkungPruefenGrund: string;
 }
 
-// Nur Vornamen — Nachnamen triggern zu viele Fehlalarme
-const MITARBEITER_VORNAMEN = [
-  'Brian', 'Caspar', 'Christoph', 'Daniel', 'Frank', 'Jan',
-  'Jörg', 'Lars', 'Marcel', 'Matthias', 'Muzaffer', 'Pascal',
-  'Sigrid', 'Stefan', 'Tarik', 'Thomas', 'Tim', 'Timo',
-  'Timur', 'Udo', 'Uwe', 'Valerie',
-  // Spitznamen die in Bemerkungen vorkommen
-  'Dimi', 'Kubista', 'Epe',
+// Alle bekannten Namensvarianten — Vorname, Nachname, Kürzel
+const MITARBEITER_NAMEN_ALLE = [
+  // Vollnamen
+  'Brian', 'Decker',
+  'Caspar', 'Epe',
+  'Christoph', 'Reitz',
+  'Daniel', 'Schiwotowski',
+  'Frank', 'Werner',
+  'Jan', 'Paredis',
+  'Jörg', 'Neumann',
+  'Lars', 'Dittmann',
+  'Marcel', 'Münch',
+  'Matthias', 'Kubista',
+  'Muzaffer', 'Günes',
+  'Pascal', 'Wajsczak',
+  'Sigrid', 'Büter',
+  'Stefan', 'Giesmann', 'Haack',
+  'Tarik', 'Alkan',
+  'Thomas', 'Klose',
+  'Tim', 'Rudewig',
+  'Timo', 'Bartelt',
+  'Timur',
+  'Udo',
+  'Uwe', 'Gräwe',
+  'Valerie', 'Dwining',
+  // Spitznamen / Kurzformen die in Bemerkungen vorkommen
+  'Dimi', 'Matze',
+  // Kürzel
+  'CE', 'MK', 'MG', 'TB', 'JN', 'FW', 'UG', 'SG', 'CR', 'SB',
 ];
 
 // Scannt Bemerkung UND Arbeitsauftrag-Text auf zusätzliche Mitarbeiter/Zeiten
@@ -50,22 +71,26 @@ function scanBemerkung(bemerkung: string | null, arbeitsauftrag?: string | null,
 
   // Mitarbeiternamen suchen — Hauptmitarbeiter ausschließen
   const hauptVorname = hauptMitarbeiter?.split(' ')[0]?.toLowerCase() ?? '';
-  for (const name of MITARBEITER_VORNAMEN) {
-    if (name.toLowerCase() === hauptVorname) continue; // Hauptmitarbeiter überspringen
+  const hauptNachname = hauptMitarbeiter?.split(' ')[1]?.toLowerCase() ?? '';
+  for (const name of MITARBEITER_NAMEN_ALLE) {
+    const nl = name.toLowerCase();
+    if (nl === hauptVorname || nl === hauptNachname) continue;
     const regex = new RegExp(`\\b${name}\\b`, 'i');
     if (regex.test(bereinigt)) {
       if (!gefundeneNamen.includes(name)) gefundeneNamen.push(name);
     }
   }
 
-  // Zeitangaben — echte Stundenangaben
+  // Zeitangaben — ALLES was nach Zeit aussieht
   const zeitPatterns = [
-    /\b\d+\s+Stunden?\b/i,
+    /\b\d+\s*Stunden?\b/i,           // "1 Stunde", "2 Stunden"
     /\beine\s+Stunde\b/i,
     /\bzwei\s+Stunden?\b/i,
     /\bdrei\s+Stunden?\b/i,
-    /\b[1-9]\s*h\b(?!\s*\d)/,
-    /Arbeitszeit\s+am\s+\d/i,
+    /\b[1-9][0-9]?\s*h\b/i,          // "1h", "2h", "10h"
+    /\b[1-9][0-9]?\s*Min(?:uten?)?\b/i, // "30 Min", "45 Minuten"
+    /Arbeitszeit\s+am\s+\d/i,        // "Arbeitszeit am 2.4.2026"
+    /\b\d+[,\.]\d+\s*(?:Std|Stunden?|h)\b/i, // "1,5 Std", "0.5h"
   ];
 
   for (const pat of zeitPatterns) {
@@ -268,9 +293,9 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
     arbeitsauftragText = auftragsMatch[1].replace(/\n/g, ' ').trim().slice(0, 400);
   }
 
-  // ── Scan auf zusätzliche MA/Zeiten in Bemerkung + Arbeitsauftrag ──────────
+  // ── Scan auf zusätzliche MA/Zeiten — NUR Bemerkung ───────────────────────
   if (!result.istSonderformat) {
-    const scan = scanBemerkung(result.bemerkung, arbeitsauftragText, result.mitarbeiter);
+    const scan = scanBemerkung(result.bemerkung, null, result.mitarbeiter);
     result.bemerkungPruefen = scan.pruefen;
     result.bemerkungPruefenGrund = scan.grund;
   }
