@@ -17,99 +17,96 @@ export interface TicketParseResult {
   rawText: string;
   istSonderformat: boolean;
   stundenNegativOderNull: boolean;
-  // NEU: Bemerkung enthält mögliche zusätzliche Mitarbeiter/Zeiten
   bemerkungPruefen: boolean;
   bemerkungPruefenGrund: string;
 }
 
-// Alle bekannten Vor- und Nachnamen der aktiven Mitarbeiter
-// Wird beim Scan der Bemerkung verwendet
-const MITARBEITER_NAMEN = [
-  'Brian', 'Decker',
-  'Caspar', 'Epe',
-  'Christoph', 'Reitz',
-  'Daniel', 'Schiwotowski',
-  'Frank', 'Werner',
-  'Jan', 'Paredis',
-  'Jörg', 'Neumann',
-  'Lars', 'Dittmann',
-  'Marcel', 'Münch',
-  'Matthias', 'Kubista',
-  'Muzaffer', 'Günes',
-  'Pascal', 'Wajsczak',
-  'Sigrid', 'Büter',
-  'Stefan', 'Giesmann', 'Haack',
-  'Tarik', 'Alkan',
-  'Thomas', 'Klose',
-  'Tim', 'Rudewig',
-  'Timo', 'Bartelt',
-  'Timur',
-  'Udo',
-  'Uwe', 'Gräwe',
-  'Valerie', 'Dwining',
-  'Dimi', 'Matthias', // Spitznamen die in Bemerkungen vorkommen
-];
-
-// Zeitangaben die auf zusätzliche Stunden hinweisen
-const ZEIT_PATTERNS = [
-  /\d+\s*(?:Stunde[n]?|Std\.?)\b/i,
-  /\d+[,\.]\d+\s*(?:Stunde[n]?|Std\.?|h)\b/i,
-  /\b\d+\s*h\b/i,
-  /\b\d{1,2}:\d{2}\s*(?:Std\.?|Uhr|h)\b/i,
-  /\b(?:eine|zwei|drei|vier|fünf)\s+Stunde[n]?\b/i,
-  /\b\d+\s*Min(?:uten?)?\b/i,
-];
-
-// Schlüsselwörter die auf gemeinsame Arbeit hinweisen
-const GEMEINSAM_PATTERNS = [
-  /\bzusammen\b/i,
-  /\bgemeinsam\b/i,
-  /\bebenfalls\b/i,
-  /\bunterstütz/i,
-  /\bhelfen\b|\bgeholfen\b/i,
-  /\bvor Ort mit\b/i,
-  /\bwurde.*?von\b/i,
+// Nur Vornamen — Nachnamen triggern zu viele Fehlalarme
+const MITARBEITER_VORNAMEN = [
+  'Brian', 'Caspar', 'Christoph', 'Daniel', 'Frank', 'Jan',
+  'Jörg', 'Lars', 'Marcel', 'Matthias', 'Muzaffer', 'Pascal',
+  'Sigrid', 'Stefan', 'Tarik', 'Thomas', 'Tim', 'Timo',
+  'Timur', 'Udo', 'Uwe', 'Valerie',
+  // Spitznamen die in Bemerkungen vorkommen
+  'Dimi', 'Kubista', 'Epe',
 ];
 
 function scanBemerkung(bemerkung: string | null): { pruefen: boolean; grund: string } {
-  if (!bemerkung) return { pruefen: false, grund: '' };
+  if (!bemerkung || bemerkung.trim().length < 5) return { pruefen: false, grund: '' };
+
+  // HH:MM Std. Muster entfernen — das sind normale Arbeitszeiten, kein Hinweis
+  const bereinigt = bemerkung
+    .replace(/\d{2}:\d{2}\s*Std\./gi, '')
+    .replace(/\d{2}\.\d{2}\.\d{4}/g, '') // Datumsangaben entfernen
+    .replace(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}\s*Uhr/gi, '') // Zeitspannen entfernen
+    .trim();
 
   const gefundeneNamen: string[] = [];
   const gefundeneZeiten: string[] = [];
   const gefundeneSchluessel: string[] = [];
 
-  // Mitarbeiternamen suchen
-  for (const name of MITARBEITER_NAMEN) {
+  // Mitarbeiternamen suchen — nur Vornamen als eigenständige Wörter
+  for (const name of MITARBEITER_VORNAMEN) {
     const regex = new RegExp(`\\b${name}\\b`, 'i');
-    if (regex.test(bemerkung)) {
+    if (regex.test(bereinigt)) {
       if (!gefundeneNamen.includes(name)) gefundeneNamen.push(name);
     }
   }
 
-  // Zeitangaben suchen
-  for (const pat of ZEIT_PATTERNS) {
-    const m = bemerkung.match(pat);
-    if (m && !gefundeneZeiten.includes(m[0])) {
-      gefundeneZeiten.push(m[0]);
+  // Zeitangaben — NUR echte Stundenangaben, keine HH:MM Formate
+  // "1 Stunde", "2 Stunden", "eine Stunde", aber NICHT "00:30 Std."
+  const zeitPatterns = [
+    /\b\d+\s+Stunden?\b/i,           // "1 Stunde", "2 Stunden"
+    /\beine\s+Stunde\b/i,             // "eine Stunde"
+    /\bzwei\s+Stunden?\b/i,           // "zwei Stunden"
+    /\bdrei\s+Stunden?\b/i,           // "drei Stunden"
+    /\b[1-9]\s*h\b(?!\s*\d)/,        // "1h", "2h" — aber nicht "10:00" oder "01:30"
+    /Arbeitszeit\s+am\s+\d/i,        // "Arbeitszeit am 2.4.2026"
+    /\b\d+\s*Min(?:uten?)?\s+(?:gearbeitet|vor\s+Ort)\b/i, // "30 Minuten vor Ort"
+  ];
+
+  for (const pat of zeitPatterns) {
+    const m = bereinigt.match(pat);
+    if (m) {
+      const treffer = m[0].trim();
+      if (!gefundeneZeiten.includes(treffer)) gefundeneZeiten.push(treffer);
     }
   }
 
-  // Schlüsselwörter suchen
-  for (const pat of GEMEINSAM_PATTERNS) {
-    const m = bemerkung.match(pat);
-    if (m && !gefundeneSchluessel.includes(m[0])) {
-      gefundeneSchluessel.push(m[0]);
+  // Schlüsselwörter für gemeinsame Arbeit
+  const schluesselmuster = [
+    { pat: /\bvor\s+Ort\s+mit\s+[A-Z]/i, label: 'vor Ort mit...' },
+    { pat: /\bzusammen\s+mit\b/i, label: 'zusammen mit' },
+    { pat: /\bgemeinsam\b/i, label: 'gemeinsam' },
+    { pat: /\bunterstütz/i, label: 'Unterstützung' },
+    { pat: /\bund\s+[A-Z][a-z]+\s+\d+\s+Stunde/i, label: 'und [Name] X Stunden' },
+    { pat: /[A-Z][a-z]+\s+und\s+[A-Z][a-z]+\s+\d+\s+Stunde/i, label: '[Name] und [Name] X Stunden' },
+  ];
+
+  for (const { pat, label } of schluesselmuster) {
+    if (pat.test(bereinigt)) {
+      if (!gefundeneSchluessel.includes(label)) gefundeneSchluessel.push(label);
     }
   }
 
-  const pruefen = gefundeneNamen.length > 0 || gefundeneZeiten.length > 0 || gefundeneSchluessel.length > 0;
+  // Nur in Prüfqueue wenn wirklich ein starker Hinweis da ist:
+  // Entweder ein Name + Zeit, oder ein Schlüsselwort, oder Name allein wenn klar im Kontext
+  const hatNamen = gefundeneNamen.length > 0;
+  const hatZeit = gefundeneZeiten.length > 0;
+  const hatSchluessel = gefundeneSchluessel.length > 0;
+
+  // Nur prüfen wenn:
+  // - Name + Zeit zusammen (starker Hinweis)
+  // - Schlüsselwort (immer stark)
+  // - Name allein reicht NICHT — zu viele Fehlalarme
+  const pruefen = (hatNamen && hatZeit) || hatSchluessel;
 
   if (!pruefen) return { pruefen: false, grund: '' };
 
   const teile: string[] = [];
-  if (gefundeneNamen.length > 0) teile.push(`Name(n): ${gefundeneNamen.join(', ')}`);
-  if (gefundeneZeiten.length > 0) teile.push(`Zeit: ${gefundeneZeiten.join(', ')}`);
-  if (gefundeneSchluessel.length > 0) teile.push(`Hinweis: ${gefundeneSchluessel.join(', ')}`);
+  if (hatNamen) teile.push(`Name(n): ${gefundeneNamen.join(', ')}`);
+  if (hatZeit) teile.push(`Zeit: ${gefundeneZeiten.join(', ')}`);
+  if (hatSchluessel) teile.push(gefundeneSchluessel.join(', '));
 
   return {
     pruefen: true,
@@ -189,7 +186,7 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
 
   if (!result.a_nummer) {
     const sonderMatch = text.match(/Arbeitsauftrag\s*#\s*(\d{4,5}\s*\(#\d{4,5}\))/i)
-      || text.match(/#\s*(\d{4,5}\s*\(#\d{4,5}\))/i);
+      || text.match(/#\s*(\d{4,5}\s*\(#\d{4,5}\ ))/i);
     if (sonderMatch) {
       result.a_nummer = sonderMatch[1].trim();
       result.istSonderformat = true;
@@ -258,14 +255,14 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
     if (m) result.datumISO = `${m[3]}-${m[2]}-${m[1]}`;
   }
 
-  // ── Bemerkung ─────────────────────────────────────────────────────────────
-  const bemMatch = text.match(/Bemerkung\s*:?\s*\n?(.+?)(?:\nArbeitszeiten|\nDatum|\nDie aufgef|$)/is);
+  // ── Bemerkung — NUR den Text zwischen "Bemerkung:" und "Arbeitszeiten:" ──
+  // Wichtig: Arbeitszeiten-Block NICHT in die Bemerkung einschließen
+  const bemMatch = text.match(/Bemerkung\s*:?\s*\n?([\s\S]+?)(?=\nArbeitszeiten|\nDatum\s+\d|\nDie aufgef|$)/i);
   if (bemMatch) {
-    result.bemerkung = bemMatch[1].replace(/\n/g, ' ').trim().slice(0, 300);
+    result.bemerkung = bemMatch[1].replace(/\n/g, ' ').trim().slice(0, 400);
   }
 
-  // ── Bemerkung scannen auf zusätzliche MA/Zeiten ───────────────────────────
-  // NUR scannen wenn kein Sonderformat und Bemerkung vorhanden
+  // ── Bemerkung scannen — nur wenn nicht Sonderformat ──────────────────────
   if (!result.istSonderformat && result.bemerkung) {
     const scan = scanBemerkung(result.bemerkung);
     result.bemerkungPruefen = scan.pruefen;
