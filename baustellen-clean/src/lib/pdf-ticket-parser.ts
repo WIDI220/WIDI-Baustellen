@@ -186,7 +186,7 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
 
   if (!result.a_nummer) {
     const sonderMatch = text.match(/Arbeitsauftrag\s*#\s*(\d{4,5}\s*\(#\d{4,5}\))/i)
-      || text.match(/#\s*(\d{4,5}\s*\(#\d{4,5}\ ))/i);
+      || text.match(/#\s*(\d{4,5}\s*\(#\d{4,5}\))/i);
     if (sonderMatch) {
       result.a_nummer = sonderMatch[1].trim();
       result.istSonderformat = true;
