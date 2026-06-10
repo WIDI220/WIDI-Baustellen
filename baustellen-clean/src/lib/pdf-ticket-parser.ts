@@ -176,11 +176,7 @@ export async function parsePdfTickets(file: File): Promise<TicketParseResult[]> 
       .replace(/\bA\s*(\d{2})\s*-\s*(\d{5})\b/gi, 'A$1-$2')
       .replace(/\s+/g, ' ');
 
-    // Seite überspringen wenn keine A-Nummer und kein Auftragsschein-Hinweis
-    // A-Nummer ist das zuverlässigste Erkennungsmerkmal
-    const hatANummer = /\bA\d{2}-\d{5}\b/i.test(normalized) || /\bA\d{2}\s*-\s*\d{5}\b/i.test(normalized);
-    const hatAuftragshinweis = normalized.includes('Auftragsschein') || normalized.includes('Arbeitsauftrag') || normalized.includes('Auftrags schein');
-    if (!hatANummer && !hatAuftragshinweis) {
+    if (!normalized.includes('Auftragsschein') && !normalized.includes('Arbeitsauftrag')) {
       continue;
     }
 
