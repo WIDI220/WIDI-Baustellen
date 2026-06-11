@@ -470,7 +470,7 @@ export default function PdfRuecklauf() {
           </div>
 
           {/* Buchungsvorschau */}
-          {bereit > 0 && (
+          {(bereit > 0 || pruefAnzahl > 0) && (
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 14, padding: '16px 20px', marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>Buchungsvorschau — bitte prüfen:</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto', marginBottom: 12 }}>
