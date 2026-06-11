@@ -323,7 +323,7 @@ export default function ExcelImportPage() {
                           <td style={{ padding: '8px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{z.eingangsdatum?.toLocaleDateString('de-DE') ?? '–'}</td>
                           <td style={{ padding: '8px 12px' }}>
                             {z.gewerk !== 'Unbekannt' ? (
-                              <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: z.gewerk === 'Elektro' ? '#eff6ff' : '#f0fdf4', color: z.gewerk === 'Elektro' ? '#1d4ed8' : '#15803d' }}>
+                              <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: z.gewerk === 'Elektro' ? '#eff6ff' : z.gewerk === 'Werdohl' ? '#faf5ff' : '#f0fdf4', color: z.gewerk === 'Elektro' ? '#1d4ed8' : z.gewerk === 'Werdohl' ? '#7c3aed' : '#15803d' }}>
                                 {z.gewerk}
                               </span>
                             ) : <span style={{ color: '#ef4444', fontSize: 11 }}>–</span>}
