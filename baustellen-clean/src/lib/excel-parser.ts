@@ -153,21 +153,48 @@ export function parseExcelFile(buffer: ArrayBuffer, refYearMonth: string): Excel
       } as any);
     });
   } else {
-    // Excel-Format
+    // Excel-Format — Header-basiert (unabhängig von Spaltenreihenfolge)
     try {
       const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const data = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true }) as unknown[][];
+      if (!data.length) { parserFehler.push('Leere Datei'); return { rows, parserFehler }; }
+
+      // Header-Zeile normalisieren
+      const headers = (data[0] as unknown[]).map(h => String(h ?? '').trim().toLowerCase());
+      const hi = (names: string[]) => {
+        for (const n of names) {
+          const idx = headers.findIndex(h => h.includes(n));
+          if (idx >= 0) return idx;
+        }
+        return -1;
+      };
+
+      const colId    = hi(['auftragsnr', 'auftrags_id', 'auftrags-id', 'a-nummer', 'anummer', 'id']);
+      const colDatum = hi(['beginn', 'datum', 'eingangsdatum', 'date']);
+      const colWerk  = hi(['werkstatt', 'gewerk', 'werk']);
+      const colMeld  = hi(['ansprechpartner', 'melder', 'meld']);
+      const colRaum  = hi(['verortung', 'raumnr', 'raum_id', 'raum']);
+      const colText  = hi(['auftragstext', 'text', 'beschreibung', 'auftrag']);
+
+      // Fallback auf feste Positionen wenn Header nicht erkannt
+      const idCol    = colId    >= 0 ? colId    : 0;
+      const datCol   = colDatum >= 0 ? colDatum : 1;
+      const wrkCol   = colWerk  >= 0 ? colWerk  : 2;
+      const mldCol   = colMeld  >= 0 ? colMeld  : -1;
+      const rauCol   = colRaum  >= 0 ? colRaum  : -1;
+      const txtCol   = colText  >= 0 ? colText  : -1;
+
       data.slice(1).forEach((row, i) => {
-        if (!row || !row[0]) return;
+        if (!row || !(row as unknown[])[idCol]) return;
         rawRows.push({
           zeilennr: i + 2,
-          rawId:    row[0],
-          rawDatum: row[1],
-          rawWerk:  row[2],
-          rawMeld:  '',
-          rawRaum:  '',
-          rawText:  '',
+          rawId:    (row as unknown[])[idCol],
+          rawDatum: (row as unknown[])[datCol],
+          rawWerk:  wrkCol >= 0 ? (row as unknown[])[wrkCol] : '',
+          rawMeld:  mldCol >= 0 ? (row as unknown[])[mldCol] : '',
+          rawRaum:  rauCol >= 0 ? (row as unknown[])[rauCol] : '',
+          rawText:  txtCol >= 0 ? (row as unknown[])[txtCol] : '',
         } as any);
       });
     } catch (e: any) {
