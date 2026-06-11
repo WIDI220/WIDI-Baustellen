@@ -99,10 +99,13 @@ function normalizeGewerk(raw: unknown): 'Hochbau' | 'Elektro' | 'Werdohl' | 'Unb
 
 function isCSV(buffer: ArrayBuffer): boolean {
   const text = new TextDecoder('windows-1252').decode(new Uint8Array(buffer.slice(0, 500)));
+  const lower = text.toLowerCase();
   return text.includes(';') && (
-    text.toLowerCase().includes('auftrags_id') ||
-    text.toLowerCase().includes('auftrags-id') ||
-    text.toLowerCase().includes('datum')
+    lower.includes('auftrags_id') ||
+    lower.includes('auftrags-id') ||
+    lower.includes('auftragsnr') ||
+    lower.includes('datum') ||
+    lower.includes('beginn')
   );
 }
 
