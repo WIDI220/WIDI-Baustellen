@@ -131,12 +131,12 @@ export function parseExcelFile(buffer: ArrayBuffer, refYearMonth: string): Excel
   if (csvMode) {
     const { rows: csvRows, headers } = parseCSV(buffer);
     const hi = (name: string) => headers.findIndex(h => h.includes(name));
-    const colId    = hi('auftrags_id') >= 0 ? hi('auftrags_id') : (hi('auftrags-id') >= 0 ? hi('auftrags-id') : (hi('auftragsnr') >= 0 ? hi('auftragsnr') : 0));
+    const colId    = hi('auftragsnr') >= 0 ? hi('auftragsnr') : (hi('auftrags_id') >= 0 ? hi('auftrags_id') : (hi('auftrags-id') >= 0 ? hi('auftrags-id') : 0));
     const colDatum = hi('beginn') >= 0 ? hi('beginn') : (hi('datum') >= 0 ? hi('datum') : 1);
-    const colWerk  = hi('werkstatt') >= 0 ? hi('werkstatt') : 2;
-    const colMeld  = hi('ansprechpartner') >= 0 ? hi('ansprechpartner') : (hi('melder') >= 0 ? hi('melder') : 3);
-    const colRaum  = hi('verortung') >= 0 ? hi('verortung') : (hi('raumnr') >= 0 ? hi('raumnr') : (hi('raum_id') >= 0 ? hi('raum_id') : 5));
-    const colText  = hi('auftragstext') >= 0 ? hi('auftragstext') : 6;
+    const colWerk  = hi('werkstatt') >= 0 ? hi('werkstatt') : 9;
+    const colMeld  = hi('ansprechpartner') >= 0 ? hi('ansprechpartner') : (hi('melder') >= 0 ? hi('melder') : 2);
+    const colRaum  = hi('verortung') >= 0 ? hi('verortung') : (hi('raumnr') >= 0 ? hi('raumnr') : (hi('raum_id') >= 0 ? hi('raum_id') : 4));
+    const colText  = hi('auftragstext') >= 0 ? hi('auftragstext') : 5;
 
     csvRows.forEach((row, i) => {
       if (!row || row.every(c => !c)) return; // leere Zeile
