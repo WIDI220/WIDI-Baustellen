@@ -56,7 +56,15 @@ function parseAnyDate(raw: unknown, ticketYear: number, refMonth: number): Date 
   const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (isoMatch) return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
   const fullMatch = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (fullMatch) return new Date(parseInt(fullMatch[3]), parseInt(fullMatch[2]) - 1, parseInt(fullMatch[1]));
+  if (fullMatch) {
+    const d = parseInt(fullMatch[1], 10);
+    const m = parseInt(fullMatch[2], 10);
+    const y = parseInt(fullMatch[3], 10);
+    // Validierung: Monat 1-12, Tag 1-31
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return new Date(y, m - 1, d);
+    }
+  }
   const shortYearMatch = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2})$/);
   if (shortYearMatch) {
     const yy = parseInt(shortYearMatch[3], 10);
@@ -81,7 +89,8 @@ function normalizeANummer(raw: unknown, refYear: number): string | null {
 function normalizeGewerk(raw: unknown): 'Hochbau' | 'Elektro' | 'Unbekannt' {
   const text = String(raw ?? '').trim().toLowerCase();
   if (text === 'hochbau') return 'Hochbau';
-  if (text.includes('elektro') || text.includes('nachricht')) return 'Elektro';
+  if (text.includes('elektro') || text.includes('nachricht') || text.includes('elektrotechnik')) return 'Elektro';
+  if (text === 'werdohl' || text === 'reinigung' || text === 'sanitär' || text === 'heizung') return 'Hochbau';
   if (text === '') return 'Unbekannt';
   return 'Unbekannt';
 }
@@ -122,11 +131,11 @@ export function parseExcelFile(buffer: ArrayBuffer, refYearMonth: string): Excel
   if (csvMode) {
     const { rows: csvRows, headers } = parseCSV(buffer);
     const hi = (name: string) => headers.findIndex(h => h.includes(name));
-    const colId    = hi('auftrags_id') >= 0 ? hi('auftrags_id') : (hi('auftrags-id') >= 0 ? hi('auftrags-id') : 0);
-    const colDatum = hi('datum') >= 0 ? hi('datum') : 1;
+    const colId    = hi('auftrags_id') >= 0 ? hi('auftrags_id') : (hi('auftrags-id') >= 0 ? hi('auftrags-id') : (hi('auftragsnr') >= 0 ? hi('auftragsnr') : 0));
+    const colDatum = hi('beginn') >= 0 ? hi('beginn') : (hi('datum') >= 0 ? hi('datum') : 1);
     const colWerk  = hi('werkstatt') >= 0 ? hi('werkstatt') : 2;
-    const colMeld  = hi('melder') >= 0 ? hi('melder') : 3;
-    const colRaum  = hi('raumnr') >= 0 ? hi('raumnr') : (hi('raum_id') >= 0 ? hi('raum_id') : 5);
+    const colMeld  = hi('ansprechpartner') >= 0 ? hi('ansprechpartner') : (hi('melder') >= 0 ? hi('melder') : 3);
+    const colRaum  = hi('verortung') >= 0 ? hi('verortung') : (hi('raumnr') >= 0 ? hi('raumnr') : (hi('raum_id') >= 0 ? hi('raum_id') : 5));
     const colText  = hi('auftragstext') >= 0 ? hi('auftragstext') : 6;
 
     csvRows.forEach((row, i) => {
