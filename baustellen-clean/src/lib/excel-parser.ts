@@ -9,12 +9,14 @@ export type FehlerTyp =
   | 'kein_gewerk'           // Werkstatt fehlt/unbekannt
   | 'kein_auftragstext';    // Auftragstext fehlt
 
+export type GewerkTyp = 'Hochbau' | 'Elektro' | 'Werdohl' | 'Unbekannt';
+
 export type PruefStatus = 'ok' | 'warnung' | 'fehler' | 'duplikat_datei' | 'duplikat_db';
 
 export interface ParsedTicketRow {
   zeilennr: number;          // Originale Zeile in der Datei
   a_nummer: string;
-  gewerk: 'Hochbau' | 'Elektro' | 'Unbekannt';
+  gewerk: 'Hochbau' | 'Elektro' | 'Werdohl' | 'Unbekannt';
   eingangsdatum: Date | null;
   melder: string;
   raumnr: string;
@@ -86,11 +88,11 @@ function normalizeANummer(raw: unknown, refYear: number): string | null {
   return null;
 }
 
-function normalizeGewerk(raw: unknown): 'Hochbau' | 'Elektro' | 'Unbekannt' {
+function normalizeGewerk(raw: unknown): 'Hochbau' | 'Elektro' | 'Werdohl' | 'Unbekannt' {
   const text = String(raw ?? '').trim().toLowerCase();
   if (text === 'hochbau') return 'Hochbau';
-  if (text.includes('elektro') || text.includes('nachricht') || text.includes('elektrotechnik')) return 'Elektro';
-  if (text === 'werdohl' || text === 'reinigung' || text === 'sanitär' || text === 'heizung') return 'Hochbau';
+  if (text.includes('elektro') || text.includes('nachricht')) return 'Elektro';
+  if (text === 'werdohl') return 'Werdohl';
   if (text === '') return 'Unbekannt';
   return 'Unbekannt';
 }
