@@ -59,30 +59,12 @@ function parseAnyDate(raw: unknown, ticketYear: number, refMonth: number): Date 
   if (isoMatch) return new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
   const fullMatch = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
   if (fullMatch) {
-    const p1 = parseInt(fullMatch[1], 10);
-    const p2 = parseInt(fullMatch[2], 10);
-    const y  = parseInt(fullMatch[3], 10);
-    // p1=Tag, p2=Monat (deutsches Format TT.MM.JJJJ)
-    // Wenn p1 > 12: eindeutig Tag → normal
-    // Wenn p2 > 12: eindeutig Monat → tauschen (p2=Tag, p1=Monat)
-    // Wenn beide ≤ 12: refMonth als Tiebreaker — welcher der beiden dem refMonth entspricht, ist der Monat
-    let day: number, month: number;
-    if (p1 > 12) {
-      day = p1; month = p2; // p1 kann kein Monat sein
-    } else if (p2 > 12) {
-      day = p2; month = p1; // p2 kann kein Monat sein → vertauscht
-    } else {
-      // Beide ≤ 12: refMonth entscheidet
-      if (p2 === refMonth) {
-        day = p1; month = p2; // normal: TT.MM
-      } else if (p1 === refMonth) {
-        day = p2; month = p1; // vertauscht: MM.TT
-      } else {
-        day = p1; month = p2; // Fallback: deutsches Format
-      }
-    }
+    // Immer deutsches Format: TT.MM.JJJJ
+    const day   = parseInt(fullMatch[1], 10);
+    const month = parseInt(fullMatch[2], 10);
+    const year  = parseInt(fullMatch[3], 10);
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      return new Date(y, month - 1, day);
+      return new Date(year, month - 1, day);
     }
   }
   const shortYearMatch = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2})$/);
