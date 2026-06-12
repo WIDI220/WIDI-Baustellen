@@ -993,3 +993,226 @@ export function exportTeilabrechungPDF(
   const filename = `${bsNummer}_Teilabrechnung_Protokoll.pdf`;
   doc.save(filename);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ABNAHMESCHEIN PDF — identisches Layout zur Excel-Vorlage, mit WIDI-Logo
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AbnahmePDFPosition {
+  leistung: string;
+  einheit: string;
+  menge: string;
+}
+
+export interface AbnahmePDFDaten {
+  aNummer:        string;
+  proj:           string;
+  ausgefuehrtAm:  string;
+  ausgefuehrtVon: string;
+  positionen:     AbnahmePDFPosition[];
+}
+
+const WIDI_LOGO = 'data:image/jpeg;base64,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';
+
+export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const W = 210, H = 297;
+  const ML = 20, MR = 20, MT = 0;
+  const CW = W - ML - MR;
+
+  // ── Farben ──────────────────────────────────────────────────────────────
+  const GRAY_DARK  = [50,  50,  50]  as [number,number,number];
+  const GRAY_MID   = [100, 100, 100] as [number,number,number];
+  const GRAY_LIGHT = [220, 220, 220] as [number,number,number];
+  const BLACK      = [20,  20,  20]  as [number,number,number];
+  const WHITE      = [255, 255, 255] as [number,number,number];
+  const HEADER_BG  = [245, 245, 245] as [number,number,number];
+
+  // ── Logo ─────────────────────────────────────────────────────────────────
+  // Logo oben links, skaliert auf ~55mm breit
+  doc.addImage(WIDI_LOGO, 'JPEG', ML, 12, 55, 18);
+
+  // ── Trennlinie unter Logo ──────────────────────────────────────────────
+  doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
+  doc.setLineWidth(0.4);
+  doc.line(ML, 34, W - MR, 34);
+
+  // ── Dokumenttitel rechts ───────────────────────────────────────────────
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+  doc.text('Abnahmeschein', W - MR, 20, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+  doc.text('Sonderdienstleistung', W - MR, 26, { align: 'right' });
+
+  let y = 42;
+
+  // ── Adressblock Kunde ──────────────────────────────────────────────────
+  doc.setFontSize(8.5);
+  doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text('KUNDE', ML, y);
+
+  y += 5;
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+  doc.setFontSize(10);
+  doc.text('Märkische Kliniken GmbH - Hellersen', ML, y);
+  y += 5;
+  doc.text('Paulmannshöher Str. 14', ML, y);
+  y += 5;
+  doc.text('58515 Lüdenscheid', ML, y);
+
+  // ── KST / Proj rechts neben Adresse ───────────────────────────────────
+  const rx = ML + CW * 0.55;
+  let ry = 47;
+  doc.setFontSize(8.5);
+  doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.text('KST', rx, ry);
+  doc.text('PROJ', rx + 35, ry);
+  ry += 5;
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+  doc.setFontSize(10);
+  doc.text('900120', rx, ry);
+
+  // Proj mehrzeilig
+  const projLines = doc.splitTextToSize(d.proj || '—', 60);
+  doc.text(projLines, rx + 35, ry);
+
+  // ── A-Nummer Badge ─────────────────────────────────────────────────────
+  y += 14;
+  doc.setFillColor(BLACK[0], BLACK[1], BLACK[2]);
+  doc.roundedRect(ML, y, 50, 8, 1.5, 1.5, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(WHITE[0], WHITE[1], WHITE[2]);
+  doc.text(d.aNummer || '—', ML + 25, y + 5.5, { align: 'center' });
+
+  y += 14;
+
+  // ── Trennlinie ─────────────────────────────────────────────────────────
+  doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
+  doc.setLineWidth(0.3);
+  doc.line(ML, y, W - MR, y);
+  y += 6;
+
+  // ── Leistungstabelle ───────────────────────────────────────────────────
+  const colW = [CW * 0.60, CW * 0.22, CW * 0.18];
+
+  // Header
+  doc.setFillColor(HEADER_BG[0], HEADER_BG[1], HEADER_BG[2]);
+  doc.rect(ML, y, CW, 7, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
+  doc.text('LEISTUNGSBESCHREIBUNG', ML + 3, y + 4.8);
+  doc.text('EINHEIT', ML + colW[0] + 3, y + 4.8);
+  doc.text('MENGE', ML + colW[0] + colW[1] + 3, y + 4.8);
+  y += 7;
+
+  // Positionen
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+
+  const pos = d.positionen.length > 0 ? d.positionen : [{ leistung: '—', einheit: '—', menge: '—' }];
+  pos.forEach((p, i) => {
+    const rowBg = i % 2 === 0 ? WHITE : [250, 250, 250] as [number,number,number];
+    doc.setFillColor(rowBg[0], rowBg[1], rowBg[2]);
+    doc.rect(ML, y, CW, 8, 'F');
+
+    // Rahmen
+    doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
+    doc.setLineWidth(0.2);
+    doc.rect(ML, y, CW, 8);
+    // Spalten-Trennlinien
+    doc.line(ML + colW[0], y, ML + colW[0], y + 8);
+    doc.line(ML + colW[0] + colW[1], y, ML + colW[0] + colW[1], y + 8);
+
+    doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text(p.leistung || '—', ML + 3, y + 5.4);
+    doc.text(p.einheit  || '—', ML + colW[0] + 3, y + 5.4);
+    doc.text(p.menge    || '—', ML + colW[0] + colW[1] + 3, y + 5.4);
+    y += 8;
+  });
+
+  y += 12;
+
+  // ── Ausgeführt am / von ────────────────────────────────────────────────
+  doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
+  doc.setLineWidth(0.3);
+  doc.line(ML, y, W - MR, y);
+  y += 8;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+  doc.text('AUSGEFÜHRT AM', ML, y);
+  doc.text('AUSGEFÜHRT VON', ML + CW * 0.45, y);
+  y += 5;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+  doc.text(d.ausgefuehrtAm  || '—', ML, y);
+  const vonLines = doc.splitTextToSize(d.ausgefuehrtVon || '—', CW * 0.55);
+  doc.text(vonLines, ML + CW * 0.45, y);
+
+  y += Math.max(vonLines.length * 6, 6) + 16;
+
+  // ── Unterschrift Blocks ─────────────────────────────────────────────────
+  const sigW = (CW - 10) / 2;
+
+  // Block Ausgeführt von
+  doc.setDrawColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
+  doc.setLineWidth(0.4);
+  doc.line(ML, y, ML + sigW, y);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+  doc.text('Unterschrift Ausführender', ML, y + 4);
+
+  // Block Kunde
+  doc.line(ML + sigW + 10, y, W - MR, y);
+  doc.text('Unterschrift Kunde', ML + sigW + 10, y + 4);
+
+  y += 20;
+
+  // ── Hinweistext ────────────────────────────────────────────────────────
+  doc.setLineWidth(0.3);
+  doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
+  doc.line(ML, y, W - MR, y);
+  y += 6;
+  doc.setFont('helvetica', 'bolditalic');
+  doc.setFontSize(8);
+  doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+  const hinweis = 'Bitte vor Unterschrift prüfen. Reklamationen können nur bis zu 24 Stunden nach Beendigung der Durchführung entgegen genommen werden.';
+  const hinweisLines = doc.splitTextToSize(hinweis, CW);
+  doc.text(hinweisLines, ML, y);
+
+  // ── Geprüft rechts unten ──────────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
+  doc.text('Geprüft: ___________________', W - MR, H - 15, { align: 'right' });
+
+  // ── Footer Linie ─────────────────────────────────────────────────────
+  doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
+  doc.setLineWidth(0.3);
+  doc.line(ML, H - 10, W - MR, H - 10);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+  doc.text('WIDI Wirtschaftsdienste Hellersen GmbH · Unternehmensverbund WIDI', ML, H - 6);
+  doc.text('KST 900120', W - MR, H - 6, { align: 'right' });
+
+  // ── Download ──────────────────────────────────────────────────────────
+  const aNr = (d.aNummer || 'Abnahmeschein').replace(/[^A-Za-z0-9-]/g,'_');
+  const dat = (d.ausgefuehrtAm || '').replace(/\./g,'-');
+  doc.save(`Abnahmeschein_${aNr}_${dat}.pdf`);
+}
