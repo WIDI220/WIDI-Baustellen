@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Euro, Clock, Package, Camera, Plus, Pencil, Trash2, Upload, TrendingUp, BarChart2, FileText, Download, File, X } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import { fmtEur, fmtDate } from '@/lib/utils';
-import { exportBaustellePDF, exportTeilabrechungPDF, exportAbnahmeschein, AbnahmeOptionen } from '@/lib/exportPDF';
+import { exportBaustellePDF, exportTeilabrechungPDF, exportAbnahmeschein, AbnahmeOptionen, exportAbnahmescheinPDF, AbnahmePDFPosition } from '@/lib/exportPDF';
 import { exportAbnahmescheinExcel } from '@/lib/abnahmeschein-excel';
 
 const STUNDEN_SATZ = 38.08;
@@ -192,6 +192,119 @@ function AbnahmeDialog({ open, opts, onOptsChange, loading, bs, onClose, onSubmi
 
 // ── Abnahmeschein Excel: direkt generieren ohne Dialog ──────────────────────
 
+
+// ── Abnahmeschein PDF Dialog ─────────────────────────────────────────────────
+function AbnahmePDFDialog({ open, onClose, bs, sw }: {
+  open: boolean; onClose: () => void; bs: any; sw: any[];
+}) {
+  const gesamtH = sw.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+  const vonWem  = [...new Set(sw.map((w: any) => w.employees?.name).filter(Boolean))].join(', ');
+  const aNummer = (() => { const m = (bs?.name||'').match(/^\[A(\w+)\]/); return m ? 'A' + m[1] : bs?.name || ''; })();
+
+  const [positionen, setPositionen] = React.useState<Array<{leistung:string;einheit:string;menge:string}>>([
+    { leistung: 'Arbeitszeit', einheit: 'Std.', menge: String(gesamtH || '') },
+  ]);
+
+  if (!open) return null;
+
+  const addPos = () => setPositionen(p => [...p, { leistung: '', einheit: 'Std.', menge: '' }]);
+  const remPos = (i: number) => setPositionen(p => p.filter((_,j) => j !== i));
+  const updPos = (i: number, k: string, v: string) =>
+    setPositionen(p => p.map((row,j) => j===i ? {...row,[k]:v} : row));
+
+  const generieren = () => {
+    exportAbnahmescheinPDF({
+      aNummer,
+      proj: bs?.beschreibung || bs?.name || '',
+      ausgefuehrtAm:  new Date().toLocaleDateString('de-DE'),
+      ausgefuehrtVon: vonWem || '_______________',
+      positionen,
+    });
+    onClose();
+  };
+
+  const inp: React.CSSProperties = { width:'100%', padding:'7px 10px', border:'1.5px solid #e2e8f0', borderRadius:8, fontSize:12, outline:'none', boxSizing:'border-box', fontFamily:'inherit', color:'#0f172a', background:'#fff' };
+  const lbl: React.CSSProperties = { fontSize:10, fontWeight:700, color:'#94a3b8', display:'block', marginBottom:4, textTransform:'uppercase', letterSpacing:'.05em' };
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.65)', backdropFilter:'blur(4px)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+      <div style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:520, maxHeight:'92vh', overflowY:'auto', boxShadow:'0 32px 80px rgba(0,0,0,0.25)' }}>
+
+        {/* Header */}
+        <div style={{ padding:'20px 24px 16px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ width:42, height:42, borderRadius:12, background:'linear-gradient(135deg,#1e3a5f,#2563eb)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>📋</div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:16, fontWeight:800, color:'#0f172a' }}>Abnahmeschein</div>
+            <div style={{ fontSize:12, color:'#94a3b8', marginTop:1 }}>PDF · Sonderdienstleistung</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#94a3b8', fontSize:20, lineHeight:1 }}>×</button>
+        </div>
+
+        <div style={{ padding:'18px 24px' }}>
+
+          {/* Info-Chips */}
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:18 }}>
+            {[
+              { icon:'🏷', val: aNummer || '—' },
+              { icon:'📅', val: new Date().toLocaleDateString('de-DE') },
+              { icon:'👤', val: vonWem || '—' },
+            ].map(({icon,val}) => (
+              <span key={icon} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:20, fontSize:12, color:'#374151', fontWeight:500 }}>
+                {icon} {val}
+              </span>
+            ))}
+          </div>
+
+          {/* Positionen */}
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:'#0f172a', marginBottom:10 }}>Leistungspositionen</div>
+
+            {/* Header */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 70px 28px', gap:6, marginBottom:6 }}>
+              <span style={lbl}>Leistungsbeschreibung</span>
+              <span style={lbl}>Einheit</span>
+              <span style={lbl}>Menge</span>
+              <span></span>
+            </div>
+
+            {positionen.map((p, i) => (
+              <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 80px 70px 28px', gap:6, marginBottom:6, alignItems:'center' }}>
+                <input style={inp} placeholder="z.B. Mehraufwand Reinigung" value={p.leistung}
+                  onChange={e => updPos(i,'leistung',e.target.value)} />
+                <input style={inp} placeholder="Std." value={p.einheit}
+                  onChange={e => updPos(i,'einheit',e.target.value)} />
+                <input style={inp} placeholder="0" value={p.menge}
+                  onChange={e => updPos(i,'menge',e.target.value)} />
+                <button onClick={() => remPos(i)} disabled={positionen.length===1}
+                  style={{ padding:'7px 0', background: positionen.length===1 ? '#f8fafc' : '#fef2f2', color: positionen.length===1 ? '#cbd5e1' : '#ef4444', border:`1px solid ${positionen.length===1 ? '#e2e8f0' : '#fecaca'}`, borderRadius:8, cursor: positionen.length===1 ? 'not-allowed' : 'pointer', fontSize:14 }}>
+                  ×
+                </button>
+              </div>
+            ))}
+
+            <button onClick={addPos}
+              style={{ display:'flex', alignItems:'center', gap:5, marginTop:4, padding:'7px 14px', background:'#f0f9ff', color:'#0369a1', border:'1px solid #bae6fd', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer' }}>
+              + Position hinzufügen
+            </button>
+          </div>
+
+          {/* Actions */}
+          <div style={{ display:'flex', gap:10, paddingTop:16, borderTop:'1px solid #f1f5f9' }}>
+            <button onClick={onClose}
+              style={{ flex:1, padding:'11px 0', border:'1.5px solid #e2e8f0', borderRadius:11, background:'#f8fafc', fontSize:13, fontWeight:600, cursor:'pointer', color:'#64748b' }}>
+              Abbrechen
+            </button>
+            <button onClick={generieren}
+              style={{ flex:2, padding:'11px 0', border:'none', borderRadius:11, background:'linear-gradient(135deg,#1e3a5f,#2563eb)', fontSize:13, fontWeight:700, cursor:'pointer', color:'#fff', boxShadow:'0 4px 14px rgba(37,99,235,0.3)' }}>
+              📄 PDF generieren
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BaustelleDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -232,6 +345,9 @@ export default function BaustelleDetail() {
   const [abnahmeLoading, setAbnahmeLoading] = useState(false);
   const [abnahmeFelder, setAbnahmeFelder] = useState<Record<string,string>>({});
   const [abnahmeFelderStep, setAbnahmeFelderStep] = useState(false);
+  // Abnahmeschein PDF Dialog
+  const [abnahmePDFDialog, setAbnahmePDFDialog] = useState(false);
+  const [pdfPositionen, setPdfPositionen] = useState<AbnahmePDFPosition[]>([{ leistung: 'Stunden', einheit: 'Std.', menge: '' }]);
 
   const { data: bs, isLoading: bsLoading } = useQuery({ queryKey:['baustelle',id], queryFn: async () => { const {data,error}=await supabase.from('baustellen').select('*').eq('id',id!).single(); if(error)throw error; return data; }, enabled:!!id });
   const { data: employees=[] } = useQuery({ queryKey:['employees'], queryFn: async () => { const {data}=await supabase.from('employees').select('id,name,kuerzel,stundensatz').eq('aktiv',true).order('name'); return data??[]; } });
@@ -452,7 +568,7 @@ export default function BaustelleDetail() {
           <p className="text-sm mt-0.5" style={{color:'#9ca3af'}}>{bs.auftraggeber}{bs.adresse?` · ${bs.adresse}`:''}</p>
         </div>
         <Button variant="outline" size="sm" onClick={exportPDF}>PDF</Button>
-        <Button variant="outline" size="sm" onClick={() => setAbnahmeDialog(true)} style={{borderColor:'#22c55e',color:'#15803d',fontWeight:600}}>Abnahmeschein</Button>
+        <Button variant="outline" size="sm" onClick={() => setAbnahmePDFDialog(true)} style={{borderColor:'#22c55e',color:'#15803d',fontWeight:600}}>Abnahmeschein</Button>
         <Button variant="outline" size="sm" onClick={() => {
           const aNummer   = extractANummer(bs.name) ? `A${extractANummer(bs.name)}` : bs.name || '';
           const proj      = bs.beschreibung || bs.name || '';
@@ -1336,6 +1452,14 @@ export default function BaustelleDetail() {
         />
       )}
 
+      {abnahmePDFDialog && (
+        <AbnahmePDFDialog
+          open={abnahmePDFDialog}
+          onClose={() => setAbnahmePDFDialog(false)}
+          bs={bs}
+          sw={sw}
+        />
+      )}
     </div>
   );
 }
