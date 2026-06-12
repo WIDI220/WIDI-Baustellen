@@ -315,7 +315,8 @@ export default function BaustelleDetail() {
     if (!['pdf','xlsx','xls','csv'].includes(ext||'')) { toast.error('Nur PDF, Excel und CSV erlaubt'); return; }
     setDokUploading(true);
     try {
-      const path = `${id}/${Date.now()}_${file.name}`;
+      const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9._-]/g,'_');
+      const path = `${id}/${Date.now()}_${safeName}`;
       const {error:upErr} = await supabase.storage.from('baustellen-dokumente').upload(path, file);
       if (upErr) throw upErr;
       const {error:dbErr} = await supabase.from('bs_dokumente').insert({ baustelle_id:id, name:file.name, storage_path:path, dateityp:file.type||ext, groesse:file.size });
