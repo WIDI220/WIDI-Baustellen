@@ -13,6 +13,7 @@ import { ArrowLeft, Euro, Clock, Package, Camera, Plus, Pencil, Trash2, Upload, 
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } from 'recharts';
 import { fmtEur, fmtDate } from '@/lib/utils';
 import { exportBaustellePDF, exportTeilabrechungPDF, exportAbnahmeschein, AbnahmeOptionen } from '@/lib/exportPDF';
+import { exportAbnahmescheinExcel, AbnahmescheinFelder } from '@/lib/abnahmeschein-excel';
 
 const STUNDEN_SATZ = 38.08;
 const STATUS_OPTIONS = [
@@ -188,6 +189,108 @@ function AbnahmeDialog({ open, opts, onOptsChange, loading, bs, onClose, onSubmi
   );
 }
 
+
+// ── Abnahmeschein Excel Dialog ───────────────────────────────────────────────
+interface AbnahmeExcelDialogProps {
+  open: boolean;
+  onClose: () => void;
+  bs: any;
+  stunden: any[];
+}
+
+function AbnahmeExcelDialog({ open, onClose, bs, stunden }: AbnahmeExcelDialogProps) {
+  const gesamtStunden = stunden.reduce((s: number, e: any) => s + Number(e.stunden), 0);
+  const mitarbeiterListe = [...new Set(stunden.map((e: any) => e.employees?.name).filter(Boolean))].join(', ');
+
+  const [felder, setFelder] = React.useState<Record<string, string>>({});
+
+  if (!open) return null;
+
+  const update = (key: string, val: string) => setFelder(f => ({ ...f, [key]: val }));
+
+  const erstellen = () => {
+    const aNummer  = felder.aNummer  || bs?.name?.match(/[A-Z]\d{2}-\d{4,6}/)?.[0] || 'A26-';
+    const proj     = felder.proj     || bs?.beschreibung || bs?.name || '';
+    const leistung = felder.leistung || 'Std.';
+    const menge    = felder.menge    || String(gesamtStunden);
+    const datum    = felder.datum    || new Date().toLocaleDateString('de-DE');
+    const vonWem   = felder.vonWem   || mitarbeiterListe || '_______________________';
+
+    exportAbnahmescheinExcel({
+      aNummer, proj,
+      leistungseinheit: leistung,
+      menge,
+      ausgefuehrtAm:  datum,
+      ausgefuehrtVon: vonWem,
+    });
+    onClose();
+  };
+
+  const inp: React.CSSProperties = {
+    width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0',
+    borderRadius: 9, fontSize: 13, outline: 'none', boxSizing: 'border-box',
+    fontFamily: 'inherit', color: '#0f172a', background: '#fff',
+  };
+  const lbl: React.CSSProperties = {
+    fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
+    letterSpacing: '.05em', display: 'block', marginBottom: 5,
+  };
+
+  const FELDER = [
+    { key: 'aNummer',  label: 'A-Nummer',          placeholder: bs?.name?.match(/[A-Z]\d{2}-\d{4,6}/)?.[0] || 'A26-XXXXX' },
+    { key: 'proj',     label: 'Projekt / Leistungsbeschreibung', placeholder: bs?.beschreibung || bs?.name || '' },
+    { key: 'leistung', label: 'Leistungseinheit',   placeholder: 'Std.' },
+    { key: 'menge',    label: 'Menge',              placeholder: String(gesamtStunden || '') },
+    { key: 'datum',    label: 'Ausgeführt am',      placeholder: new Date().toLocaleDateString('de-DE') },
+    { key: 'vonWem',   label: 'Ausgeführt von',     placeholder: mitarbeiterListe || 'Name Mitarbeiter' },
+  ];
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 480, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,0.25)' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: 'linear-gradient(135deg,#2563eb,#1d4ed8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📋</div>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>Abnahmeschein (Excel)</div>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>Original-Format · direkt befüllbar</div>
+          </div>
+        </div>
+
+        <div style={{ padding: '18px 24px' }}>
+          <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#0369a1' }}>
+            💡 Felder werden automatisch aus der Baustelle befüllt — einfach prüfen und anpassen.
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {FELDER.map(f => (
+              <div key={f.key}>
+                <label style={lbl}>{f.label}</label>
+                <input
+                  style={inp}
+                  placeholder={f.placeholder}
+                  value={felder[f.key] ?? ''}
+                  onChange={e => update(f.key, e.target.value)}
+                  onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.1)'; }}
+                  onBlur={e => { e.target.style.borderColor = '#e2e8f0'; e.target.style.boxShadow = 'none'; }}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 20, paddingTop: 16, borderTop: '1px solid #f1f5f9' }}>
+            <button onClick={onClose} style={{ flex: 1, padding: '11px 0', border: '1.5px solid #e2e8f0', borderRadius: 11, background: '#f8fafc', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#64748b' }}>
+              Abbrechen
+            </button>
+            <button onClick={erstellen} style={{ flex: 2, padding: '11px 0', border: 'none', borderRadius: 11, background: 'linear-gradient(135deg,#2563eb,#1d4ed8)', fontSize: 13, fontWeight: 700, cursor: 'pointer', color: '#fff', boxShadow: '0 4px 14px rgba(37,99,235,0.3)' }}>
+              📥 Excel herunterladen
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BaustelleDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -228,6 +331,7 @@ export default function BaustelleDetail() {
   const [abnahmeLoading, setAbnahmeLoading] = useState(false);
   const [abnahmeFelder, setAbnahmeFelder] = useState<Record<string,string>>({});
   const [abnahmeFelderStep, setAbnahmeFelderStep] = useState(false);
+  const [abnahmeExcelDialog, setAbnahmeExcelDialog] = useState(false);
 
   const { data: bs, isLoading: bsLoading } = useQuery({ queryKey:['baustelle',id], queryFn: async () => { const {data,error}=await supabase.from('baustellen').select('*').eq('id',id!).single(); if(error)throw error; return data; }, enabled:!!id });
   const { data: employees=[] } = useQuery({ queryKey:['employees'], queryFn: async () => { const {data}=await supabase.from('employees').select('id,name,kuerzel,stundensatz').eq('aktiv',true).order('name'); return data??[]; } });
@@ -448,6 +552,7 @@ export default function BaustelleDetail() {
         </div>
         <Button variant="outline" size="sm" onClick={exportPDF}>PDF</Button>
         <Button variant="outline" size="sm" onClick={() => setAbnahmeDialog(true)} style={{borderColor:'#22c55e',color:'#15803d',fontWeight:600}}>Abnahmeschein</Button>
+        <Button variant="outline" size="sm" onClick={() => setAbnahmeExcelDialog(true)} style={{borderColor:'#2563eb',color:'#1d4ed8',fontWeight:600}}>📋 Abnahmeschein Excel</Button>
       </div>
 
       {/* KPIs */}
@@ -1320,6 +1425,15 @@ export default function BaustelleDetail() {
           }}
           felderStep={abnahmeFelderStep}
           onFelderStep={setAbnahmeFelderStep}
+        />
+      )}
+
+      {abnahmeExcelDialog && (
+        <AbnahmeExcelDialog
+          open={abnahmeExcelDialog}
+          onClose={() => setAbnahmeExcelDialog(false)}
+          bs={bs}
+          stunden={sw}
         />
       )}
     </div>
