@@ -49,6 +49,7 @@ interface Anfrage {
   material_kosten: number | null;
   foto_vorher: string | null;
   foto_nachher: string | null;
+  fotos: Array<{ url: string; label: string }> | null;
   status: 'offen' | 'genehmigt' | 'abgelehnt' | 'verbucht';
   admin_kommentar: string | null;
   erstellt_am: string;
@@ -95,7 +96,7 @@ function VerbuchenModal({ anfrage, baustellenName, onConfirm, onCancel, loading,
           {baustellenName && <div style={{ fontSize: 13, color: '#475569', marginTop: 4 }}>📍 {baustellenName}</div>}
           {anfrage.beschreibung && <div style={{ fontSize: 13, color: '#64748b', marginTop: 4, fontStyle: 'italic' }}>{anfrage.beschreibung}</div>}
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #e2e8f0', fontSize: 12, color: '#94a3b8' }}>
-            {anfrage.typ === 'baustelle' && '→ Schreibt in: bs_stundeneintraege' + (anfrage.foto_vorher || anfrage.foto_nachher ? ' + bs_fotos' : '')}
+            {anfrage.typ === 'baustelle' && '→ Schreibt in: bs_stundeneintraege' + ((anfrage.fotos && anfrage.fotos.length > 0) || anfrage.foto_vorher || anfrage.foto_nachher ? ' + bs_fotos' : '')}
             {anfrage.typ === 'dguv' && '→ Schreibt in: interne_stunden'}
             {anfrage.typ === 'sonstiges' && '→ Schreibt in: interne_stunden'}
             {anfrage.typ === 'ticket' && '→ Schreibt in: interne_stunden (Ticket-Referenz in Beschreibung)'}
@@ -178,23 +179,36 @@ function AnfrageKarte({ anfrage, baustellenMap, onAblehnen, onGenehmigen, onVerb
             <p style={{ margin: '0 0 12px', fontSize: 13, color: '#6d28d9', fontStyle: 'italic' }}>💬 {anfrage.admin_kommentar}</p>
           )}
 
-          {/* Vorher/Nachher Fotos */}
-          {(anfrage.foto_vorher || anfrage.foto_nachher) && (
-            <div style={{ display: 'grid', gridTemplateColumns: anfrage.foto_vorher && anfrage.foto_nachher ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 14 }}>
-              {anfrage.foto_vorher && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vorher</div>
-                  <img src={anfrage.foto_vorher} alt="Vorher" style={{ width: '100%', borderRadius: 10, height: 160, objectFit: 'cover', border: '1px solid #e2e8f0' }} />
+          {/* Fotos: neues Array-Format + altes Vorher/Nachher */}
+          {(() => {
+            const alle: Array<{ url: string; label: string }> = [];
+            if (anfrage.fotos && anfrage.fotos.length > 0) {
+              alle.push(...anfrage.fotos);
+            } else {
+              if (anfrage.foto_vorher)  alle.push({ url: anfrage.foto_vorher,  label: 'Vorher' });
+              if (anfrage.foto_nachher) alle.push({ url: anfrage.foto_nachher, label: 'Nachher' });
+            }
+            if (alle.length === 0) return null;
+            return (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Fotos ({alle.length})
                 </div>
-              )}
-              {anfrage.foto_nachher && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#10b981', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nachher</div>
-                  <img src={anfrage.foto_nachher} alt="Nachher" style={{ width: '100%', borderRadius: 10, height: 160, objectFit: 'cover', border: '1px solid #e2e8f0' }} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + Math.min(alle.length, 3) + ', 1fr)', gap: 8 }}>
+                  {alle.map((f, i) => (
+                    <div key={i}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: f.label === 'Nachher' ? '#10b981' : '#64748b', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {f.label}
+                      </div>
+                      <a href={f.url} target="_blank" rel="noopener noreferrer">
+                        <img src={f.url} alt={f.label} style={{ width: '100%', borderRadius: 10, height: 140, objectFit: 'cover', border: '1px solid #e2e8f0', cursor: 'pointer', display: 'block' }} />
+                      </a>
+                    </div>
+                  ))}
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            );
+          })()}
 
           {/* Aktionen */}
           {anfrage.status === 'offen' && (
@@ -301,30 +315,25 @@ export default function StundenAnfragenPage() {
         });
         if (e1) throw new Error(e1.message);
 
-        // → bs_fotos (Vorher)
-        if (a.foto_vorher) {
-          const { error: e2 } = await supabase.from('bs_fotos').insert({
-            baustelle_id: a.controlling_baustelle_id,
-            url: a.foto_vorher,
-            kategorie: 'vorher',
-            datum: a.datum,
-            hochgeladen_von: a.controlling_employee_id,
-            beschreibung: `Vorher – ${a.mitarbeiter_name}`,
-          });
-          if (e2) throw new Error(e2.message);
+        // → bs_fotos: neues Array-Format hat Vorrang, sonst alte Felder
+        const alleF: Array<{ url: string; label: string }> = [];
+        if (a.fotos && a.fotos.length > 0) {
+          alleF.push(...a.fotos);
+        } else {
+          if (a.foto_vorher)  alleF.push({ url: a.foto_vorher,  label: 'Vorher' });
+          if (a.foto_nachher) alleF.push({ url: a.foto_nachher, label: 'Nachher' });
         }
-
-        // → bs_fotos (Nachher)
-        if (a.foto_nachher) {
-          const { error: e3 } = await supabase.from('bs_fotos').insert({
+        for (const f of alleF) {
+          const kat = f.label.toLowerCase() === 'nachher' ? 'nachher' : f.label.toLowerCase() === 'vorher' ? 'vorher' : 'sonstige';
+          const { error: ef } = await supabase.from('bs_fotos').insert({
             baustelle_id: a.controlling_baustelle_id,
-            url: a.foto_nachher,
-            kategorie: 'nachher',
+            url: f.url,
+            kategorie: kat,
             datum: a.datum,
             hochgeladen_von: a.controlling_employee_id,
-            beschreibung: `Nachher – ${a.mitarbeiter_name}`,
+            beschreibung: `${f.label} – ${a.mitarbeiter_name}`,
           });
-          if (e3) throw new Error(e3.message);
+          if (ef) throw new Error(ef.message);
         }
       } else {
         // Ticket / DGUV / Sonstiges → interne_stunden
