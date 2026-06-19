@@ -146,6 +146,10 @@ export default function PdfRuecklauf() {
           } else if (parse.bemerkungPruefen) {
             inPruefqueue = true;
             grund = parse.bemerkungPruefenGrund;
+          } else if (parse.mehrereMonate) {
+            inPruefqueue = true;
+            const tageStr = parse.tagesBuchungen.map(t => `${t.datum} (${t.stunden}h)`).join(', ');
+            grund = `Arbeitszeiten über mehrere Monate verteilt — ${tageStr}`;
           }
 
           alleZeilen.push({
