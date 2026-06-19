@@ -146,10 +146,6 @@ export default function PdfRuecklauf() {
           } else if (parse.bemerkungPruefen) {
             inPruefqueue = true;
             grund = parse.bemerkungPruefenGrund;
-          } else if (parse.mehrereMonate) {
-            inPruefqueue = true;
-            const tageStr = parse.tagesBuchungen.map(t => `${t.datum} (${t.stunden}h)`).join(', ');
-            grund = `Arbeitszeiten über mehrere Monate verteilt — ${tageStr}`;
           }
 
           alleZeilen.push({
@@ -199,8 +195,14 @@ export default function PdfRuecklauf() {
 
     // ── Normale Tickets importieren ──
     for (const z of zuBuchen) {
-      const stunden = z.custom_stunden;
-      if (stunden <= 0) { fehler++; continue; }
+      // Tagesbuchungen verwenden falls vorhanden, sonst Fallback auf custom_stunden/datumISO
+      const buchungen = z.parse.tagesBuchungen.length > 0
+        ? z.parse.tagesBuchungen
+        : [{ datum: z.parse.datum ?? '', datumISO: z.parse.datumISO!, stunden: z.custom_stunden }];
+
+      const gesamtStunden = buchungen.reduce((s, b) => s + b.stunden, 0);
+      if (gesamtStunden <= 0) { fehler++; continue; }
+
       try {
         let ticketId = z.ticket_id;
 
@@ -218,12 +220,16 @@ export default function PdfRuecklauf() {
 
         await supabase.from('tickets').update({ status: 'erledigt', gewerk: z.gewerk }).eq('id', ticketId);
 
-        await supabase.from('ticket_worklogs').insert({
-          ticket_id: ticketId,
-          employee_id: z.ma_id,
-          stunden,
-          leistungsdatum: z.parse.datumISO,
-        });
+        // Ein Worklog PRO TAG/MONAT — damit Stunden im richtigen Monat landen
+        for (const b of buchungen) {
+          if (b.stunden <= 0 || !b.datumISO) continue;
+          await supabase.from('ticket_worklogs').insert({
+            ticket_id: ticketId,
+            employee_id: z.ma_id,
+            stunden: b.stunden,
+            leistungsdatum: b.datumISO,
+          });
+        }
 
         if (z.parse.bemerkung) {
           await supabase.from('tickets')
@@ -279,18 +285,26 @@ export default function PdfRuecklauf() {
       refetchHistorie();
     } catch {}
 
-    // Monatsübersicht berechnen
-    const monatsMap: Record<string, { tickets: number; stunden: number }> = {};
+    // Monatsübersicht berechnen — basiert auf den Tagesbuchungen, nicht nur dem ersten Datum
+    const monatsMap: Record<string, { tickets: number; stunden: number; ticketsGezaehlt: Set<string> }> = {};
     for (const z of zuBuchen) {
-      if (!z.parse.datumISO) continue;
-      const monat = z.parse.datumISO.slice(0, 7);
-      if (!monatsMap[monat]) monatsMap[monat] = { tickets: 0, stunden: 0 };
-      monatsMap[monat].tickets++;
-      monatsMap[monat].stunden = Math.round((monatsMap[monat].stunden + z.custom_stunden) * 4) / 4;
+      const buchungen = z.parse.tagesBuchungen.length > 0
+        ? z.parse.tagesBuchungen
+        : (z.parse.datumISO ? [{ datumISO: z.parse.datumISO, stunden: z.custom_stunden, datum: z.parse.datum ?? '' }] : []);
+
+      for (const b of buchungen) {
+        const monat = b.datumISO.slice(0, 7);
+        if (!monatsMap[monat]) monatsMap[monat] = { tickets: 0, stunden: 0, ticketsGezaehlt: new Set() };
+        if (!monatsMap[monat].ticketsGezaehlt.has(z.parse.a_nummer ?? String(z.idx))) {
+          monatsMap[monat].tickets++;
+          monatsMap[monat].ticketsGezaehlt.add(z.parse.a_nummer ?? String(z.idx));
+        }
+        monatsMap[monat].stunden = Math.round((monatsMap[monat].stunden + b.stunden) * 4) / 4;
+      }
     }
     const monatsUebersicht = Object.entries(monatsMap)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([monat, v]) => ({ monat, ...v }));
+      .map(([monat, v]) => ({ monat, tickets: v.tickets, stunden: v.stunden }));
 
     setBericht({ ok, fehler, gesamt: zuBuchen.length, pruefqueue: pruefOk, monatsUebersicht });
     setBuchend(false);
@@ -323,6 +337,10 @@ export default function PdfRuecklauf() {
     if (!z.ticket_gefunden) return '⚠ A-Nummer nicht erkannt';
     if (!z.ma_gefunden) return `MA "${z.parse.mitarbeiter}" nicht erkannt`;
     if (z.parse.fehler.length > 0) return z.parse.fehler[0];
+    if (z.parse.mehrereMonate) {
+      const tage = z.parse.tagesBuchungen.map(t => `${t.datum}: ${t.stunden}h`).join(' · ');
+      return `✓ Bereit — mehrere Monate: ${tage}`;
+    }
     return '✓ Bereit';
   };
 
