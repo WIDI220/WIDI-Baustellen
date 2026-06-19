@@ -5,6 +5,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
+export interface TagesBuchung {
+  datum: string;       // TT.MM.JJJJ
+  datumISO: string;    // JJJJ-MM-TT
+  stunden: number;
+}
+
 export interface TicketParseResult {
   seite: number;
   a_nummer: string | null;
@@ -19,6 +25,10 @@ export interface TicketParseResult {
   stundenNegativOderNull: boolean;
   bemerkungPruefen: boolean;
   bemerkungPruefenGrund: string;
+  // NEU: Alle Tagesbuchungen aus den Arbeitszeiten — kann mehrere Tage/Monate umfassen
+  tagesBuchungen: TagesBuchung[];
+  // NEU: true wenn Buchungen über mehr als einen Kalendermonat verteilt sind
+  mehrereMonate: boolean;
 }
 
 // Alle bekannten Namensvarianten — Vorname, Nachname, Kürzel
@@ -195,6 +205,8 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
     stundenNegativOderNull: false,
     bemerkungPruefen: false,
     bemerkungPruefenGrund: '',
+    tagesBuchungen: [],
+    mehrereMonate: false,
   };
 
   // ── A-Nummer ──────────────────────────────────────────────────────────────
@@ -247,19 +259,55 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
 
   if (!result.mitarbeiter) result.fehler.push('Mitarbeiter nicht gefunden');
 
-  // ── Stunden ───────────────────────────────────────────────────────────────
+  // ── Stunden — Multi-Tages-Erkennung ───────────────────────────────────────
+  // Format pro Zeile: "30.04.2026 11:56 - 15:26 Uhr (03:29 Std.)"
+  // Mehrere solcher Zeilen können verschiedene Tage/Monate abdecken.
   const arbBlock = text.match(/Arbeitszeiten[\s\S]*?(?=Die aufgef|Datum\s+\d|$)/i);
+  const tagesBuchungen: TagesBuchung[] = [];
+
   if (arbBlock) {
     const block = arbBlock[0];
-    const gesamtMatch = block.match(/\((\d{1,2}):(\d{2})\s*Std\.\)/i);
-    if (gesamtMatch) {
-      const h = parseInt(gesamtMatch[1], 10);
-      const m = parseInt(gesamtMatch[2], 10);
-      result.stunden = Math.round((h + m / 60) * 4) / 4;
+    // Jede Zeile: Datum ... (HH:MM Std.)
+    const zeilenPattern = /(\d{2})\.(\d{2})\.(\d{4})[^(]*\((\d{1,3}):(\d{2})\s*Std\.\)/g;
+    let zm: RegExpExecArray | null;
+    const proTag: Record<string, number> = {}; // datumISO -> Stunden aufsummiert
+
+    while ((zm = zeilenPattern.exec(block)) !== null) {
+      const tag = zm[1], monat = zm[2], jahr = zm[3];
+      const h = parseInt(zm[4], 10);
+      const m = parseInt(zm[5], 10);
+      const stundenDezimal = h + m / 60;
+
+      // Auffällig hohe Einzelwerte (>16h an einem Tag) sind vermutlich Erkennungsfehler
+      // (z.B. Endzeit vor Startzeit in der Original-PDF) — trotzdem aufnehmen,
+      // werden später über stundenNegativOderNull/Prüfqueue sichtbar gemacht
+      const datumISO = `${jahr}-${monat}-${tag}`;
+      proTag[datumISO] = (proTag[datumISO] ?? 0) + stundenDezimal;
     }
-    const datumMatch = block.match(/(\d{2}\.\d{2}\.\d{4})/);
-    if (datumMatch) result.datum = datumMatch[1];
+
+    for (const [datumISO, summe] of Object.entries(proTag)) {
+      const [j, m, t] = datumISO.split('-');
+      tagesBuchungen.push({
+        datum: `${t}.${m}.${j}`,
+        datumISO,
+        stunden: Math.round(summe * 4) / 4, // auf 0,25 runden
+      });
+    }
+    tagesBuchungen.sort((a, b) => a.datumISO.localeCompare(b.datumISO));
   }
+
+  result.tagesBuchungen = tagesBuchungen;
+
+  // Gesamtstunden und Hauptdatum weiterhin befüllen (Kompatibilität + Übersicht)
+  if (tagesBuchungen.length > 0) {
+    result.stunden = Math.round(tagesBuchungen.reduce((sum, t) => sum + t.stunden, 0) * 4) / 4;
+    result.datum = tagesBuchungen[0].datum;
+    result.datumISO = tagesBuchungen[0].datumISO;
+  }
+
+  // Erkennen ob mehr als ein Kalendermonat betroffen ist
+  const betroffeneMonate = new Set(tagesBuchungen.map(t => t.datumISO.slice(0, 7)));
+  result.mehrereMonate = betroffeneMonate.size > 1;
 
   if (!result.datum) {
     const terminMatch = text.match(/Termin\s+Datum\s*:?\s*(?:[A-Za-zäöü.]+\s*)?([\d]{2}\.[\d]{2}\.[\d]{4})/i);
@@ -273,6 +321,12 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
   if (result.stunden !== null && result.stunden <= 0) {
     result.stundenNegativOderNull = true;
     result.fehler.push(`Stunden ungültig (${result.stunden}h)`);
+  }
+
+  // Auffällig hohe Tagesbuchungen (>16h an einem Tag) markieren — wahrscheinlich Erkennungsfehler
+  const hatAuffaelligeTage = tagesBuchungen.some(t => t.stunden > 16);
+  if (hatAuffaelligeTage) {
+    result.fehler.push('Auffällig hohe Stundenzahl an einem Tag — bitte prüfen');
   }
 
   if (result.datum) {
