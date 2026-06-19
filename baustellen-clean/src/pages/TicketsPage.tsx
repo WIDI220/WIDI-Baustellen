@@ -782,6 +782,43 @@ function TicketDetail({ ticket, onClose, userId }: { ticket: any; onClose: () =>
     onError: (e: any) => toast.error(e.message),
   });
 
+  const [editWorklogId, setEditWorklogId] = useState<string | null>(null);
+  const [editWorklogForm, setEditWorklogForm] = useState({ employee_id: '', stunden: '', leistungsdatum: '' });
+
+  const startEditWorklog = (w: any) => {
+    setEditWorklogId(w.id);
+    setEditWorklogForm({
+      employee_id: w.employee_id ?? '',
+      stunden: String(w.stunden ?? ''),
+      leistungsdatum: w.leistungsdatum ?? '',
+    });
+  };
+
+  const saveEditWorklog = useMutation({
+    mutationFn: async () => {
+      if (!editWorklogId) return;
+      const stunden = parseFloat(editWorklogForm.stunden.replace(',', '.'));
+      if (isNaN(stunden) || stunden <= 0) throw new Error('Ungültige Stunden');
+      const { error } = await supabase.from('ticket_worklogs')
+        .update({ employee_id: editWorklogForm.employee_id, stunden, leistungsdatum: editWorklogForm.leistungsdatum })
+        .eq('id', editWorklogId);
+      if (error) throw error;
+      const { data: userData } = await supabase.auth.getUser();
+      await logActivity(userData.user?.email, `Stunden bearbeitet: ${ticket.a_nummer} · ${stunden}h · ${editWorklogForm.leistungsdatum}`, 'ticket_worklog', ticket.id, { a_nummer: ticket.a_nummer, stunden, datum: editWorklogForm.leistungsdatum });
+    },
+    onSuccess: () => { toast.success('Gespeichert'); setEditWorklogId(null); refetchWorklogs(); queryClient.invalidateQueries({ queryKey: ['tickets-list'] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const deleteWorklog = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('ticket_worklogs').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast.success('Eintrag gelöscht'); refetchWorklogs(); queryClient.invalidateQueries({ queryKey: ['tickets-list'] }); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return (
     <Dialog open onOpenChange={() => onClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -904,10 +941,39 @@ function TicketDetail({ ticket, onClose, userId }: { ticket: any; onClose: () =>
             {(worklogs as any[]).length > 0 && (
               <div className="space-y-1">
                 {(worklogs as any[]).map((w: any) => (
-                  <div key={w.id} className="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
-                    <span><strong className="font-mono text-gray-700">{w.employees?.kuerzel}</strong> <span className="text-gray-500">– {w.employees?.name}</span></span>
-                    <span className="font-mono text-gray-600">{w.stunden}h · {w.leistungsdatum ? new Date(w.leistungsdatum).toLocaleDateString('de-DE') : '–'}</span>
-                  </div>
+                  editWorklogId === w.id ? (
+                    <div key={w.id} className="grid grid-cols-4 gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                      <Select value={editWorklogForm.employee_id} onValueChange={v => setEditWorklogForm(f => ({ ...f, employee_id: v }))}>
+                        <SelectTrigger className="h-8 text-xs rounded-lg"><SelectValue placeholder="MA..." /></SelectTrigger>
+                        <SelectContent>{(employees as any[]).map((e: any) => <SelectItem key={e.id} value={e.id}>{e.kuerzel} – {e.name}</SelectItem>)}</SelectContent>
+                      </Select>
+                      <Input className="h-8 text-xs rounded-lg" value={editWorklogForm.stunden}
+                        onChange={e => setEditWorklogForm(f => ({ ...f, stunden: e.target.value }))} placeholder="Stunden" />
+                      <Input type="date" className="h-8 text-xs rounded-lg" value={editWorklogForm.leistungsdatum}
+                        onChange={e => setEditWorklogForm(f => ({ ...f, leistungsdatum: e.target.value }))} />
+                      <div className="flex gap-1">
+                        <Button size="sm" className="h-8 px-2 rounded-lg flex-1" onClick={() => saveEditWorklog.mutate()} disabled={saveEditWorklog.isPending}>
+                          ✓
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-8 px-2 rounded-lg" onClick={() => setEditWorklogId(null)}>
+                          ✕
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={w.id} className="flex justify-between items-center text-sm bg-gray-50 rounded-lg px-3 py-2 group">
+                      <span><strong className="font-mono text-gray-700">{w.employees?.kuerzel}</strong> <span className="text-gray-500">– {w.employees?.name}</span></span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-gray-600">{w.stunden}h · {w.leistungsdatum ? new Date(w.leistungsdatum).toLocaleDateString('de-DE') : '–'}</span>
+                        <button onClick={() => startEditWorklog(w)} className="text-gray-400 hover:text-blue-600 transition-colors" title="Bearbeiten">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={() => { if (confirm('Diesen Stunden-Eintrag löschen?')) deleteWorklog.mutate(w.id); }} className="text-gray-400 hover:text-red-600 transition-colors" title="Löschen">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )
                 ))}
               </div>
             )}
