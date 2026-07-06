@@ -1102,7 +1102,8 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
 
   // ── A-Nummer Badge — Breite passt sich dem Textinhalt an ────────────────
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
+  const badgeFontSizePt = 11;
+  doc.setFontSize(badgeFontSizePt);
   const aNummerText = d.aNummer || '—';
   const badgeTextW = doc.getTextWidth(aNummerText);
   const badgeH = 9;
@@ -1110,7 +1111,10 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
   doc.setFillColor(GREEN_DARK[0], GREEN_DARK[1], GREEN_DARK[2]);
   doc.roundedRect(ML, y, badgeW, badgeH, 1.5, 1.5, 'F');
   doc.setTextColor(WHITE[0], WHITE[1], WHITE[2]);
-  doc.text(aNummerText, ML + badgeW / 2, y + badgeH / 2 + 3.3, { align: 'center' });
+  // Echte vertikale Zentrierung: Grundlinie = Boxmitte + halbe Schrifthöhe (in mm)
+  const badgeFontSizeMm = badgeFontSizePt * 25.4 / 72;
+  const badgeBaseline = y + badgeH / 2 + badgeFontSizeMm * 0.35;
+  doc.text(aNummerText, ML + badgeW / 2, badgeBaseline, { align: 'center' });
 
   y += badgeH + 10;
 
@@ -1194,8 +1198,8 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
 
   y += 22;
 
-  // ── Hinweistext (Disclaimer) — knapp über der Fußzeile ──────────────────
-  const disclaimerY = H - 22;
+  // ── Hinweistext (Disclaimer) — dynamisch nach Inhalt, mind. nahe am unteren Rand ──
+  const disclaimerY = Math.max(y + 14, H - 22);
   doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
   doc.setLineWidth(0.3);
   doc.line(ML, disclaimerY - 6, W - MR, disclaimerY - 6);
@@ -1206,21 +1210,23 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
   const hinweisLines = doc.splitTextToSize(hinweis, CW);
   doc.text(hinweisLines, ML, disclaimerY);
 
-  // ── Geprüft rechts über der Fußzeile ────────────────────────────────────
+  // ── Geprüft rechts, auf Höhe des Disclaimers ────────────────────────────
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
-  doc.text('Geprüft: ___________________', W - MR, H - 15, { align: 'right' });
+  const geprueftY = Math.max(disclaimerY + hinweisLines.length * 4 + 6, H - 15);
+  doc.text('Geprüft: ___________________', W - MR, geprueftY, { align: 'right' });
 
-  // ── Footer Linie ─────────────────────────────────────────────────────
+  // ── Footer Linie — folgt mit, falls Inhalt weiter unten endet ───────────
+  const footerLineY = Math.max(H - 10, geprueftY + 6);
   doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
   doc.setLineWidth(0.3);
-  doc.line(ML, H - 10, W - MR, H - 10);
+  doc.line(ML, footerLineY, W - MR, footerLineY);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
-  doc.text('WIDI Gebäudeservice GmbH · Unternehmensverbund WIDI', ML, H - 6);
-  doc.text(`KST ${d.kst || '—'}`, W - MR, H - 6, { align: 'right' });
+  doc.text('WIDI Gebäudeservice GmbH · Unternehmensverbund WIDI', ML, footerLineY + 4);
+  doc.text(`KST ${d.kst || '—'}`, W - MR, footerLineY + 4, { align: 'right' });
 
   // ── Download ──────────────────────────────────────────────────────────
   const aNr = (d.aNummer || 'Abnahmeschein').replace(/[^A-Za-z0-9-]/g,'_');
