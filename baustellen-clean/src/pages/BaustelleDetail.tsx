@@ -194,6 +194,15 @@ function AbnahmeDialog({ open, opts, onOptsChange, loading, bs, onClose, onSubmi
 
 
 // ── Abnahmeschein PDF Dialog ─────────────────────────────────────────────────
+const ABNAHME_PDF_FELDER: { key: 'kunde'|'kst'|'proj'|'fiArt'|'antragsteller'|'projektname'; label: string; placeholder: string; textarea?: boolean }[] = [
+  { key: 'kunde',         label: 'Kunde (Name + Adresse)', placeholder: 'Firma GmbH\nStraße 1\nPLZ Ort', textarea: true },
+  { key: 'projektname',   label: 'Projektname / Kurzbeschreibung', placeholder: 'z.B. Austausch von LED-Leuchten – Flure Haupthaus' },
+  { key: 'kst',           label: 'Kostenstelle (KST)', placeholder: 'z.B. 900120' },
+  { key: 'proj',          label: 'Proj.', placeholder: 'z.B. 25.09' },
+  { key: 'fiArt',         label: 'Fi.-Art', placeholder: 'z.B. 7202000' },
+  { key: 'antragsteller', label: 'Antragsteller', placeholder: 'z.B. Theofanous, D.' },
+];
+
 function AbnahmePDFDialog({ open, onClose, bs, sw }: {
   open: boolean; onClose: () => void; bs: any; sw: any[];
 }) {
@@ -204,6 +213,11 @@ function AbnahmePDFDialog({ open, onClose, bs, sw }: {
   const [positionen, setPositionen] = React.useState<Array<{leistung:string;einheit:string;menge:string}>>([
     { leistung: 'Arbeitszeit', einheit: 'Std.', menge: String(gesamtH || '') },
   ]);
+  const [felder, setFelder] = React.useState<Record<string,string>>({
+    kunde: '', kst: '', proj: '', fiArt: '', antragsteller: '',
+    projektname: bs?.beschreibung || bs?.name || '',
+  });
+  const [felderStep, setFelderStep] = React.useState(false);
 
   if (!open) return null;
 
@@ -211,16 +225,29 @@ function AbnahmePDFDialog({ open, onClose, bs, sw }: {
   const remPos = (i: number) => setPositionen(p => p.filter((_,j) => j !== i));
   const updPos = (i: number, k: string, v: string) =>
     setPositionen(p => p.map((row,j) => j===i ? {...row,[k]:v} : row));
+  const updFeld = (k: string, v: string) => setFelder(f => ({ ...f, [k]: v }));
 
-  const generieren = () => {
+  const wirklichGenerieren = () => {
     exportAbnahmescheinPDF({
       aNummer,
-      proj: bs?.beschreibung || bs?.name || '',
+      kunde:          felder.kunde,
+      kst:            felder.kst,
+      proj:           felder.proj,
+      fiArt:          felder.fiArt,
+      antragsteller:  felder.antragsteller,
+      projektname:    felder.projektname,
       ausgefuehrtAm:  new Date().toLocaleDateString('de-DE'),
       ausgefuehrtVon: vonWem || '_______________',
       positionen,
     });
     onClose();
+  };
+
+  const fehlend = ABNAHME_PDF_FELDER.filter(f => !felder[f.key]?.trim());
+
+  const generieren = () => {
+    if (fehlend.length > 0) { setFelderStep(true); return; }
+    wirklichGenerieren();
   };
 
   const inp: React.CSSProperties = { width:'100%', padding:'7px 10px', border:'1.5px solid #e2e8f0', borderRadius:8, fontSize:12, outline:'none', boxSizing:'border-box', fontFamily:'inherit', color:'#0f172a', background:'#fff' };
@@ -242,51 +269,97 @@ function AbnahmePDFDialog({ open, onClose, bs, sw }: {
 
         <div style={{ padding:'18px 24px' }}>
 
-          {/* Info-Chips */}
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:18 }}>
-            {[
-              { icon:'🏷', val: aNummer || '—' },
-              { icon:'📅', val: new Date().toLocaleDateString('de-DE') },
-              { icon:'👤', val: vonWem || '—' },
-            ].map(({icon,val}) => (
-              <span key={icon} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:20, fontSize:12, color:'#374151', fontWeight:500 }}>
-                {icon} {val}
-              </span>
-            ))}
-          </div>
+          {!felderStep && (
+            <>
+              {/* Info-Chips */}
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:18 }}>
+                {[
+                  { icon:'🏷', val: aNummer || '—' },
+                  { icon:'📅', val: new Date().toLocaleDateString('de-DE') },
+                  { icon:'👤', val: vonWem || '—' },
+                ].map(({icon,val}) => (
+                  <span key={icon} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:20, fontSize:12, color:'#374151', fontWeight:500 }}>
+                    {icon} {val}
+                  </span>
+                ))}
+              </div>
 
-          {/* Positionen */}
-          <div style={{ marginBottom:14 }}>
-            <div style={{ fontSize:12, fontWeight:700, color:'#0f172a', marginBottom:10 }}>Leistungspositionen</div>
+              {/* Projektdaten */}
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'#0f172a', marginBottom:10 }}>Projektdaten</div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:10 }}>
+                  {ABNAHME_PDF_FELDER.map(f => (
+                    <div key={f.key}>
+                      <label style={lbl}>{f.label}</label>
+                      {f.textarea ? (
+                        <textarea rows={3} style={{...inp, resize:'vertical' as const}} placeholder={f.placeholder}
+                          value={felder[f.key]} onChange={e => updFeld(f.key, e.target.value)} />
+                      ) : (
+                        <input style={inp} placeholder={f.placeholder}
+                          value={felder[f.key]} onChange={e => updFeld(f.key, e.target.value)} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-            {/* Header */}
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 70px 28px', gap:6, marginBottom:6 }}>
-              <span style={lbl}>Leistungsbeschreibung</span>
-              <span style={lbl}>Einheit</span>
-              <span style={lbl}>Menge</span>
-              <span></span>
-            </div>
+              {/* Positionen */}
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'#0f172a', marginBottom:10 }}>Leistungspositionen</div>
 
-            {positionen.map((p, i) => (
-              <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 80px 70px 28px', gap:6, marginBottom:6, alignItems:'center' }}>
-                <input style={inp} placeholder="z.B. Mehraufwand Reinigung" value={p.leistung}
-                  onChange={e => updPos(i,'leistung',e.target.value)} />
-                <input style={inp} placeholder="Std." value={p.einheit}
-                  onChange={e => updPos(i,'einheit',e.target.value)} />
-                <input style={inp} placeholder="0" value={p.menge}
-                  onChange={e => updPos(i,'menge',e.target.value)} />
-                <button onClick={() => remPos(i)} disabled={positionen.length===1}
-                  style={{ padding:'7px 0', background: positionen.length===1 ? '#f8fafc' : '#fef2f2', color: positionen.length===1 ? '#cbd5e1' : '#ef4444', border:`1px solid ${positionen.length===1 ? '#e2e8f0' : '#fecaca'}`, borderRadius:8, cursor: positionen.length===1 ? 'not-allowed' : 'pointer', fontSize:14 }}>
-                  ×
+                {/* Header */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 70px 28px', gap:6, marginBottom:6 }}>
+                  <span style={lbl}>Leistungsbeschreibung</span>
+                  <span style={lbl}>Einheit</span>
+                  <span style={lbl}>Menge</span>
+                  <span></span>
+                </div>
+
+                {positionen.map((p, i) => (
+                  <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr 80px 70px 28px', gap:6, marginBottom:6, alignItems:'center' }}>
+                    <input style={inp} placeholder="z.B. Mehraufwand Reinigung" value={p.leistung}
+                      onChange={e => updPos(i,'leistung',e.target.value)} />
+                    <input style={inp} placeholder="Std." value={p.einheit}
+                      onChange={e => updPos(i,'einheit',e.target.value)} />
+                    <input style={inp} placeholder="0" value={p.menge}
+                      onChange={e => updPos(i,'menge',e.target.value)} />
+                    <button onClick={() => remPos(i)} disabled={positionen.length===1}
+                      style={{ padding:'7px 0', background: positionen.length===1 ? '#f8fafc' : '#fef2f2', color: positionen.length===1 ? '#cbd5e1' : '#ef4444', border:`1px solid ${positionen.length===1 ? '#e2e8f0' : '#fecaca'}`, borderRadius:8, cursor: positionen.length===1 ? 'not-allowed' : 'pointer', fontSize:14 }}>
+                      ×
+                    </button>
+                  </div>
+                ))}
+
+                <button onClick={addPos}
+                  style={{ display:'flex', alignItems:'center', gap:5, marginTop:4, padding:'7px 14px', background:'#f0f9ff', color:'#0369a1', border:'1px solid #bae6fd', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                  + Position hinzufügen
                 </button>
               </div>
-            ))}
+            </>
+          )}
 
-            <button onClick={addPos}
-              style={{ display:'flex', alignItems:'center', gap:5, marginTop:4, padding:'7px 14px', background:'#f0f9ff', color:'#0369a1', border:'1px solid #bae6fd', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer' }}>
-              + Position hinzufügen
-            </button>
-          </div>
+          {/* Fehlende Projektdaten — überspringbar */}
+          {felderStep && (
+            <div>
+              <div style={{ padding:'12px 14px', background:'#fefce8', borderRadius:10, border:'1px solid #fde68a', marginBottom:14 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#92400e', marginBottom:2 }}>⚠️ Ein paar Felder sind noch leer</div>
+                <div style={{ fontSize:12, color:'#b45309' }}>Du kannst sie ergänzen oder leer lassen und trotzdem fortfahren.</div>
+              </div>
+              {fehlend.map(f => (
+                <div key={f.key} style={{ marginBottom:12 }}>
+                  <label style={lbl}>{f.label}</label>
+                  {f.textarea ? (
+                    <textarea rows={3} style={{...inp, resize:'vertical' as const}} placeholder={f.placeholder}
+                      value={felder[f.key]} onChange={e => updFeld(f.key, e.target.value)} />
+                  ) : (
+                    <input style={inp} placeholder={f.placeholder}
+                      value={felder[f.key]} onChange={e => updFeld(f.key, e.target.value)} />
+                  )}
+                </div>
+              ))}
+              <button onClick={() => setFelderStep(false)} style={{ background:'none', border:'none', color:'#64748b', fontSize:12, cursor:'pointer', padding:0, marginBottom:8 }}>← Zurück</button>
+            </div>
+          )}
 
           {/* Actions */}
           <div style={{ display:'flex', gap:10, paddingTop:16, borderTop:'1px solid #f1f5f9' }}>
@@ -294,9 +367,9 @@ function AbnahmePDFDialog({ open, onClose, bs, sw }: {
               style={{ flex:1, padding:'11px 0', border:'1.5px solid #e2e8f0', borderRadius:11, background:'#f8fafc', fontSize:13, fontWeight:600, cursor:'pointer', color:'#64748b' }}>
               Abbrechen
             </button>
-            <button onClick={generieren}
+            <button onClick={felderStep ? wirklichGenerieren : generieren}
               style={{ flex:2, padding:'11px 0', border:'none', borderRadius:11, background:'linear-gradient(135deg,#1e3a5f,#2563eb)', fontSize:13, fontWeight:700, cursor:'pointer', color:'#fff', boxShadow:'0 4px 14px rgba(37,99,235,0.3)' }}>
-              📄 PDF generieren
+              📄 {felderStep ? 'Trotzdem generieren' : 'PDF generieren'}
             </button>
           </div>
         </div>
