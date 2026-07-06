@@ -1006,7 +1006,12 @@ export interface AbnahmePDFPosition {
 
 export interface AbnahmePDFDaten {
   aNummer:        string;
+  kunde:          string;   // Name + Adresse, mehrzeilig (\n-getrennt)
+  kst:            string;
   proj:           string;
+  fiArt:          string;
+  antragsteller:  string;
+  projektname:    string;   // Kurztitel, steht über der Positionstabelle
   ausgefuehrtAm:  string;
   ausgefuehrtVon: string;
   positionen:     AbnahmePDFPosition[];
@@ -1017,7 +1022,7 @@ const WIDI_LOGO = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1
 export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const W = 210, H = 297;
-  const ML = 20, MR = 20, MT = 0;
+  const ML = 20, MR = 20;
   const CW = W - ML - MR;
 
   // ── Farben ──────────────────────────────────────────────────────────────
@@ -1026,136 +1031,144 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
   const GRAY_LIGHT = [220, 220, 220] as [number,number,number];
   const BLACK      = [20,  20,  20]  as [number,number,number];
   const WHITE      = [255, 255, 255] as [number,number,number];
-  const HEADER_BG  = [245, 245, 245] as [number,number,number];
+  const GREEN_DARK = [20,  83,  45]  as [number,number,number]; // #14532d — A-Nummer-Badge & Akzentlinie
+  const HEADER_BG  = [244, 247, 244] as [number,number,number]; // sehr dezentes Grün-Grau für Tabellenkopf
 
   // ── Logo ─────────────────────────────────────────────────────────────────
-  // Logo oben links, skaliert auf ~55mm breit
-  doc.addImage(WIDI_LOGO, 'JPEG', ML, 12, 55, 18);
-
-  // ── Trennlinie unter Logo ──────────────────────────────────────────────
-  doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
-  doc.setLineWidth(0.4);
-  doc.line(ML, 34, W - MR, 34);
+  doc.addImage(WIDI_LOGO, 'JPEG', ML, 14, 55, 18);
 
   // ── Dokumenttitel rechts ───────────────────────────────────────────────
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
-  doc.text('Abnahmeschein', W - MR, 20, { align: 'right' });
+  doc.text('Abnahmeschein', W - MR, 21, { align: 'right' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
-  doc.text('Sonderdienstleistung', W - MR, 26, { align: 'right' });
+  doc.text('Sonderdienstleistung', W - MR, 27, { align: 'right' });
 
-  let y = 42;
+  // ── Grüne Trennlinie unter Logo ─────────────────────────────────────────
+  doc.setDrawColor(GREEN_DARK[0], GREEN_DARK[1], GREEN_DARK[2]);
+  doc.setLineWidth(0.7);
+  doc.line(ML, 38, W - MR, 38);
 
-  // ── Adressblock Kunde ──────────────────────────────────────────────────
-  doc.setFontSize(8.5);
+  let y = 52;
+
+  // ── Kunde (links) ────────────────────────────────────────────────────────
+  doc.setFontSize(9);
   doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
   doc.setFont('helvetica', 'bold');
   doc.text('KUNDE', ML, y);
 
-  y += 5;
+  const kundeLines = (d.kunde || '—').split('\n').filter(Boolean);
+  let kundeY = y + 6;
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
-  doc.setFontSize(10);
-  doc.text('Märkische Kliniken GmbH - Hellersen', ML, y);
-  y += 5;
-  doc.text('Paulmannshöher Str. 14', ML, y);
-  y += 5;
-  doc.text('58515 Lüdenscheid', ML, y);
+  doc.setFontSize(11);
+  kundeLines.forEach(line => { doc.text(line, ML, kundeY); kundeY += 5.5; });
 
-  // ── KST / Proj rechts neben Adresse ───────────────────────────────────
-  const rx = ML + CW * 0.55;
-  let ry = 47;
-  doc.setFontSize(8.5);
+  // ── Projektdaten-Raster rechts: KST/PROJ oben, FI.-ART/ANTRAGSTELLER darunter ──
+  const fx1 = ML + CW * 0.56;
+  const fx2 = ML + CW * 0.80;
+  let ry = y;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
   doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
-  doc.setFont('helvetica', 'bold');
-  doc.text('KST', rx, ry);
-  doc.text('PROJ', rx + 35, ry);
-  ry += 5;
+  doc.text('KST', fx1, ry);
+  doc.text('PROJ', fx2, ry);
+  ry += 6;
   doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
   doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
-  doc.setFontSize(10);
-  doc.text('900120', rx, ry);
+  doc.text(d.kst  || '—', fx1, ry);
+  doc.text(d.proj || '—', fx2, ry);
 
-  // Proj mehrzeilig
-  const projLines = doc.splitTextToSize(d.proj || '—', 60);
-  doc.text(projLines, rx + 35, ry);
-
-  // ── A-Nummer Badge ─────────────────────────────────────────────────────
-  y += 14;
-  doc.setFillColor(BLACK[0], BLACK[1], BLACK[2]);
-  doc.roundedRect(ML, y, 50, 8, 1.5, 1.5, 'F');
+  ry += 12;
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
+  doc.setFontSize(9);
+  doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+  doc.text('FI.-ART', fx1, ry);
+  doc.text('ANTRAGSTELLER', fx2, ry);
+  ry += 6;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+  doc.text(d.fiArt         || '—', fx1, ry);
+  const antragLines = doc.splitTextToSize(d.antragsteller || '—', CW * 0.20);
+  doc.text(antragLines, fx2, ry);
+
+  y = Math.max(kundeY, ry + antragLines.length * 5.5) + 10;
+
+  // ── A-Nummer Badge — Breite passt sich dem Textinhalt an ────────────────
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  const aNummerText = d.aNummer || '—';
+  const badgeTextW = doc.getTextWidth(aNummerText);
+  const badgeH = 9;
+  const badgeW = Math.max(badgeTextW + 14, 34);
+  doc.setFillColor(GREEN_DARK[0], GREEN_DARK[1], GREEN_DARK[2]);
+  doc.roundedRect(ML, y, badgeW, badgeH, 1.5, 1.5, 'F');
   doc.setTextColor(WHITE[0], WHITE[1], WHITE[2]);
-  doc.text(d.aNummer || '—', ML + 25, y + 5.5, { align: 'center' });
+  doc.text(aNummerText, ML + badgeW / 2, y + badgeH / 2 + 3.3, { align: 'center' });
 
-  y += 14;
+  y += badgeH + 10;
 
-  // ── Trennlinie ─────────────────────────────────────────────────────────
-  doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
-  doc.setLineWidth(0.3);
-  doc.line(ML, y, W - MR, y);
-  y += 6;
+  // ── Projektname — kurzer Titel über der Positionstabelle ───────────────
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12.5);
+  doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+  const projektnameLines = doc.splitTextToSize(d.projektname || '—', CW);
+  doc.text(projektnameLines, ML, y);
+  y += projektnameLines.length * 6 + 10;
 
   // ── Leistungstabelle ───────────────────────────────────────────────────
   const colW = [CW * 0.60, CW * 0.22, CW * 0.18];
 
-  // Header
+  doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
+  doc.setLineWidth(0.3);
   doc.setFillColor(HEADER_BG[0], HEADER_BG[1], HEADER_BG[2]);
-  doc.rect(ML, y, CW, 7, 'F');
+  doc.rect(ML, y, CW, 8, 'F');
+  doc.rect(ML, y, CW, 8);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
-  doc.text('LEISTUNGSBESCHREIBUNG', ML + 3, y + 4.8);
-  doc.text('EINHEIT', ML + colW[0] + 3, y + 4.8);
-  doc.text('MENGE', ML + colW[0] + colW[1] + 3, y + 4.8);
-  y += 7;
-
-  // Positionen
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+  doc.text('LEISTUNGSBESCHREIBUNG', ML + 3, y + 5.3);
+  doc.text('EINHEIT', ML + colW[0] + 3, y + 5.3);
+  doc.text('MENGE', ML + colW[0] + colW[1] + 3, y + 5.3);
+  y += 8;
 
   const pos = d.positionen.length > 0 ? d.positionen : [{ leistung: '—', einheit: '—', menge: '—' }];
   pos.forEach((p, i) => {
+    const rowH = 9;
     const rowBg = i % 2 === 0 ? WHITE : [250, 250, 250] as [number,number,number];
     doc.setFillColor(rowBg[0], rowBg[1], rowBg[2]);
-    doc.rect(ML, y, CW, 8, 'F');
+    doc.rect(ML, y, CW, rowH, 'F');
 
-    // Rahmen
     doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
     doc.setLineWidth(0.2);
-    doc.rect(ML, y, CW, 8);
-    // Spalten-Trennlinien
-    doc.line(ML + colW[0], y, ML + colW[0], y + 8);
-    doc.line(ML + colW[0] + colW[1], y, ML + colW[0] + colW[1], y + 8);
+    doc.rect(ML, y, CW, rowH);
+    doc.line(ML + colW[0], y, ML + colW[0], y + rowH);
+    doc.line(ML + colW[0] + colW[1], y, ML + colW[0] + colW[1], y + rowH);
 
     doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
-    doc.text(p.leistung || '—', ML + 3, y + 5.4);
-    doc.text(p.einheit  || '—', ML + colW[0] + 3, y + 5.4);
-    doc.text(p.menge    || '—', ML + colW[0] + colW[1] + 3, y + 5.4);
-    y += 8;
+    doc.text(p.leistung || '—', ML + 3, y + 6);
+    doc.text(p.einheit  || '—', ML + colW[0] + 3, y + 6);
+    doc.text(p.menge    || '—', ML + colW[0] + colW[1] + 3, y + 6);
+    y += rowH;
   });
 
-  y += 12;
+  y += 16;
 
   // ── Ausgeführt am / von ────────────────────────────────────────────────
-  doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
-  doc.setLineWidth(0.3);
-  doc.line(ML, y, W - MR, y);
-  y += 8;
-
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
   doc.text('AUSGEFÜHRT AM', ML, y);
   doc.text('AUSGEFÜHRT VON', ML + CW * 0.45, y);
-  y += 5;
+  y += 6;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10.5);
   doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
@@ -1163,39 +1176,37 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
   const vonLines = doc.splitTextToSize(d.ausgefuehrtVon || '—', CW * 0.55);
   doc.text(vonLines, ML + CW * 0.45, y);
 
-  y += Math.max(vonLines.length * 6, 6) + 16;
+  y += Math.max(vonLines.length * 5.5, 5.5) + 22;
 
   // ── Unterschrift Blocks ─────────────────────────────────────────────────
   const sigW = (CW - 10) / 2;
 
-  // Block Ausgeführt von
   doc.setDrawColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
   doc.setLineWidth(0.4);
   doc.line(ML, y, ML + sigW, y);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
+  doc.setFontSize(8.5);
   doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
-  doc.text('Unterschrift Ausführender', ML, y + 4);
+  doc.text('Unterschrift Ausführender', ML, y + 5);
 
-  // Block Kunde
   doc.line(ML + sigW + 10, y, W - MR, y);
-  doc.text('Unterschrift Kunde', ML + sigW + 10, y + 4);
+  doc.text('Unterschrift Kunde', ML + sigW + 10, y + 5);
 
-  y += 20;
+  y += 22;
 
-  // ── Hinweistext ────────────────────────────────────────────────────────
-  doc.setLineWidth(0.3);
+  // ── Hinweistext (Disclaimer) — knapp über der Fußzeile ──────────────────
+  const disclaimerY = H - 22;
   doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
-  doc.line(ML, y, W - MR, y);
-  y += 6;
+  doc.setLineWidth(0.3);
+  doc.line(ML, disclaimerY - 6, W - MR, disclaimerY - 6);
   doc.setFont('helvetica', 'bolditalic');
   doc.setFontSize(8);
   doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
   const hinweis = 'Bitte vor Unterschrift prüfen. Reklamationen können nur bis zu 24 Stunden nach Beendigung der Durchführung entgegen genommen werden.';
   const hinweisLines = doc.splitTextToSize(hinweis, CW);
-  doc.text(hinweisLines, ML, y);
+  doc.text(hinweisLines, ML, disclaimerY);
 
-  // ── Geprüft rechts unten ──────────────────────────────────────────────
+  // ── Geprüft rechts über der Fußzeile ────────────────────────────────────
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
@@ -1208,8 +1219,8 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
-  doc.text('WIDI Wirtschaftsdienste Hellersen GmbH · Unternehmensverbund WIDI', ML, H - 6);
-  doc.text('KST 900120', W - MR, H - 6, { align: 'right' });
+  doc.text('WIDI Gebäudeservice GmbH · Unternehmensverbund WIDI', ML, H - 6);
+  doc.text(`KST ${d.kst || '—'}`, W - MR, H - 6, { align: 'right' });
 
   // ── Download ──────────────────────────────────────────────────────────
   const aNr = (d.aNummer || 'Abnahmeschein').replace(/[^A-Za-z0-9-]/g,'_');
