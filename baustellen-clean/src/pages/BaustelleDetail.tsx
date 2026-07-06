@@ -55,10 +55,14 @@ const ChartTip = ({ active, payload, label }: any) => {
 };
 
 
-// A-Nummer aus Baustellenname: "[A20917] Betreff" → "20917"
+// A-Nummer aus Baustellenname: "[A26-21664] Betreff" → "26-21664"
 function extractANummer(name: string): string {
-  const m = (name||'').match(/^\[A(\w+)\]/);
+  const m = (name||'').match(/^\[A([\w-]+)\]/);
   return m ? m[1] : '';
+}
+// Kurzer Titel ohne führende A-Nummer: "[A26-21664] Austausch von LED-Leuchten" → "Austausch von LED-Leuchten"
+function extractBaustellenTitel(name: string): string {
+  return (name || '').replace(/^\[A[\w-]+\]\s*/, '');
 }
 // ── Stabile Abnahmeschein-Dialog-Komponente ──────────────────
 // Separat damit Inputs NICHT bei jedem Tastendruck neu gemountet werden
@@ -208,14 +212,14 @@ function AbnahmePDFDialog({ open, onClose, bs, sw }: {
 }) {
   const gesamtH = sw.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
   const vonWem  = [...new Set(sw.map((w: any) => w.employees?.name).filter(Boolean))].join(', ');
-  const aNummer = (() => { const m = (bs?.name||'').match(/^\[A(\w+)\]/); return m ? 'A' + m[1] : bs?.name || ''; })();
+  const aNummer = (() => { const n = extractANummer(bs?.name); return n ? 'A' + n : bs?.name || ''; })();
 
   const [positionen, setPositionen] = React.useState<Array<{leistung:string;einheit:string;menge:string}>>([
     { leistung: 'Arbeitszeit', einheit: 'Std.', menge: String(gesamtH || '') },
   ]);
   const [felder, setFelder] = React.useState<Record<string,string>>({
     kunde: '', kst: '', proj: '', fiArt: '', antragsteller: '',
-    projektname: bs?.beschreibung || bs?.name || '',
+    projektname: extractBaustellenTitel(bs?.name) || bs?.name || '',
   });
   const [felderStep, setFelderStep] = React.useState(false);
 
