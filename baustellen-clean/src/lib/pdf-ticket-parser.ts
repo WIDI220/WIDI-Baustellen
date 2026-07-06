@@ -234,8 +234,14 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
   if (!result.a_nummer) result.fehler.push('A-Nummer nicht gefunden');
 
   // ── Mitarbeiter ───────────────────────────────────────────────────────────
+  // Namenspartikel die klein geschrieben sein können (van, von, der, de, ...)
+  // — ohne diese scheitert die Regex an Namen wie "Timur van der Werf"
+  const NAME_PARTIKEL = ['van', 'von', 'der', 'den', 'ten', 'ter', 'de', 'la', 'le', 'di', 'da', 'dos', 'zu'];
+  const partikelAlt = NAME_PARTIKEL.join('|');
   const maMatch = text.match(
-    /Mitarbeiter\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,2})/
+    new RegExp(
+      `Mitarbeiter\\s*:?\\s*([A-ZÄÖÜ][a-zäöüß]+(?:\\s+(?:${partikelAlt}|[A-ZÄÖÜ][a-zäöüß]+)){1,4})`
+    )
   );
   if (maMatch) {
     const name = maMatch[1].trim();
@@ -247,14 +253,10 @@ function parseTicketText(text: string, rawText: string, seite: number): TicketPa
       const idx = name.indexOf(stopp);
       if (idx !== -1) { sauberName = name.slice(0, idx).trim(); break; }
     }
+    // Falls der Name mit einem Partikel endet (z.B. weil danach ein Stoppwort kam), entfernen
+    const partikelEndeRegex = new RegExp(`\\s+(?:${partikelAlt})$`, 'i');
+    sauberName = sauberName.replace(partikelEndeRegex, '').trim();
     if (sauberName.length >= 3) result.mitarbeiter = sauberName;
-  }
-
-  if (!result.mitarbeiter) {
-    const altMatch = text.match(
-      /Mitarbeiter\s*:?\s*([A-ZÄÖÜ][a-zäöüß]+(?: [A-ZÄÖÜ][a-zäöüß]+)+)/
-    );
-    if (altMatch) result.mitarbeiter = altMatch[1].trim();
   }
 
   if (!result.mitarbeiter) result.fehler.push('Mitarbeiter nicht gefunden');
