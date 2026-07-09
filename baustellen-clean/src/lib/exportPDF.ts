@@ -1004,6 +1004,22 @@ export interface AbnahmePDFPosition {
   menge: string;
 }
 
+export interface AbnahmePDFZeiterfassungEintrag {
+  datum:       string;
+  mitarbeiter: string;
+  stunden:     string;
+  taetigkeit:  string;
+}
+
+export interface AbnahmePDFMaterialPosition {
+  bezeichnung:  string;
+  menge:        string;
+  einzelpreis:  string;
+  gesamtpreis:  string;
+  status:       string;
+  datum:        string;
+}
+
 export interface AbnahmePDFDaten {
   aNummer:        string;
   kunde:          string;   // Name + Adresse, mehrzeilig (\n-getrennt)
@@ -1015,6 +1031,9 @@ export interface AbnahmePDFDaten {
   ausgefuehrtAm:  string;
   ausgefuehrtVon: string;
   positionen:     AbnahmePDFPosition[];
+  // Optionale Anlage-Seiten — werden nur angehängt, wenn befüllt:
+  zeiterfassung?: AbnahmePDFZeiterfassungEintrag[];  // Seite "Zeiterfassung"
+  material?:      AbnahmePDFMaterialPosition[];       // Seite "Material"
 }
 
 const WIDI_LOGO = 'data:image/jpeg;base64,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';
@@ -1227,6 +1246,139 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
   doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
   doc.text('WIDI Gebäudeservice GmbH · Unternehmensverbund WIDI', ML, footerLineY + 4);
   doc.text(`KST ${d.kst || '—'}`, W - MR, footerLineY + 4, { align: 'right' });
+
+  // ── Anlage-Seiten: Zeiterfassung / Material (nur wenn Daten mitgegeben) ──
+  const hatZeiterfassung = !!d.zeiterfassung && d.zeiterfassung.length > 0;
+  const hatMaterial      = !!d.material && d.material.length > 0;
+
+  function subpageHeader(title: string): void {
+    doc.addImage(WIDI_LOGO, 'JPEG', ML, 14, 33, 10.8);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+    doc.text(title, W - MR, 19, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+    doc.text('Anlage zum Abnahmeschein', W - MR, 24.5, { align: 'right' });
+
+    doc.setDrawColor(GREEN_DARK[0], GREEN_DARK[1], GREEN_DARK[2]);
+    doc.setLineWidth(0.7);
+    doc.line(ML, 30, W - MR, 30);
+
+    const bFontPt = 8.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(bFontPt);
+    const aNummerText2 = d.aNummer || '—';
+    const bTextW = doc.getTextWidth(aNummerText2);
+    const bH = 6.4;
+    const bW = bTextW + 10;
+    doc.setFillColor(GREEN_DARK[0], GREEN_DARK[1], GREEN_DARK[2]);
+    doc.roundedRect(ML, 36, bW, bH, 1.2, 1.2, 'F');
+    doc.setTextColor(WHITE[0], WHITE[1], WHITE[2]);
+    const bFontMm = bFontPt * 25.4 / 72;
+    doc.text(aNummerText2, ML + bW / 2, 36 + bH / 2 + bFontMm * 0.35, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11.5);
+    doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+    doc.text(d.projektname || '—', ML + bW + 5, 36 + bH / 2 + 1.6);
+  }
+
+  if (hatZeiterfassung) {
+    doc.addPage();
+    subpageHeader('Zeiterfassung');
+
+    const gesamtStd = d.zeiterfassung!.reduce((s, e) => s + (parseFloat(String(e.stunden).replace(',', '.')) || 0), 0);
+    const gesamtStdTxt = gesamtStd.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' h';
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
+    doc.text(`Alle Einträge · ${d.zeiterfassung!.length} Positionen · ${gesamtStdTxt} gesamt`, ML, 46);
+
+    autoTable(doc, {
+      startY: 52,
+      margin: { left: ML, right: MR },
+      head: [['DATUM', 'MITARBEITER', 'STD.', 'TÄTIGKEIT / BEGRÜNDUNG']],
+      body: d.zeiterfassung!.map(e => [e.datum, e.mitarbeiter, e.stunden, e.taetigkeit || '–']),
+      theme: 'plain',
+      styles: { font: 'helvetica', fontSize: 9, textColor: BLACK, lineColor: GRAY_LIGHT, lineWidth: 0.2, cellPadding: { top: 2.6, bottom: 2.6, left: 3, right: 3 }, valign: 'top' },
+      headStyles: { fillColor: HEADER_BG, textColor: GRAY_DARK, fontStyle: 'bold', fontSize: 8.5, lineColor: GRAY_LIGHT, lineWidth: 0.2 },
+      alternateRowStyles: { fillColor: [250, 250, 250] },
+      columnStyles: { 0: { cellWidth: 22 }, 1: { cellWidth: 38 }, 2: { cellWidth: 16, halign: 'right' }, 3: { cellWidth: CW - 22 - 38 - 16 } },
+      didDrawPage: (data: any) => { if (data.pageNumber > 1) subpageHeader('Zeiterfassung'); },
+    });
+
+    const yAfter = (doc as any).lastAutoTable.finalY + 4;
+    doc.setDrawColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
+    doc.setLineWidth(0.3);
+    doc.line(ML, yAfter, W - MR, yAfter);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+    doc.text('Gesamt', ML, yAfter + 5.5);
+    doc.text(gesamtStdTxt, W - MR, yAfter + 5.5, { align: 'right' });
+  }
+
+  if (hatMaterial) {
+    doc.addPage();
+    subpageHeader('Material');
+
+    const gesamtEuro = d.material!.reduce((s, m) => s + (parseFloat(String(m.gesamtpreis).replace(/[^\d,.-]/g, '').replace(',', '.')) || 0), 0);
+    const gesamtEuroTxt = gesamtEuro.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
+    doc.text(`${d.material!.length} Positionen · ${gesamtEuroTxt} gesamt`, ML, 46);
+
+    autoTable(doc, {
+      startY: 52,
+      margin: { left: ML, right: MR },
+      head: [['BEZEICHNUNG', 'MENGE', 'EINZELPR.', 'GESAMTPR.', 'STATUS', 'DATUM']],
+      body: d.material!.map(m => [m.bezeichnung, m.menge, m.einzelpreis, m.gesamtpreis, m.status, m.datum]),
+      theme: 'plain',
+      styles: { font: 'helvetica', fontSize: 9, textColor: BLACK, lineColor: GRAY_LIGHT, lineWidth: 0.2, cellPadding: { top: 2.6, bottom: 2.6, left: 3, right: 3 }, valign: 'top' },
+      headStyles: { fillColor: HEADER_BG, textColor: GRAY_DARK, fontStyle: 'bold', fontSize: 8, lineColor: GRAY_LIGHT, lineWidth: 0.2 },
+      alternateRowStyles: { fillColor: [250, 250, 250] },
+      columnStyles: {
+        0: { cellWidth: CW - 20 - 26 - 26 - 24 - 24 },
+        1: { cellWidth: 20, halign: 'right' },
+        2: { cellWidth: 26, halign: 'right' },
+        3: { cellWidth: 26, halign: 'right' },
+        4: { cellWidth: 24 },
+        5: { cellWidth: 24 },
+      },
+      didDrawPage: (data: any) => { if (data.pageNumber > 1) subpageHeader('Material'); },
+    });
+
+    const yAfterM = (doc as any).lastAutoTable.finalY + 4;
+    doc.setDrawColor(GRAY_DARK[0], GRAY_DARK[1], GRAY_DARK[2]);
+    doc.setLineWidth(0.3);
+    doc.line(ML, yAfterM, W - MR, yAfterM);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+    doc.text('Gesamt', ML, yAfterM + 5.5);
+    doc.text(gesamtEuroTxt, W - MR, yAfterM + 5.5, { align: 'right' });
+  }
+
+  // Fußzeile "Seite X von Y" auf allen Anlage-Seiten (Seite 1 bleibt wie bisher ohne Seitenzahl)
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let p = 2; p <= totalPages; p++) {
+    doc.setPage(p);
+    const fy = H - 10;
+    doc.setDrawColor(GRAY_LIGHT[0], GRAY_LIGHT[1], GRAY_LIGHT[2]);
+    doc.setLineWidth(0.3);
+    doc.line(ML, fy, W - MR, fy);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(GRAY_MID[0], GRAY_MID[1], GRAY_MID[2]);
+    doc.text('WIDI Gebäudeservice GmbH · Unternehmensverbund WIDI', ML, fy + 4);
+    doc.text(`Seite ${p} von ${totalPages}`, W - MR, fy + 4, { align: 'right' });
+  }
 
   // ── Download ──────────────────────────────────────────────────────────
   const aNr = (d.aNummer || 'Abnahmeschein').replace(/[^A-Za-z0-9-]/g,'_');
