@@ -207,8 +207,8 @@ const ABNAHME_PDF_FELDER: { key: 'kunde'|'kst'|'proj'|'fiArt'|'antragsteller'|'p
   { key: 'antragsteller', label: 'Antragsteller', placeholder: 'z.B. Theofanous, D.' },
 ];
 
-function AbnahmePDFDialog({ open, onClose, bs, sw }: {
-  open: boolean; onClose: () => void; bs: any; sw: any[];
+function AbnahmePDFDialog({ open, onClose, bs, sw, mat }: {
+  open: boolean; onClose: () => void; bs: any; sw: any[]; mat: any[];
 }) {
   const gesamtH = sw.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
   const vonWem  = [...new Set(sw.map((w: any) => w.employees?.name).filter(Boolean))].join(', ');
@@ -222,6 +222,8 @@ function AbnahmePDFDialog({ open, onClose, bs, sw }: {
     projektname: extractBaustellenTitel(bs?.name) || bs?.name || '',
   });
   const [felderStep, setFelderStep] = React.useState(false);
+  const [inklZeiterfassung, setInklZeiterfassung] = React.useState(false);
+  const [inklMaterial, setInklMaterial] = React.useState(false);
 
   if (!open) return null;
 
@@ -232,6 +234,26 @@ function AbnahmePDFDialog({ open, onClose, bs, sw }: {
   const updFeld = (k: string, v: string) => setFelder(f => ({ ...f, [k]: v }));
 
   const wirklichGenerieren = () => {
+    const zeiterfassung = inklZeiterfassung
+      ? sw.map((w: any) => ({
+          datum:       w.datum ? new Date(w.datum).toLocaleDateString('de-DE') : '–',
+          mitarbeiter: w.employees?.name || '–',
+          stunden:     Number(w.stunden ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' h',
+          taetigkeit:  w.beschreibung || '–',
+        }))
+      : undefined;
+
+    const material = inklMaterial
+      ? mat.map((m: any) => ({
+          bezeichnung: m.bezeichnung || '–',
+          menge:       `${m.menge ?? ''} ${m.einheit ?? ''}`.trim(),
+          einzelpreis: Number(m.einzelpreis ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €',
+          gesamtpreis: Number(m.gesamtpreis ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €',
+          status:      m.status || '–',
+          datum:       m.datum ? new Date(m.datum).toLocaleDateString('de-DE') : '–',
+        }))
+      : undefined;
+
     exportAbnahmescheinPDF({
       aNummer,
       kunde:          felder.kunde,
@@ -243,6 +265,8 @@ function AbnahmePDFDialog({ open, onClose, bs, sw }: {
       ausgefuehrtAm:  new Date().toLocaleDateString('de-DE'),
       ausgefuehrtVon: vonWem || '_______________',
       positionen,
+      zeiterfassung,
+      material,
     });
     onClose();
   };
@@ -338,6 +362,25 @@ function AbnahmePDFDialog({ open, onClose, bs, sw }: {
                   style={{ display:'flex', alignItems:'center', gap:5, marginTop:4, padding:'7px 14px', background:'#f0f9ff', color:'#0369a1', border:'1px solid #bae6fd', borderRadius:8, fontSize:12, fontWeight:600, cursor:'pointer' }}>
                   + Position hinzufügen
                 </button>
+              </div>
+
+              {/* Anlagen: Zeiterfassung / Material */}
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'#0f172a', marginBottom:10 }}>Anlagen</div>
+                <label style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', border:'1.5px solid #e2e8f0', borderRadius:10, marginBottom:8, cursor:'pointer', background: inklZeiterfassung ? '#f0f9ff' : '#fff' }}>
+                  <input type="checkbox" checked={inklZeiterfassung} onChange={e => setInklZeiterfassung(e.target.checked)} style={{ width:16, height:16, flexShrink:0 }} />
+                  <div>
+                    <div style={{ fontSize:12.5, fontWeight:600, color:'#0f172a' }}>Zeiterfassung einschließen</div>
+                    <div style={{ fontSize:11, color:'#94a3b8' }}>{sw.length} Eintrag{sw.length===1?'':'e'} · {gesamtH.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1})} h — als eigene Seite</div>
+                  </div>
+                </label>
+                <label style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', border:'1.5px solid #e2e8f0', borderRadius:10, cursor:'pointer', background: inklMaterial ? '#f0f9ff' : '#fff' }}>
+                  <input type="checkbox" checked={inklMaterial} onChange={e => setInklMaterial(e.target.checked)} style={{ width:16, height:16, flexShrink:0 }} />
+                  <div>
+                    <div style={{ fontSize:12.5, fontWeight:600, color:'#0f172a' }}>Material einschließen</div>
+                    <div style={{ fontSize:11, color:'#94a3b8' }}>{mat.length} Position{mat.length===1?'':'en'} — als eigene Seite</div>
+                  </div>
+                </label>
               </div>
             </>
           )}
@@ -1535,6 +1578,7 @@ export default function BaustelleDetail() {
           onClose={() => setAbnahmePDFDialog(false)}
           bs={bs}
           sw={sw}
+          mat={mat}
         />
       )}
     </div>
