@@ -1366,7 +1366,7 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
   }
 
   // Fußzeile "Seite X von Y" auf allen Anlage-Seiten (Seite 1 bleibt wie bisher ohne Seitenzahl)
-  const totalPages = doc.internal.getNumberOfPages();
+  const totalPages = doc.getNumberOfPages();
   for (let p = 2; p <= totalPages; p++) {
     doc.setPage(p);
     const fy = H - 10;
