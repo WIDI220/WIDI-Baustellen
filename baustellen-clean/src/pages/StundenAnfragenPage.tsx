@@ -324,7 +324,8 @@ export default function StundenAnfragenPage() {
           if (a.foto_nachher) alleF.push({ url: a.foto_nachher, label: 'Nachher' });
         }
         for (const f of alleF) {
-          const kat = f.label.toLowerCase() === 'nachher' ? 'nachher' : f.label.toLowerCase() === 'vorher' ? 'vorher' : 'sonstige';
+          const labelLow = f.label.toLowerCase();
+          const kat = ['vorher','nachher','maengel','abnahme','fortschritt','fertig','beleg'].includes(labelLow) ? labelLow : 'sonstiges';
           const { error: ef } = await supabase.from('bs_fotos').insert({
             baustelle_id: a.controlling_baustelle_id,
             url: f.url,
