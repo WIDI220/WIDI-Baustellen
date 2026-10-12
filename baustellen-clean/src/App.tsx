@@ -54,6 +54,7 @@ import InternePage from '@/pages/InternePage';
 
 // Auswertung
 import MitarbeiterAuswertungPage from '@/pages/MitarbeiterAuswertungPage';
+import TagesansichtPage from '@/pages/TagesansichtPage';
 import AufgabenPage from '@/pages/AufgabenPage';
 import StundenAnfragenPage from '@/pages/StundenAnfragenPage';
 import HandwerkerVerwaltungPage from '@/pages/HandwerkerVerwaltungPage';
@@ -175,6 +176,7 @@ function AppRoutes() {
             <Route path=""       element={<MitarbeiterAuswertungPage />} />
             <Route path="detail" element={<MitarbeiterAuswertungPage />} />
             <Route path="monate" element={<MitarbeiterAuswertungPage />} />
+            <Route path="tag"    element={<TagesansichtPage />} />
           </Routes>
         </AppLayoutAuswertung>
       } />
