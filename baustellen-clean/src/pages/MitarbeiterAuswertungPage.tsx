@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { getNRWFeiertage } from '@/lib/feiertage';
+import TagesansichtPage from '@/pages/TagesansichtPage';
 import {
   BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend, RadarChart, Radar,
@@ -11,7 +12,7 @@ import { Users, Clock, Euro, TrendingUp, ChevronLeft, ChevronRight, Award, Targe
 
 const STUNDENSATZ = 38.08;
 const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-const TABS = ['Übersicht', 'Einzelperson', 'Monatsabschluss'] as const;
+const TABS = ['Übersicht', 'Einzelperson', 'Monatsabschluss', 'Tagesansicht'] as const;
 type Tab = typeof TABS[number];
 
 function fmt(n: number) { return n.toFixed(1).replace('.', ','); }
@@ -287,7 +288,7 @@ export default function MitarbeiterAuswertungPage() {
       return [e.name, e.tH.toFixed(1), e.bH.toFixed(1), (e.begH||0).toFixed(1), (e.intH||0).toFixed(1), (e.dguvH||0).toFixed(1), e.gesamt.toFixed(1), e.kosten.toFixed(2), urlaubTage, krankTage].join(';');
     });
     const header = 'Mitarbeiter;Ticket-Std;Baustellen-Std;Begehungen-Std;Interne-Std;DGUV-Std;Gesamt-Std;Kosten (€);Urlaub-Tage;Krank-Tage';
-    const csv = '\uFEFF' + [header, ...rows].join('\n');
+    const csv = '﻿' + [header, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1045,6 +1046,9 @@ export default function MitarbeiterAuswertungPage() {
 
         </div>
       )}
+
+      {/* ═══════════════════ TAB: TAGESANSICHT ═══════════════════ */}
+      {activeTab === 'Tagesansicht' && <TagesansichtPage />}
 
     </div>
   );
