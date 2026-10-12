@@ -3,12 +3,13 @@ import { useEffect } from 'react';
 import { logPageVisit } from '@/lib/activityLog';
 import { supabase } from '@/integrations/supabase/client';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
-import { TrendingUp, Users, BarChart2, Calendar, LogOut, Home } from 'lucide-react';
+import { TrendingUp, Users, BarChart2, Calendar, CalendarDays, LogOut, Home } from 'lucide-react';
 
 const NAV = [
   { to: '/auswertung',        icon: Users,    label: 'Übersicht' },
   { to: '/auswertung/detail', icon: BarChart2, label: 'Einzelperson' },
   { to: '/auswertung/monate', icon: Calendar,  label: 'Monatsvergleich' },
+  { to: '/auswertung/tag',    icon: CalendarDays, label: 'Tagesansicht' },
 ];
 
 const ACCENT = '#8b5cf6';
