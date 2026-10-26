@@ -6,12 +6,12 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 // ── Handwerker-App: offene Anfragen zählen (nur lesend) ─────────────────────
-const APP_URL = 'https://syhjjuewkjjihxwiexmz.supabase.co';
-const APP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5aGpqdWV3a2pqaWh4d2lleG16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MTk2NDYsImV4cCI6MjA5MzA5NTY0Nn0.9A-GrkU72IZ3uxkypX5GttN4EXNv46aX4uOY4wUmfaE';
+const APP_URL = 'https://uclsqnpqvphdbeutzzuu.supabase.co';
+const APP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjbHNxbnBxdnBoZGJldXR6enV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxODUzNjQsImV4cCI6MjA4Nzc2MTM2NH0.qpWW_Bx4Lddkf3YEPeVwv0yRU_leRwakojcdfGBELs4';
 
 async function fetchOffeneAnfragenCount(): Promise<number> {
   try {
-    const res = await fetch(`${APP_URL}/rest/v1/zeiteintraege?status=eq.offen&select=id`, {
+    const res = await fetch(`${APP_URL}/rest/v1/hw_zeiteintraege?status=eq.offen&select=id`, {
       headers: { apikey: APP_KEY, Authorization: `Bearer ${APP_KEY}`, Prefer: 'count=exact' } as Record<string, string>,
     });
     const count = res.headers.get('content-range');

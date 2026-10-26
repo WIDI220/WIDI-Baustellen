@@ -13,8 +13,8 @@ import { toast } from 'sonner';
 import { ArrowLeft, CheckCircle, XCircle, Clock, HardHat, Ticket, Shield, Package, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 
 // ── Handwerker-App Supabase (NUR für Anfragen lesen + Status schreiben) ──────
-const APP_URL = 'https://syhjjuewkjjihxwiexmz.supabase.co';
-const APP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN5aGpqdWV3a2pqaWh4d2lleG16Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MTk2NDYsImV4cCI6MjA5MzA5NTY0Nn0.9A-GrkU72IZ3uxkypX5GttN4EXNv46aX4uOY4wUmfaE';
+const APP_URL = 'https://uclsqnpqvphdbeutzzuu.supabase.co';
+const APP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjbHNxbnBxdnBoZGJldXR6enV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxODUzNjQsImV4cCI6MjA4Nzc2MTM2NH0.qpWW_Bx4Lddkf3YEPeVwv0yRU_leRwakojcdfGBELs4';
 
 const appFetch = async (path: string, options: RequestInit = {}) => {
   const res = await fetch(`${APP_URL}/rest/v1/${path}`, {
@@ -252,7 +252,7 @@ export default function StundenAnfragenPage() {
   // Anfragen aus Handwerker-App laden
   const { data: anfragen = [], isLoading, refetch } = useQuery<Anfrage[]>({
     queryKey: ['stunden-anfragen'],
-    queryFn: () => appFetch('zeiteintraege?order=erstellt_am.desc&limit=300'),
+    queryFn: () => appFetch('hw_zeiteintraege?order=erstellt_am.desc&limit=300'),
     refetchInterval: 30000, // alle 30s aktualisieren
   });
 
@@ -266,7 +266,7 @@ export default function StundenAnfragenPage() {
   const gefiltert = anfragen.filter(a => a.status === filter);
 
   const handleGenehmigen = async (id: string, kommentar: string) => {
-    await appFetch(`zeiteintraege?id=eq.${id}`, {
+    await appFetch(`hw_zeiteintraege?id=eq.${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'genehmigt', admin_kommentar: kommentar || null, bearbeitet_am: new Date().toISOString() }),
     });
@@ -275,7 +275,7 @@ export default function StundenAnfragenPage() {
   };
 
   const handleAblehnen = async (id: string, kommentar: string) => {
-    await appFetch(`zeiteintraege?id=eq.${id}`, {
+    await appFetch(`hw_zeiteintraege?id=eq.${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'abgelehnt', admin_kommentar: kommentar || null, bearbeitet_am: new Date().toISOString() }),
     });
@@ -358,7 +358,7 @@ export default function StundenAnfragenPage() {
       }
 
       // Status in Handwerker-App auf verbucht setzen
-      await appFetch(`zeiteintraege?id=eq.${a.id}`, {
+      await appFetch(`hw_zeiteintraege?id=eq.${a.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: 'verbucht', bearbeitet_am: new Date().toISOString() }),
       });
