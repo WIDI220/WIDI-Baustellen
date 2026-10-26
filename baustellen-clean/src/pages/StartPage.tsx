@@ -11,8 +11,9 @@ const APP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsIn
 
 async function fetchOffeneAnfragenCount(): Promise<number> {
   try {
+    const token = (await supabase.auth.getSession()).data.session?.access_token || APP_KEY;
     const res = await fetch(`${APP_URL}/rest/v1/hw_zeiteintraege?status=eq.offen&select=id`, {
-      headers: { apikey: APP_KEY, Authorization: `Bearer ${APP_KEY}`, Prefer: 'count=exact' } as Record<string, string>,
+      headers: { apikey: APP_KEY, Authorization: `Bearer ${token}`, Prefer: 'count=exact' } as Record<string, string>,
     });
     const count = res.headers.get('content-range');
     if (count) return parseInt(count.split('/')[1] || '0', 10);

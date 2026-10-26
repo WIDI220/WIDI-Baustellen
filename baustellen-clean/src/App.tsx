@@ -73,7 +73,14 @@ function AppRoutes() {
   useEffect(() => {
     const check = () => setLoggedIn(!!getLocalSession());
     window.addEventListener('storage', check);
-    return () => window.removeEventListener('storage', check);
+    // Ohne gültige Supabase-Auth-Session gilt man als abgemeldet (alte Fake-Sessions entfernen)
+    supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) { clearLocalSession(); setLoggedIn(false); }
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') { localStorage.removeItem('widi_session'); setLoggedIn(false); }
+    });
+    return () => { window.removeEventListener('storage', check); sub.subscription.unsubscribe(); };
   }, []);
 
   // Realtime Fehler-Alarm: nur für Admin sichtbar, auf jeder Seite
