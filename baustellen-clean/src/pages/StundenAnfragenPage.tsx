@@ -17,10 +17,11 @@ const APP_URL = 'https://uclsqnpqvphdbeutzzuu.supabase.co';
 const APP_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjbHNxbnBxdnBoZGJldXR6enV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxODUzNjQsImV4cCI6MjA4Nzc2MTM2NH0.qpWW_Bx4Lddkf3YEPeVwv0yRU_leRwakojcdfGBELs4';
 
 const appFetch = async (path: string, options: RequestInit = {}) => {
+  const token = (await supabase.auth.getSession()).data.session?.access_token || APP_KEY;
   const res = await fetch(`${APP_URL}/rest/v1/${path}`, {
     headers: {
       apikey: APP_KEY,
-      Authorization: `Bearer ${APP_KEY}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       Prefer: 'return=representation',
       ...(options.headers as Record<string, string> || {}),

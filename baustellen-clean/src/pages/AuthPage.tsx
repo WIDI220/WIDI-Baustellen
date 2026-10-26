@@ -1,15 +1,9 @@
 import { useState } from 'react';
 import { HardHat, Ticket, TrendingUp } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
-// Bitte Passwörter nicht weitergeben
-const USERS: Record<string, { password: string; name: string }> = {
-  'j.paredis@widi-hellersen.de':  { password: 'jbxy-Fri8', name: 'Jan Paredis' },
-  'b.denker@widi-hellersen.de':   { password: '123123',    name: 'B. Denker' },
-  'p.paredis@widi-hellersen.de':  { password: '123123',    name: 'P. Paredis' },
-  'm.dargel@widi-hellersen.de':   { password: '123123',    name: 'M. Dargel' },
-};
-
-// Simulierter Auth-State im localStorage
+// Simulierter Auth-State im localStorage (nur Anzeige: Name/E-Mail). Die echte
+// Anmeldung läuft über Supabase Auth – ohne gültige Auth-Session gilt man als abgemeldet.
 const SESSION_KEY = 'widi_session';
 
 export function getLocalSession(): { email: string; name: string } | null {
@@ -21,7 +15,15 @@ export function getLocalSession(): { email: string; name: string } | null {
 
 export function clearLocalSession() {
   localStorage.removeItem(SESSION_KEY);
+  try { supabase.auth.signOut({ scope: 'local' }); } catch { /* ignorieren */ }
 }
+
+const FALLBACK_NAMES: Record<string, string> = {
+  'j.paredis@widi-hellersen.de': 'Jan Paredis',
+  'b.denker@widi-hellersen.de':  'B. Denker',
+  'p.paredis@widi-hellersen.de': 'P. Paredis',
+  'm.dargel@widi-hellersen.de':  'M. Dargel',
+};
 
 export default function AuthPage({ onLogin }: { onLogin: (email: string) => void }) {
   const [email, setEmail]       = useState('');
@@ -29,17 +31,29 @@ export default function AuthPage({ onLogin }: { onLogin: (email: string) => void
   const [error, setError]       = useState('');
   const [loading, setLoading]   = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-
-    const user = USERS[email.trim().toLowerCase()];
-    if (user && user.password === password) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ email: email.trim().toLowerCase(), name: user.name }));
-      onLogin(email.trim().toLowerCase());
-    } else {
-      setError('E-Mail oder Passwort falsch');
+    const mail = email.trim().toLowerCase();
+    try {
+      const { data, error: err } = await supabase.auth.signInWithPassword({ email: mail, password });
+      if (err || !data.user) {
+        setError(err?.status === 429 ? 'Zu viele Versuche – bitte kurz warten' : 'E-Mail oder Passwort falsch');
+      } else if (data.user.app_metadata?.hw_login) {
+        await supabase.auth.signOut({ scope: 'local' });
+        setError('E-Mail oder Passwort falsch');
+      } else {
+        let name = FALLBACK_NAMES[mail] || mail;
+        try {
+          const { data: u } = await supabase.from('app_users').select('name').eq('email', mail).maybeSingle();
+          if (u?.name) name = u.name;
+        } catch { /* Fallback-Name nutzen */ }
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ email: mail, name }));
+        onLogin(mail);
+      }
+    } catch {
+      setError('Anmeldung fehlgeschlagen – bitte erneut versuchen');
     }
     setLoading(false);
   };

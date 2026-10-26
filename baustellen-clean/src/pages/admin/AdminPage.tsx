@@ -176,7 +176,7 @@ export default function AdminPage() {
       const key = (import.meta as any).env.VITE_SUPABASE_ANON_KEY;
       if (!url || !key) throw new Error('Supabase ENV fehlt');
       const res = await fetch(`${url}/rest/v1/app_users?select=*&order=name`, {
-        headers: { apikey: key, Authorization: `Bearer ${key}` },
+        headers: { apikey: key, Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || key}` },
       });
       if (!res.ok) throw new Error('Direkter Fetch fehlgeschlagen');
       return res.json();
