@@ -210,13 +210,41 @@ const ABNAHME_PDF_FELDER: { key: 'kunde'|'kst'|'proj'|'fiArt'|'antragsteller'|'p
 function AbnahmePDFDialog({ open, onClose, bs, sw, mat }: {
   open: boolean; onClose: () => void; bs: any; sw: any[]; mat: any[];
 }) {
-  const gesamtH = sw.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
-  const vonWem  = [...new Set(sw.map((w: any) => w.employees?.name).filter(Boolean))].join(', ');
+  // Zeitraum-Filter (leer = alles). Format 'YYYY-MM-DD' aus <input type="date">
+  const [zeitVon, setZeitVon] = React.useState('');
+  const [zeitBis, setZeitBis] = React.useState('');
+  const imZeitraum = (datum?: string | null) => {
+    if (!zeitVon && !zeitBis) return true;
+    if (!datum) return false;
+    const d = String(datum).slice(0, 10);
+    if (zeitVon && d < zeitVon) return false;
+    if (zeitBis && d > zeitBis) return false;
+    return true;
+  };
+  const swF  = sw.filter((w: any) => imZeitraum(w.datum));
+  const matF = mat.filter((m: any) => imZeitraum(m.datum));
+  const zeitraumUngueltig = !!(zeitVon && zeitBis && zeitVon > zeitBis);
+  const fmtD = (iso: string) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('de-DE') : '';
+  const zeitraumText = (zeitVon || zeitBis)
+    ? `${zeitVon ? fmtD(zeitVon) : '…'} bis ${zeitBis ? fmtD(zeitBis) : '…'}`
+    : '';
+
+  const gesamtH = swF.reduce((s: number, w: any) => s + Number(w.stunden ?? 0), 0);
+  const vonWem  = [...new Set(swF.map((w: any) => w.employees?.name).filter(Boolean))].join(', ');
   const aNummer = (() => { const n = extractANummer(bs?.name); return n ? 'A' + n : bs?.name || ''; })();
 
   const [positionen, setPositionen] = React.useState<Array<{leistung:string;einheit:string;menge:string}>>([
     { leistung: 'Arbeitszeit', einheit: 'Std.', menge: String(gesamtH || '') },
   ]);
+
+  // Bei Änderung des Zeitraums die Arbeitszeit-Position automatisch nachziehen
+  React.useEffect(() => {
+    setPositionen(p => p.map((row, i) =>
+      i === 0 && row.leistung === 'Arbeitszeit'
+        ? { ...row, menge: gesamtH ? String(Math.round(gesamtH * 100) / 100) : '' }
+        : row));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zeitVon, zeitBis]);
   const [felder, setFelder] = React.useState<Record<string,string>>({
     kunde: '', kst: '', proj: '', fiArt: '', antragsteller: '',
     projektname: extractBaustellenTitel(bs?.name) || bs?.name || '',
@@ -234,8 +262,9 @@ function AbnahmePDFDialog({ open, onClose, bs, sw, mat }: {
   const updFeld = (k: string, v: string) => setFelder(f => ({ ...f, [k]: v }));
 
   const wirklichGenerieren = () => {
+    if (zeitraumUngueltig) { toast.error('Zeitraum ungültig: "Von" liegt nach "Bis"'); return; }
     const zeiterfassung = inklZeiterfassung
-      ? sw.map((w: any) => ({
+      ? swF.map((w: any) => ({
           datum:       w.datum ? new Date(w.datum).toLocaleDateString('de-DE') : '–',
           mitarbeiter: w.employees?.name || '–',
           stunden:     Number(w.stunden ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' h',
@@ -244,7 +273,7 @@ function AbnahmePDFDialog({ open, onClose, bs, sw, mat }: {
       : undefined;
 
     const material = inklMaterial
-      ? mat.map((m: any) => ({
+      ? matF.map((m: any) => ({
           bezeichnung: m.bezeichnung || '–',
           menge:       `${m.menge ?? ''} ${m.einheit ?? ''}`.trim(),
           einzelpreis: Number(m.einzelpreis ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €',
@@ -262,7 +291,7 @@ function AbnahmePDFDialog({ open, onClose, bs, sw, mat }: {
       fiArt:          felder.fiArt,
       antragsteller:  felder.antragsteller,
       projektname:    felder.projektname,
-      ausgefuehrtAm:  new Date().toLocaleDateString('de-DE'),
+      ausgefuehrtAm:  zeitraumText || new Date().toLocaleDateString('de-DE'),
       ausgefuehrtVon: vonWem || '_______________',
       positionen,
       zeiterfassung,
@@ -303,13 +332,35 @@ function AbnahmePDFDialog({ open, onClose, bs, sw, mat }: {
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:18 }}>
                 {[
                   { icon:'🏷', val: aNummer || '—' },
-                  { icon:'📅', val: new Date().toLocaleDateString('de-DE') },
+                  { icon:'📅', val: zeitraumText || new Date().toLocaleDateString('de-DE') },
                   { icon:'👤', val: vonWem || '—' },
                 ].map(({icon,val}) => (
                   <span key={icon} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:20, fontSize:12, color:'#374151', fontWeight:500 }}>
                     {icon} {val}
                   </span>
                 ))}
+              </div>
+
+              {/* Zeitraum */}
+              <div style={{ marginBottom:16 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'#0f172a', marginBottom:10 }}>Zeitraum <span style={{ fontWeight:400, color:'#94a3b8' }}>(optional – leer = alle Einträge)</span></div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:8, alignItems:'end' }}>
+                  <div>
+                    <label style={lbl}>Von</label>
+                    <input type="date" style={inp} value={zeitVon} max={zeitBis || undefined} onChange={e => setZeitVon(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Bis</label>
+                    <input type="date" style={inp} value={zeitBis} min={zeitVon || undefined} onChange={e => setZeitBis(e.target.value)} />
+                  </div>
+                  <button onClick={() => { setZeitVon(''); setZeitBis(''); }} disabled={!zeitVon && !zeitBis}
+                    style={{ padding:'7px 10px', background:'#f8fafc', color: (!zeitVon && !zeitBis) ? '#cbd5e1' : '#475569', border:'1px solid #e2e8f0', borderRadius:8, fontSize:12, cursor: (!zeitVon && !zeitBis) ? 'not-allowed' : 'pointer' }}>
+                    Zurücksetzen
+                  </button>
+                </div>
+                {zeitraumUngueltig
+                  ? <div style={{ fontSize:11, color:'#dc2626', marginTop:6 }}>„Von“ liegt nach „Bis“.</div>
+                  : (zeitVon || zeitBis) && <div style={{ fontSize:11, color:'#0369a1', marginTop:6 }}>Im Zeitraum: {swF.length} von {sw.length} Stundeneinträgen · {gesamtH.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:2})} h · {matF.length} von {mat.length} Materialpositionen</div>}
               </div>
 
               {/* Projektdaten */}
@@ -371,14 +422,14 @@ function AbnahmePDFDialog({ open, onClose, bs, sw, mat }: {
                   <input type="checkbox" checked={inklZeiterfassung} onChange={e => setInklZeiterfassung(e.target.checked)} style={{ width:16, height:16, flexShrink:0 }} />
                   <div>
                     <div style={{ fontSize:12.5, fontWeight:600, color:'#0f172a' }}>Zeiterfassung einschließen</div>
-                    <div style={{ fontSize:11, color:'#94a3b8' }}>{sw.length} Eintrag{sw.length===1?'':'e'} · {gesamtH.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1})} h — als eigene Seite</div>
+                    <div style={{ fontSize:11, color:'#94a3b8' }}>{swF.length} Eintrag{swF.length===1?'':'e'} · {gesamtH.toLocaleString('de-DE',{minimumFractionDigits:1,maximumFractionDigits:1})} h — als eigene Seite</div>
                   </div>
                 </label>
                 <label style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', border:'1.5px solid #e2e8f0', borderRadius:10, cursor:'pointer', background: inklMaterial ? '#f0f9ff' : '#fff' }}>
                   <input type="checkbox" checked={inklMaterial} onChange={e => setInklMaterial(e.target.checked)} style={{ width:16, height:16, flexShrink:0 }} />
                   <div>
                     <div style={{ fontSize:12.5, fontWeight:600, color:'#0f172a' }}>Material einschließen</div>
-                    <div style={{ fontSize:11, color:'#94a3b8' }}>{mat.length} Position{mat.length===1?'':'en'} — als eigene Seite</div>
+                    <div style={{ fontSize:11, color:'#94a3b8' }}>{matF.length} Position{matF.length===1?'':'en'} — als eigene Seite</div>
                   </div>
                 </label>
               </div>
