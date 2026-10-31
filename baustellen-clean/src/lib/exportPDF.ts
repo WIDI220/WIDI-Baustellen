@@ -1396,6 +1396,6 @@ export function exportAbnahmescheinPDF(d: AbnahmePDFDaten): void {
 
   // ── Download ──────────────────────────────────────────────────────────
   const aNr = (d.aNummer || 'Abnahmeschein').replace(/[^A-Za-z0-9-]/g,'_');
-  const dat = (d.ausgefuehrtAm || '').replace(/\./g,'-');
+  const dat = (d.ausgefuehrtAm || '').replace(/\./g,'-').replace(/\s*bis\s*/g,'_bis_').replace(/[^A-Za-z0-9_-]/g,'');
   doc.save(`Abnahmeschein_${aNr}_${dat}.pdf`);
 }
