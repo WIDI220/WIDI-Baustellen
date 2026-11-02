@@ -463,6 +463,9 @@ export default function BaustelleDetail() {
   const [bemFiles, setBemFiles] = useState<File[]>([]);
   const [bemUploading, setBemUploading] = useState(false);
   const [bemDeleteId, setBemDeleteId] = useState<string|null>(null);
+  const [bemDialogDrag, setBemDialogDrag] = useState(false);
+  const [bemDragId, setBemDragId] = useState<string|null>(null);       // Karte, über der gerade gezogen wird
+  const [bemUploadId, setBemUploadId] = useState<string|null>(null);   // Karte, die gerade hochlädt
 
   // Abnahmeschein Dialog
   const [abnahmeDialog, setAbnahmeDialog] = useState(false);
@@ -520,10 +523,58 @@ export default function BaustelleDetail() {
   });
   const bemRechnungen = (bemerkungen as any[]).filter(b => b.betrag_bezahlt != null);
   const bemBezahltSumme = bemRechnungen.reduce((s, b) => s + Number(b.betrag_bezahlt ?? 0), 0);
-  const bemDokOeffnen = async (d: any) => {
+  const istPdf = (f: File) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+  const nurPdfs = (liste: FileList | File[] | null | undefined) => {
+    const alle = Array.from(liste ?? []);
+    const pdfs = alle.filter(istPdf);
+    if (pdfs.length < alle.length) toast.error('Nur PDF-Dateien sind erlaubt');
+    return pdfs;
+  };
+  // PDFs zu einer Bemerkung hochladen, gibt Anzahl Fehler zurück
+  const bemPdfsHochladen = async (bemerkungId: string, files: File[]) => {
+    let fehler = 0;
+    for (const file of files) {
+      const sauber = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9._-]/g, '_');
+      const path = `bemerkungen/${id}/${bemerkungId}/${Date.now()}_${sauber}`;
+      const { error: upErr } = await supabase.storage.from('baustellen-dokumente').upload(path, file, { contentType: 'application/pdf' });
+      if (upErr) { fehler++; continue; }
+      const { error: dErr } = await supabase.from('bs_bemerkung_dokumente').insert({
+        bemerkung_id: bemerkungId, name: file.name, storage_path: path, dateityp: file.type || 'application/pdf', groesse: file.size,
+      });
+      if (dErr) fehler++;
+    }
+    return fehler;
+  };
+  // Nachträglich PDFs auf eine bestehende Bemerkung ziehen
+  const bemPdfsNachreichen = async (bemerkungId: string, liste: FileList | File[] | null | undefined) => {
+    const pdfs = nurPdfs(liste);
+    if (!pdfs.length) return;
+    setBemUploadId(bemerkungId);
+    try {
+      const fehler = await bemPdfsHochladen(bemerkungId, pdfs);
+      await refetchBem();
+      if (fehler) toast.error(`${fehler} PDF(s) konnten nicht hochgeladen werden`);
+      else toast.success(pdfs.length === 1 ? 'PDF hinzugefügt' : `${pdfs.length} PDFs hinzugefügt`);
+    } finally { setBemUploadId(null); }
+  };
+  const bemDokDownload = async (d: any) => {
+    const { data } = await supabase.storage.from('baustellen-dokumente').createSignedUrl(d.storage_path, 60, { download: d.name });
+    if (!data?.signedUrl) { toast.error('Download fehlgeschlagen'); return; }
+    const a = document.createElement('a');
+    a.href = data.signedUrl; a.download = d.name; document.body.appendChild(a); a.click(); a.remove();
+  };
+  const bemDokAnsehen = async (d: any) => {
     const { data } = await supabase.storage.from('baustellen-dokumente').createSignedUrl(d.storage_path, 300);
     if (data?.signedUrl) window.open(data.signedUrl, '_blank');
-    else toast.error('Dokument konnte nicht geöffnet werden');
+    else toast.error('PDF konnte nicht geöffnet werden');
+  };
+  const bemDokLoeschen = async (d: any) => {
+    if (!confirm(`PDF "${d.name}" wirklich löschen?`)) return;
+    await supabase.storage.from('baustellen-dokumente').remove([d.storage_path]);
+    const { error } = await supabase.from('bs_bemerkung_dokumente').delete().eq('id', d.id);
+    if (error) { toast.error('Fehler: ' + error.message); return; }
+    await refetchBem();
+    toast.success('PDF gelöscht');
   };
 
   // Summe aller Teilabrechnungen → wird vom Budget abgezogen
@@ -1491,20 +1542,58 @@ export default function BaustelleDetail() {
                   <p className="text-sm" style={{color:'#374151', lineHeight:1.6, whiteSpace:'pre-wrap'}}>{b.text}</p>
                 </div>
 
-                {b.bs_bemerkung_dokumente?.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs font-semibold mb-2" style={{color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em'}}>Dokumente ({b.bs_bemerkung_dokumente.length})</p>
-                    <div className="flex flex-wrap gap-2">
-                      {b.bs_bemerkung_dokumente.map((d: any) => (
-                        <button key={d.id} onClick={() => bemDokOeffnen(d)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:bg-blue-50"
-                          style={{background:'#f1f5f9', color:'#374151', border:'1px solid #e2e8f0'}}>
-                          📄 {d.name}
-                        </button>
-                      ))}
-                    </div>
+                {/* PDFs */}
+                <div className="mt-3">
+                  {b.bs_bemerkung_dokumente?.length > 0 && (
+                    <>
+                      <p className="text-xs font-semibold mb-2" style={{color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.06em'}}>PDFs ({b.bs_bemerkung_dokumente.length})</p>
+                      <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:8}}>
+                        {[...b.bs_bemerkung_dokumente]
+                          .sort((x: any, y: any) => new Date(x.created_at).getTime() - new Date(y.created_at).getTime())
+                          .map((d: any) => {
+                          const sizeMB = d.groesse ? (d.groesse/1024/1024).toFixed(2)+' MB' : '';
+                          return (
+                            <div key={d.id} style={{padding:'8px 12px',display:'flex',alignItems:'center',gap:10,border:'1px solid #f1f5f9',borderRadius:10,background:'#fff'}}>
+                              <div style={{width:32,height:32,borderRadius:8,background:'#e11d4818',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                                <FileText size={15} style={{color:'#e11d48'}}/>
+                              </div>
+                              <button onClick={() => bemDokAnsehen(d)} title="Ansehen" style={{flex:1,minWidth:0,textAlign:'left',background:'none',border:'none',padding:0,cursor:'pointer',fontFamily:'inherit'}}>
+                                <p style={{fontSize:13,fontWeight:600,color:'#0f172a',margin:'0 0 1px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name}</p>
+                                <p style={{fontSize:11,color:'#94a3b8',margin:0}}>PDF {sizeMB && `· ${sizeMB}`} · {new Date(d.created_at).toLocaleDateString('de-DE')}</p>
+                              </button>
+                              <button onClick={() => bemDokDownload(d)}
+                                style={{display:'flex',alignItems:'center',gap:5,padding:'6px 12px',background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,cursor:'pointer',fontSize:12,color:'#374151',fontFamily:'inherit'}}>
+                                <Download size={13}/> Download
+                              </button>
+                              <button onClick={() => bemDokLoeschen(d)} title="PDF löschen"
+                                style={{padding:'6px 8px',background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,cursor:'pointer',display:'flex',alignItems:'center'}}>
+                                <Trash2 size={13} style={{color:'#dc2626'}}/>
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Drop-Zone: PDF zu dieser Bemerkung hinzufügen */}
+                  <div
+                    onDragOver={e => { e.preventDefault(); setBemDragId(b.id); }}
+                    onDragLeave={() => setBemDragId(null)}
+                    onDrop={e => { e.preventDefault(); setBemDragId(null); bemPdfsNachreichen(b.id, e.dataTransfer.files); }}
+                    onClick={() => document.getElementById(`bem-upload-${b.id}`)?.click()}
+                    style={{border:`2px dashed ${bemDragId===b.id?'#2563eb':'#e2e8f0'}`,borderRadius:10,padding:'10px 14px',textAlign:'center',background:bemDragId===b.id?'#eff6ff':'#f8fafc',transition:'all .15s',cursor:'pointer'}}>
+                    <input id={`bem-upload-${b.id}`} type="file" multiple accept="application/pdf,.pdf" style={{display:'none'}}
+                      onChange={e => { bemPdfsNachreichen(b.id, e.target.files); e.target.value=''; }} />
+                    {bemUploadId === b.id ? (
+                      <p style={{fontSize:12,color:'#2563eb',fontWeight:600,margin:0}}>Lädt hoch...</p>
+                    ) : (
+                      <p style={{fontSize:12,color:bemDragId===b.id?'#2563eb':'#94a3b8',margin:0,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                        <Upload size={14}/> PDF hierher ziehen oder klicken
+                      </p>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             ))}
           </div>
@@ -1589,19 +1678,18 @@ export default function BaustelleDetail() {
             {/* PDF */}
             <div>
               <Label>PDF anhängen (optional)</Label>
-              <label className="flex flex-col items-center justify-center w-full h-20 cursor-pointer rounded-xl transition-colors hover:bg-blue-50/50" style={{border:'2px dashed #e5e9f2'}}>
-                <Upload className="h-5 w-5 mb-1" style={{color:'#d1d5db'}} />
-                <span className="text-xs" style={{color:'#9ca3af'}}>PDF-Dateien auswählen</span>
-                <input type="file" multiple accept="application/pdf,.pdf" className="hidden"
-                  onChange={e => {
-                    if (!e.target.files) return;
-                    const alle = Array.from(e.target.files);
-                    const pdfs = alle.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-                    if (pdfs.length < alle.length) toast.error('Nur PDF-Dateien sind erlaubt');
-                    setBemFiles(prev => [...prev, ...pdfs]);
-                    e.target.value = '';
-                  }} />
-              </label>
+              <div
+                onDragOver={e => { e.preventDefault(); setBemDialogDrag(true); }}
+                onDragLeave={() => setBemDialogDrag(false)}
+                onDrop={e => { e.preventDefault(); setBemDialogDrag(false); const pdfs = nurPdfs(e.dataTransfer.files); if (pdfs.length) setBemFiles(prev => [...prev, ...pdfs]); }}
+                onClick={() => document.getElementById('bem-dialog-upload')?.click()}
+                style={{border:`2px dashed ${bemDialogDrag?'#2563eb':'#e2e8f0'}`,borderRadius:14,padding:'22px 16px',textAlign:'center',background:bemDialogDrag?'#eff6ff':'#f8fafc',transition:'all .15s',cursor:'pointer'}}>
+                <input id="bem-dialog-upload" type="file" multiple accept="application/pdf,.pdf" style={{display:'none'}}
+                  onChange={e => { const pdfs = nurPdfs(e.target.files); if (pdfs.length) setBemFiles(prev => [...prev, ...pdfs]); e.target.value = ''; }} />
+                <Upload size={24} style={{color:bemDialogDrag?'#2563eb':'#94a3b8',margin:'0 auto 8px'}}/>
+                <p style={{fontSize:13,fontWeight:600,color:'#374151',margin:'0 0 2px'}}>PDF ablegen oder klicken</p>
+                <p style={{fontSize:11,color:'#94a3b8',margin:0}}>Mehrere Dateien möglich · nur PDF</p>
+              </div>
               {bemFiles.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {bemFiles.map((f,i) => (
@@ -1633,17 +1721,7 @@ export default function BaustelleDetail() {
                     }).select().single();
                     if (error || !neu) throw error ?? new Error('Fehler beim Speichern');
 
-                    let fehler = 0;
-                    for (const file of bemFiles) {
-                      const sauber = file.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._-]/g, '_');
-                      const path = `bemerkungen/${id}/${neu.id}/${Date.now()}_${sauber}`;
-                      const { error: upErr } = await supabase.storage.from('baustellen-dokumente').upload(path, file, { contentType: 'application/pdf' });
-                      if (upErr) { fehler++; continue; }
-                      const { error: dErr } = await supabase.from('bs_bemerkung_dokumente').insert({
-                        bemerkung_id: neu.id, name: file.name, storage_path: path, dateityp: file.type || 'application/pdf', groesse: file.size,
-                      });
-                      if (dErr) fehler++;
-                    }
+                    const fehler = await bemPdfsHochladen(neu.id, bemFiles);
                     await refetchBem();
                     setBemDialog(false);
                     setBemFiles([]);
