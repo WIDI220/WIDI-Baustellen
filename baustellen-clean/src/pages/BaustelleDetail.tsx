@@ -464,6 +464,8 @@ export default function BaustelleDetail() {
   const [bemUploading, setBemUploading] = useState(false);
   const [bemDeleteId, setBemDeleteId] = useState<string|null>(null);
   const [bemDialogDrag, setBemDialogDrag] = useState(false);
+  const [bemTopDrag, setBemTopDrag] = useState(false);
+  const [bemTopUploading, setBemTopUploading] = useState(false);
   const [bemDragId, setBemDragId] = useState<string|null>(null);       // Karte, über der gerade gezogen wird
   const [bemUploadId, setBemUploadId] = useState<string|null>(null);   // Karte, die gerade hochlädt
 
@@ -557,11 +559,29 @@ export default function BaustelleDetail() {
       else toast.success(pdfs.length === 1 ? 'PDF hinzugefügt' : `${pdfs.length} PDFs hinzugefügt`);
     } finally { setBemUploadId(null); }
   };
+  // Download wie bei den Dokumenten: signierter Link, hier mit erzwungenem Download + Originalname
   const bemDokDownload = async (d: any) => {
-    const { data } = await supabase.storage.from('baustellen-dokumente').createSignedUrl(d.storage_path, 60, { download: d.name });
-    if (!data?.signedUrl) { toast.error('Download fehlgeschlagen'); return; }
-    const a = document.createElement('a');
-    a.href = data.signedUrl; a.download = d.name; document.body.appendChild(a); a.click(); a.remove();
+    const { data, error } = await supabase.storage.from('baustellen-dokumente').createSignedUrl(d.storage_path, 60, { download: d.name });
+    if (error || !data?.signedUrl) { toast.error('Download fehlgeschlagen' + (error ? ': ' + error.message : '')); return; }
+    window.open(data.signedUrl, '_blank');
+  };
+  // PDFs direkt in den Reiter ziehen → sofort als neue Bemerkung ablegen (wie bei Dokumente)
+  const bemDirektAblegen = async (liste: FileList | File[] | null | undefined) => {
+    const pdfs = nurPdfs(liste);
+    if (!pdfs.length || !id) return;
+    setBemTopUploading(true);
+    try {
+      const { data: neu, error } = await supabase.from('bs_bemerkungen').insert({
+        baustelle_id: id, text: null, datum: new Date().toISOString().split('T')[0],
+      }).select().single();
+      if (error || !neu) throw error ?? new Error('Fehler beim Speichern');
+      const fehler = await bemPdfsHochladen(neu.id, pdfs);
+      await refetchBem();
+      if (fehler) toast.error(`${fehler} PDF(s) konnten nicht hochgeladen werden`);
+      else toast.success(pdfs.length === 1 ? 'PDF abgelegt' : `${pdfs.length} PDFs abgelegt`);
+    } catch (e: any) {
+      toast.error('Fehler: ' + e.message);
+    } finally { setBemTopUploading(false); }
   };
   const bemDokAnsehen = async (d: any) => {
     const { data } = await supabase.storage.from('baustellen-dokumente').createSignedUrl(d.storage_path, 300);
@@ -1489,6 +1509,29 @@ export default function BaustelleDetail() {
             </div>
           )}
 
+          {/* Drag & Drop Zone – wie bei Dokumente */}
+          <div
+            onDragOver={e=>{e.preventDefault();setBemTopDrag(true);}}
+            onDragLeave={()=>setBemTopDrag(false)}
+            onDrop={e=>{e.preventDefault();setBemTopDrag(false);bemDirektAblegen(e.dataTransfer.files);}}
+            onClick={()=>document.getElementById('bem-top-upload')?.click()}
+            style={{border:`2px dashed ${bemTopDrag?'#2563eb':'#e2e8f0'}`,borderRadius:14,padding:'32px 24px',textAlign:'center',background:bemTopDrag?'#eff6ff':'#f8fafc',transition:'all .15s',cursor:'pointer'}}>
+            <input id="bem-top-upload" type="file" multiple accept="application/pdf,.pdf" style={{display:'none'}}
+              onChange={e=>{bemDirektAblegen(e.target.files);e.target.value='';}}/>
+            {bemTopUploading ? (
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+                <div style={{width:32,height:32,border:'3px solid #2563eb',borderTopColor:'transparent',borderRadius:'50%',animation:'spin 1s linear infinite'}}/>
+                <p style={{fontSize:13,color:'#2563eb',fontWeight:600}}>Lädt hoch...</p>
+              </div>
+            ) : (
+              <>
+                <Upload size={28} style={{color:bemTopDrag?'#2563eb':'#94a3b8',margin:'0 auto 10px'}}/>
+                <p style={{fontSize:14,fontWeight:600,color:'#374151',margin:'0 0 4px'}}>PDF ablegen oder klicken</p>
+                <p style={{fontSize:12,color:'#94a3b8',margin:0}}>Wird sofort gespeichert · Rechnungsnr./Betrag über „+ Neue Bemerkungen“</p>
+              </>
+            )}
+          </div>
+
           {/* Neu anlegen Button */}
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-semibold" style={{color:'#0f172a'}}>
@@ -1538,9 +1581,11 @@ export default function BaustelleDetail() {
                   </button>
                 </div>
 
-                <div className="mt-3 p-3 rounded-xl" style={{background:'#f8fafc', border:'1px solid #f1f5f9'}}>
-                  <p className="text-sm" style={{color:'#374151', lineHeight:1.6, whiteSpace:'pre-wrap'}}>{b.text}</p>
-                </div>
+                {b.text && (
+                  <div className="mt-3 p-3 rounded-xl" style={{background:'#f8fafc', border:'1px solid #f1f5f9'}}>
+                    <p className="text-sm" style={{color:'#374151', lineHeight:1.6, whiteSpace:'pre-wrap'}}>{b.text}</p>
+                  </div>
+                )}
 
                 {/* PDFs */}
                 <div className="mt-3">
@@ -1638,7 +1683,7 @@ export default function BaustelleDetail() {
           <div className="space-y-4 pt-1">
 
             <div>
-              <Label>Bemerkung *</Label>
+              <Label>Bemerkung</Label>
               <Textarea
                 placeholder="z.B. Rechnung Fa. Müller für Elektroarbeiten EG erhalten und bezahlt…"
                 rows={4}
@@ -1704,7 +1749,7 @@ export default function BaustelleDetail() {
 
             <div className="flex gap-3 pt-1">
               <Button variant="outline" className="flex-1" onClick={() => setBemDialog(false)}>Abbrechen</Button>
-              <Button className="flex-1" disabled={bemUploading || !bemForm.text.trim()}
+              <Button className="flex-1" disabled={bemUploading || (!bemForm.text.trim() && !bemForm.rechnungsnummer.trim() && !bemForm.betrag_bezahlt.trim() && bemFiles.length === 0)}
                 onClick={async () => {
                   if (!id) return;
                   setBemUploading(true);
@@ -1713,7 +1758,7 @@ export default function BaustelleDetail() {
                     if (betrag !== null && isNaN(betrag)) throw new Error('Betrag ist keine gültige Zahl');
                     const { data: neu, error } = await supabase.from('bs_bemerkungen').insert({
                       baustelle_id: id,
-                      text: bemForm.text.trim(),
+                      text: bemForm.text.trim() || null,
                       rechnungsnummer: bemForm.rechnungsnummer.trim() || null,
                       betrag_bezahlt: betrag,
                       erstellt_von: bemForm.erstellt_von.trim() || null,
