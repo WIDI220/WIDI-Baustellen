@@ -78,7 +78,7 @@ function AppRoutes() {
       if (!data.session) { clearLocalSession(); setLoggedIn(false); }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') { localStorage.removeItem('widi_session'); setLoggedIn(false); }
+      if (event === 'SIGNED_OUT') { sessionStorage.removeItem('widi_session'); setLoggedIn(false); }
     });
     return () => { window.removeEventListener('storage', check); sub.subscription.unsubscribe(); };
   }, []);

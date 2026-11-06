@@ -46,7 +46,7 @@ export function usePermissions() {
   });
 
   // Admin hat immer alles
-  if (userData?.is_admin) {
+  if (userData?.is_admin && userData.is_active !== false) {
     return {
       canSee:  (_: string) => true,
       canEdit: (_: string) => true,
@@ -55,13 +55,13 @@ export function usePermissions() {
     };
   }
 
-  // Noch nicht geladen → alles erlauben (verhindert Flash)
-  if (!userData) {
+  // Noch nicht geladen, nicht als Benutzer angelegt oder deaktiviert → nichts freigeben
+  if (!userData || userData.is_active === false) {
     return {
-      canSee:  (_: string) => true,
-      canEdit: (_: string) => true,
+      canSee:  (_: string) => false,
+      canEdit: (_: string) => false,
       isAdmin: false,
-      loaded:  false,
+      loaded:  !!userData,
     };
   }
 
