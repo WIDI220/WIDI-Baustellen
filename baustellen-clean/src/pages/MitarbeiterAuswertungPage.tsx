@@ -8,7 +8,9 @@ import {
   LineChart, Line, CartesianGrid, Legend, RadarChart, Radar,
   PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from 'recharts';
-import { Users, Clock, Euro, TrendingUp, ChevronLeft, ChevronRight, Award, Target, Zap, BarChart2, Sun, Stethoscope, Calendar, Download, FileText } from 'lucide-react';
+import { Users, Clock, Euro, TrendingUp, ChevronLeft, ChevronRight, Award, Target, Zap, BarChart2, Sun, Stethoscope, Calendar, Download, FileText, FileSpreadsheet } from 'lucide-react';
+import { toast } from 'sonner';
+import { exportMitarbeiterExcel, BEREICHE, type Bereich, type BuchungExport, type VerlaufExport } from '@/lib/mitarbeiter-auswertung-excel';
 
 const STUNDENSATZ = 38.08;
 const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
@@ -53,6 +55,8 @@ export default function MitarbeiterAuswertungPage() {
   const [selectedMA, setSelectedMA] = useState<string | null>(null);
   const [kalYear, setKalYear] = useState(now.getFullYear());
   const [pendingToggle, setPendingToggle] = useState<string | null>(null);
+  const [exportAuswahl, setExportAuswahl] = useState<string | null>(null); // null = automatisch (Einzelperson-Tab → gewählte Person, sonst alle)
+  const [exportLaeuft, setExportLaeuft] = useState(false);
 
   const von = `${monatStr(year, month)}-01`;
   const letzterTag = new Date(year, month, 0).getDate();
@@ -388,6 +392,90 @@ export default function MitarbeiterAuswertungPage() {
   // Radar-Daten für ausgewählten MA
   const selectedEmp = maStats.find(e => e.id === selectedMA) ?? maStats[0];
 
+  // ── Excel-Export (alle Mitarbeiter oder ein einzelner) ──
+  const exportZiel: string = exportAuswahl ?? (activeTab === 'Einzelperson' && selectedEmp ? selectedEmp.id : 'alle');
+
+  // Lädt alle Zeilen seitenweise (Supabase liefert max. 1000 Zeilen je Abfrage)
+  async function ladeAlle<T = any>(mk: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>): Promise<T[]> {
+    const out: T[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await mk(from, from + 999);
+      if (error) throw error;
+      out.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    return out;
+  }
+
+  async function exportExcel() {
+    const ziel = exportZiel;
+    const auswahl = ziel === 'alle' ? emps : emps.filter(e => e.id === ziel);
+    if (!auswahl.length) { toast.error('Kein Mitarbeiter ausgewählt'); return; }
+    const ids = new Set(auswahl.map(e => e.id));
+    const auswahlLabel = ziel === 'alle' ? 'Alle Mitarbeiter' : auswahl[0].name;
+    setExportLaeuft(true);
+    try {
+      // Monatsdaten (gleiche Quellen und Filter wie die Auswertung)
+      const [tk, bs, intern, dguv, beg, abw] = await Promise.all([
+        ladeAlle((f, t) => supabase.from('ticket_worklogs').select('id,employee_id,stunden,leistungsdatum,tickets(a_nummer,beschreibung,raumnr)').gte('leistungsdatum', von).lte('leistungsdatum', bis).order('id').range(f, t)),
+        ladeAlle((f, t) => supabase.from('bs_stundeneintraege').select('id,mitarbeiter_id,stunden,datum,beschreibung,baustellen(name)').gte('datum', von).lte('datum', bis).order('id').range(f, t)),
+        ladeAlle((f, t) => supabase.from('interne_stunden').select('id,employee_id,stunden,datum,beschreibung').gte('datum', von).lte('datum', bis).order('id').range(f, t)),
+        ladeAlle((f, t) => supabase.from('wochenplanung').select('id,mitarbeiter_id,stunden,datum,bezeichnung').eq('typ', 'dguv').gte('datum', von).lte('datum', bis).order('id').range(f, t)),
+        ladeAlle((f, t) => supabase.from('begehungen').select('*').gte('datum_von', von).lte('datum_von', bis).order('id').range(f, t)),
+        ladeAlle((f, t) => supabase.from('mitarbeiter_abwesenheiten').select('id,employee_id,datum,typ').gte('datum', von).lte('datum', bis).order('id').range(f, t)),
+      ]);
+
+      const buchungen: BuchungExport[] = [];
+      (tk as any[]).forEach(w => { if (ids.has(w.employee_id)) buchungen.push({ datum: w.leistungsdatum, maId: w.employee_id, bereich: 'Tickets', stunden: Number(w.stunden ?? 0), bezug: w.tickets?.a_nummer ?? '', beschreibung: [w.tickets?.raumnr ? `Raum ${w.tickets.raumnr}` : '', w.tickets?.beschreibung ?? ''].filter(Boolean).join(' – ') }); });
+      (bs as any[]).forEach(w => { if (ids.has(w.mitarbeiter_id)) buchungen.push({ datum: w.datum, maId: w.mitarbeiter_id, bereich: 'Baustellen', stunden: Number(w.stunden ?? 0), bezug: w.baustellen?.name ?? '', beschreibung: w.beschreibung ?? '' }); });
+      (intern as any[]).forEach(w => { if (ids.has(w.employee_id)) buchungen.push({ datum: w.datum, maId: w.employee_id, bereich: 'Intern', stunden: Number(w.stunden ?? 0), bezug: '', beschreibung: w.beschreibung ?? '' }); });
+      (dguv as any[]).forEach(w => { if (ids.has(w.mitarbeiter_id)) buchungen.push({ datum: w.datum, maId: w.mitarbeiter_id, bereich: 'DGUV', stunden: Number(w.stunden ?? 0), bezug: 'Wochenplanung', beschreibung: w.bezeichnung ?? '' }); });
+      (beg as any[]).forEach(b => {
+        auswahl.filter(e => matchBegehung(b.mitarbeiter ?? '', e)).forEach(e => buchungen.push({
+          datum: b.datum_von, maId: e.id, bereich: 'Begehungen', stunden: Number(b.stunden ?? 0),
+          bezug: [b.typ === 'sicherheitsbeleuchtung' ? 'Sicherheitsbeleuchtung' : b.typ === 'osmose' ? 'Osmose' : b.typ, b.kw ? `KW ${b.kw}` : ''].filter(Boolean).join(' · '),
+          beschreibung: b.bemerkung ?? '',
+        }));
+      });
+
+      // Verlauf: 12 Monate bis einschließlich gewähltem Monat
+      const startDatum = new Date(year, month - 12, 1);
+      const verlaufVon = `${startDatum.getFullYear()}-${String(startDatum.getMonth() + 1).padStart(2, '0')}-01`;
+      const [vT, vB, vI, vD, vG] = await Promise.all([
+        ladeAlle((f, t) => supabase.from('ticket_worklogs').select('id,employee_id,stunden,leistungsdatum').gte('leistungsdatum', verlaufVon).lte('leistungsdatum', bis).order('id').range(f, t)),
+        ladeAlle((f, t) => supabase.from('bs_stundeneintraege').select('id,mitarbeiter_id,stunden,datum').gte('datum', verlaufVon).lte('datum', bis).order('id').range(f, t)),
+        ladeAlle((f, t) => supabase.from('interne_stunden').select('id,employee_id,stunden,datum').gte('datum', verlaufVon).lte('datum', bis).order('id').range(f, t)),
+        ladeAlle((f, t) => supabase.from('wochenplanung').select('id,mitarbeiter_id,stunden,datum').eq('typ', 'dguv').gte('datum', verlaufVon).lte('datum', bis).order('id').range(f, t)),
+        ladeAlle((f, t) => supabase.from('begehungen').select('id,mitarbeiter,stunden,datum_von').gte('datum_von', verlaufVon).lte('datum_von', bis).order('id').range(f, t)),
+      ]);
+      const vMap = new Map<string, Record<Bereich, number>>();
+      const add = (datum: string, be: Bereich, h: number) => {
+        const ym = String(datum ?? '').slice(0, 7); if (ym.length < 7) return;
+        const w = vMap.get(ym) ?? (Object.fromEntries(BEREICHE.map(x => [x, 0])) as Record<Bereich, number>);
+        w[be] += Number(h ?? 0); vMap.set(ym, w);
+      };
+      (vT as any[]).forEach(w => ids.has(w.employee_id) && add(w.leistungsdatum, 'Tickets', w.stunden));
+      (vB as any[]).forEach(w => ids.has(w.mitarbeiter_id) && add(w.datum, 'Baustellen', w.stunden));
+      (vI as any[]).forEach(w => ids.has(w.employee_id) && add(w.datum, 'Intern', w.stunden));
+      (vD as any[]).forEach(w => ids.has(w.mitarbeiter_id) && add(w.datum, 'DGUV', w.stunden));
+      (vG as any[]).forEach(b => auswahl.filter(e => matchBegehung(b.mitarbeiter ?? '', e)).forEach(() => add(b.datum_von, 'Begehungen', b.stunden)));
+      const verlauf: VerlaufExport[] = [...vMap.entries()].map(([ym, werte]) => ({ ym, werte }));
+
+      exportMitarbeiterExcel({
+        monatLabel, ym: monatStr(year, month), auswahlLabel,
+        mitarbeiter: auswahl.map(e => ({ id: e.id, name: e.name, kuerzel: e.kuerzel, gewerk: e.gewerk, satz: Number(e.stundensatz ?? STUNDENSATZ) })),
+        buchungen,
+        abwesenheiten: (abw as any[]).filter(a => ids.has(a.employee_id)).map(a => ({ datum: a.datum, maId: a.employee_id, typ: a.typ })),
+        verlauf,
+      });
+      toast.success(`Excel erstellt: ${auswahlLabel}, ${monatLabel} (${buchungen.length} Buchungen)`);
+    } catch (err: any) {
+      toast.error('Excel-Export fehlgeschlagen: ' + (err?.message ?? err));
+    } finally {
+      setExportLaeuft(false);
+    }
+  }
+
   const cardStyle = (accent: string) => ({
     background: '#fff', borderRadius: 16, padding: '20px 22px',
     border: '1px solid #f1f5f9', boxShadow: '0 2px 12px rgba(0,0,0,.04)',
@@ -426,6 +514,20 @@ export default function MitarbeiterAuswertungPage() {
             onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.background='#f1f5f9';}}
             onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.background='#f8fafc';}}>
             <ChevronRight size={14} />
+          </button>
+        </div>
+        {/* Excel-Export */}
+        <div style={{ display:'flex', alignItems:'center', gap:8, background:'#fff', border:'1px solid #e2e8f0', borderRadius:14, padding:'8px 12px' }}>
+          <select value={exportZiel} onChange={e => setExportAuswahl(e.target.value)}
+            title="Auswahl für den Excel-Export"
+            style={{ padding:'7px 10px', border:'1px solid #e2e8f0', borderRadius:8, fontSize:13, color:'#0f172a', background:'#f8fafc', cursor:'pointer', maxWidth:220 }}>
+            <option value="alle">Alle Mitarbeiter</option>
+            {emps.map(e => <option key={e.id} value={e.id}>{e.name}{e.kuerzel ? ` (${e.kuerzel})` : ''}</option>)}
+          </select>
+          <button onClick={exportExcel} disabled={exportLaeuft}
+            title={`Mitarbeiter-Auswertung ${monatLabel} als Excel herunterladen`}
+            style={{ display:'flex', alignItems:'center', gap:7, padding:'8px 16px', background:'#16a34a', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:600, cursor: exportLaeuft ? 'wait' : 'pointer', opacity: exportLaeuft ? 0.7 : 1, whiteSpace:'nowrap' }}>
+            <FileSpreadsheet size={15} /> {exportLaeuft ? 'Wird erstellt…' : 'Excel export'}
           </button>
         </div>
       </div>
