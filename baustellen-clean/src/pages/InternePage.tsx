@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useMonth } from '@/contexts/MonthContext';
 import { toast } from 'sonner';
-import { Plus, Trash2, Clock, User, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Clock, User, FileText, ChevronLeft, ChevronRight, FileSpreadsheet } from 'lucide-react';
+import { exportInterneStundenExcel } from '@/lib/interne-stunden-excel';
 
 function fmt025(n: number) {
   const r = Math.round(n * 4) / 4;
@@ -116,12 +117,31 @@ export default function InternePage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' }}>Interne Stunden</h1>
           <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>Verwaltung, Besprechungen & unabgerechnete Tätigkeiten</p>
         </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          onClick={() => {
+            const liste = eintraege as any[];
+            if (liste.length === 0) { toast.error(`Keine Einträge für ${monthLabel}`); return; }
+            try {
+              exportInterneStundenExcel(liste, monthLabel, activeMonth);
+              toast.success(`Excel mit ${liste.length} Einträgen erstellt`);
+            } catch (err: any) {
+              toast.error('Excel-Export fehlgeschlagen: ' + (err?.message ?? err));
+            }
+          }}
+          disabled={isLoading}
+          title={`Interne Stunden ${monthLabel} als Excel herunterladen`}
+          style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: isLoading ? 'wait' : 'pointer', opacity: isLoading ? 0.6 : 1 }}
+        >
+          <FileSpreadsheet size={15} /> Excel export
+        </button>
         <button
           onClick={() => setShowForm(s => !s)}
           style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
         >
           <Plus size={15} /> Eintrag hinzufügen
         </button>
+        </div>
       </div>
 
       {/* Monats-Navigation */}
