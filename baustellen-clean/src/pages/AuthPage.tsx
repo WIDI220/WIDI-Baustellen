@@ -2,19 +2,19 @@ import { useState } from 'react';
 import { HardHat, Ticket, TrendingUp } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
-// Simulierter Auth-State im localStorage (nur Anzeige: Name/E-Mail). Die echte
-// Anmeldung läuft über Supabase Auth – ohne gültige Auth-Session gilt man als abgemeldet.
+// Anzeige-Daten der Anmeldung (Name/E-Mail) im sessionStorage – gilt nur für dieses Browserfenster.
+// Die echte Anmeldung läuft über Supabase Auth – ohne gültige Auth-Session gilt man als abgemeldet.
 const SESSION_KEY = 'widi_session';
 
 export function getLocalSession(): { email: string; name: string } | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = sessionStorage.getItem(SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
 
 export function clearLocalSession() {
-  localStorage.removeItem(SESSION_KEY);
+  try { sessionStorage.removeItem(SESSION_KEY); localStorage.removeItem(SESSION_KEY); } catch { /* ignorieren */ }
   try { supabase.auth.signOut({ scope: 'local' }); } catch { /* ignorieren */ }
 }
 
@@ -44,13 +44,16 @@ export default function AuthPage({ onLogin }: { onLogin: (email: string) => void
         await supabase.auth.signOut({ scope: 'local' });
         setError('E-Mail oder Passwort falsch');
       } else {
-        let name = FALLBACK_NAMES[mail] || mail;
-        try {
-          const { data: u } = await supabase.from('app_users').select('name').eq('email', mail).maybeSingle();
-          if (u?.name) name = u.name;
-        } catch { /* Fallback-Name nutzen */ }
-        localStorage.setItem(SESSION_KEY, JSON.stringify({ email: mail, name }));
-        onLogin(mail);
+        // Nur Benutzer, die unter Admin → Benutzer angelegt und aktiv sind, dürfen ins System
+        const { data: u, error: uErr } = await supabase.from('app_users').select('name, is_active').eq('email', mail).maybeSingle();
+        if (uErr || !u || u.is_active === false) {
+          await supabase.auth.signOut({ scope: 'local' });
+          setError(uErr ? 'Anmeldung fehlgeschlagen – bitte erneut versuchen' : 'Kein Zugang freigeschaltet – bitte an den Administrator wenden');
+        } else {
+          const name = u.name || FALLBACK_NAMES[mail] || mail;
+          sessionStorage.setItem(SESSION_KEY, JSON.stringify({ email: mail, name }));
+          onLogin(mail);
+        }
       }
     } catch {
       setError('Anmeldung fehlgeschlagen – bitte erneut versuchen');
