@@ -58,6 +58,7 @@ import TagesansichtPage from '@/pages/TagesansichtPage';
 import AufgabenPage from '@/pages/AufgabenPage';
 import StundenAnfragenPage from '@/pages/StundenAnfragenPage';
 import HandwerkerVerwaltungPage from '@/pages/HandwerkerVerwaltungPage';
+import MonatsdatenPage from '@/pages/MonatsdatenPage';
 
 
 
@@ -128,6 +129,7 @@ function AppRoutes() {
       <Route path="/admin/log" element={<AdminLogPage />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="/planung" element={<WochenplanungPage />} />
+      <Route path="/monatsdaten" element={<MonatsdatenPage />} />
 
       {/* ── DGUV-Bereich ───────────────────────────────── */}
       <Route path="/dguv"              element={<Navigate to="/dguv/roadmap" replace />} />
