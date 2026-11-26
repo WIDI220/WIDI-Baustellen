@@ -44,8 +44,16 @@ export const ZUSCHLAG_LABEL: Record<string, string> = {
 };
 const MONATE = ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
 
+// Kopfzeile der Plus/Minus-Liste: eine Zeile mit „Plus…“ und „Minus…“ (z. B. Plusstunden/Minusstunden, Plus-Std., Plus/Minus)
+function denkerKopf(rows: unknown[][]): number {
+  return rows.slice(0, 20).findIndex(r => {
+    const t = (r || []).map(c => String(c ?? '').toLowerCase());
+    return t.some(x => /plus/.test(x)) && t.some(x => /minus/.test(x));
+  });
+}
 export function istDenkerListe(rows: unknown[][]): boolean {
-  return rows.slice(0, 15).some(r => (r || []).some(c => /plusstunden/i.test(String(c ?? ''))));
+  if (denkerKopf(rows) >= 0) return true;
+  return rows.slice(0, 5).some(r => (r || []).some(c => /plus.*minus/i.test(String(c ?? ''))));
 }
 
 export function parseDenker(rows: unknown[][]): { monat: string | null; zeilen: DenkerZeile[] } {
@@ -55,16 +63,17 @@ export function parseDenker(rows: unknown[][]): { monat: string | null; zeilen: 
     const mi = MONATE.findIndex(m => s.includes(m)); const y = /(20\d{2})/.exec(s);
     if (mi >= 0 && y) monat = `${y[1]}-${String(mi + 1).padStart(2, '0')}`;
   }
-  const h = rows.findIndex(r => (r || []).some(c => /plusstunden/i.test(String(c ?? ''))));
+  const h = denkerKopf(rows);
   if (h < 0) return { monat, zeilen: [] };
   const head = (rows[h] || []).map(c => String(c ?? '').trim());
   const idx = (re: RegExp) => head.findIndex(x => re.test(x));
-  const iName = idx(/^name/i), iPlus = idx(/plusstund/i), iMinus = idx(/minusstund/i), iAus = idx(/auszahl/i);
+  let iName = idx(/name|mitarbeiter/i); if (iName < 0) iName = 0;
+  const iPlus = idx(/plus/i), iMinus = idx(/minus/i), iAus = idx(/auszahl|saldo|differenz/i);
   const zIdx = ZUSCHLAG_SPALTEN.map(([k, re]) => [k, idx(re)] as [string, number]).filter(([, i]) => i >= 0);
   const zeilen: DenkerZeile[] = [];
   for (const r of rows.slice(h + 1)) {
-    const name = String(r?.[iName >= 0 ? iName : 0] ?? '').trim();
-    if (!name || /summe/i.test(name)) continue;
+    const name = String(r?.[iName] ?? '').trim();
+    if (!name || /summe|gesamt/i.test(name) || !/[a-zäöüß]/i.test(name)) continue;
     const z: Record<string, number> = {};
     for (const [k, i] of zIdx) { const v = parseZahl(r[i]); if (v != null && v !== 0) z[k] = v; }
     zeilen.push({ name, plus: parseZahl(r[iPlus]), minus: parseZahl(r[iMinus]), auszahlung: iAus >= 0 ? parseZahl(r[iAus]) : null, zuschlaege: z });

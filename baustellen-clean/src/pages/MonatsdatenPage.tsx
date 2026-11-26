@@ -258,6 +258,10 @@ function MaTab({ monat, label, employees, maMonat, sys }: { monat: string; label
       }, 'name');
       if (!sp) { toast.error('Keine Spalte „Mitarbeiter“ gefunden – bitte die Vorlage verwenden'); return; }
       const { header, spalten } = sp;
+      if (['ueber', 'sonntagH', 'sonntagE', 'bezahlt'].every(k => spalten[k] === undefined)) {
+        toast.error('In der Excel wurden keine Spalten mit Werten erkannt (Überstunden, Sonntag, bezahlte Stunden bzw. Plus/Minus). Nichts gespeichert – bitte Spaltenüberschriften prüfen oder die Vorlage verwenden.');
+        return;
+      }
       const out: { e: any; r: MaRow }[] = []; const unbekannt: string[] = [];
       for (const row of rows.slice(header + 1)) {
         const name = String(row[spalten.name] ?? '').trim();
