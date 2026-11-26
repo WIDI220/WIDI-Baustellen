@@ -31,6 +31,12 @@ function extractANummer(name: string): string {
   const m = name.match(/^\[A(\w+)\]/);
   return m ? m[1] : '';
 }
+// Sortierschlüssel A-Nummer: A26-17310 > A26-00011 > A25-27562; ohne A-Nr. ganz unten
+function aNrKey(b: any): number {
+  const m = /A(\d{2})-(\d{4,6})/i.exec(`${b?.a_nummer || ''} ${b?.name || ''}`);
+  return m ? Number(m[1]) * 1_000_000 + Number(m[2]) : -1;
+}
+
 export default function BaustellenPage() {
   const [aktiverTyp, setAktiverTyp] = useState<'intern'|'extern'>('intern');
   const navigate = useNavigate();
@@ -99,7 +105,7 @@ export default function BaustellenPage() {
     if (bTyp !== aktiverTyp) return false;
     if (!search) return true;
     return b.name.toLowerCase().includes(search.toLowerCase()) || (b.auftraggeber||'').toLowerCase().includes(search.toLowerCase());
-  });
+  }).sort((a, b) => aNrKey(b) - aNrKey(a));
 
   const openEdit = (b:any, e:React.MouseEvent) => {
     e.stopPropagation();
