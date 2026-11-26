@@ -33,7 +33,7 @@ const NACH_STATUS = [
   { value:'genehmigt', label:'Genehmigt', bg:'#f0fdf4', text:'#065f46' },
   { value:'abgelehnt', label:'Abgelehnt', bg:'#fef2f2', text:'#b91c1c' },
 ];
-const TABS = ['Übersicht','Analyse','Stunden','Material','Nachträge','Fotos','Dokumente','Teilabrechnung','Bemerkungen'];
+const TABS = ['Übersicht','Analyse','Stunden','Material','Nachträge','Fotos','Dokumente','Teilabrechnung','Rechnungen BD'];
 const STUNDEN_EMPTY = { mitarbeiter_id:'', datum:new Date().toISOString().split('T')[0], stunden:'', beschreibung:'' };
 const MAT_EMPTY = { bezeichnung:'', menge:'1', einheit:'Stk', einzelpreis:'', gesamtpreis:'', status:'bestellt', datum:new Date().toISOString().split('T')[0] };
 const NACH_EMPTY = { titel:'', beschreibung:'', betrag:'', status:'entwurf', datum:new Date().toISOString().split('T')[0], begruendung:'' };
@@ -1548,7 +1548,7 @@ export default function BaustelleDetail() {
         </div>
       )}
 
-      {tab === 'Bemerkungen' && (
+      {tab === 'Rechnungen BD' && (
         <div className="space-y-4">
 
           {/* Zusammenfassung bezahlte Rechnungen */}
@@ -1578,7 +1578,7 @@ export default function BaustelleDetail() {
               <>
                 <Upload size={28} style={{color:bemTopDrag?'#2563eb':'#94a3b8',margin:'0 auto 10px'}}/>
                 <p style={{fontSize:14,fontWeight:600,color:'#374151',margin:'0 0 4px'}}>PDF ablegen oder klicken</p>
-                <p style={{fontSize:12,color:'#94a3b8',margin:0}}>Wird sofort gespeichert · Rechnungsnr./Betrag über „+ Neue Bemerkungen“</p>
+                <p style={{fontSize:12,color:'#94a3b8',margin:0}}>Wird sofort gespeichert · Rechnungsnr./Betrag über „+ Neue Rechnung BD“</p>
               </>
             )}
           </div>
@@ -1586,13 +1586,13 @@ export default function BaustelleDetail() {
           {/* Neu anlegen Button */}
           <div className="flex justify-between items-center">
             <h3 className="text-sm font-semibold" style={{color:'#0f172a'}}>
-              Bemerkungen ({(bemerkungen as any[]).length})
+              Rechnungen BD ({(bemerkungen as any[]).length})
             </h3>
             <button
               onClick={() => { setBemForm({ ...BEM_EMPTY, datum: new Date().toISOString().split('T')[0] }); setBemFiles([]); setBemDialog(true); }}
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold text-white"
               style={{background:'linear-gradient(135deg,#1e3a5f,#2563eb)'}}>
-              + Neue Bemerkungen
+              + Neue Rechnung BD
             </button>
           </div>
 
@@ -1600,8 +1600,8 @@ export default function BaustelleDetail() {
           {(bemerkungen as any[]).length === 0 && (
             <div className="card p-10 text-center">
               <p className="text-3xl mb-3">📝</p>
-              <p className="text-sm font-semibold" style={{color:'#64748b'}}>Noch keine Bemerkungen</p>
-              <p className="text-xs mt-1" style={{color:'#94a3b8'}}>Lege die erste Bemerkung über den Button oben an</p>
+              <p className="text-sm font-semibold" style={{color:'#64748b'}}>Noch keine Rechnungen BD</p>
+              <p className="text-xs mt-1" style={{color:'#94a3b8'}}>Lege die erste Rechnung über den Button oben an</p>
             </div>
           )}
 
@@ -1699,7 +1699,7 @@ export default function BaustelleDetail() {
       {/* ── DIALOG: BEMERKUNG LÖSCHEN ── */}
       <Dialog open={!!bemDeleteId} onOpenChange={v => { if (!v) setBemDeleteId(null); }}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Bemerkung löschen?</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Rechnung BD löschen?</DialogTitle></DialogHeader>
           <div className="pt-1">
             <p className="text-sm mb-4" style={{color:'#64748b'}}>
               Diese Aktion kann nicht rückgängig gemacht werden. Angehängte PDFs werden ebenfalls gelöscht.
@@ -1717,7 +1717,7 @@ export default function BaustelleDetail() {
                     if (error) throw error;
                     await refetchBem();
                     setBemDeleteId(null);
-                    toast.success('Bemerkung gelöscht');
+                    toast.success('Rechnung BD gelöscht');
                   } catch(e: any) { toast.error('Fehler: ' + e.message); }
                 }}>
                 Endgültig löschen
@@ -1730,7 +1730,7 @@ export default function BaustelleDetail() {
       {/* ── DIALOG: NEUE BEMERKUNG ── */}
       <Dialog open={bemDialog} onOpenChange={v => { setBemDialog(v); }}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Neue Bemerkung</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Neue Rechnung BD</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-1">
 
             <div>
@@ -1822,14 +1822,14 @@ export default function BaustelleDetail() {
                     setBemDialog(false);
                     setBemFiles([]);
                     if (fehler) toast.error(`${fehler} PDF(s) konnten nicht hochgeladen werden`);
-                    else toast.success('Bemerkung gespeichert');
+                    else toast.success('Rechnung BD gespeichert');
                   } catch(e: any) {
                     toast.error('Fehler: ' + e.message);
                   } finally {
                     setBemUploading(false);
                   }
                 }}>
-                {bemUploading ? 'Wird gespeichert...' : 'Bemerkung speichern'}
+                {bemUploading ? 'Wird gespeichert...' : 'Speichern'}
               </Button>
             </div>
           </div>
