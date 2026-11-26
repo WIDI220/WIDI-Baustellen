@@ -109,3 +109,67 @@ export function satzFuer(saetze: any[], art: 'verrechnung' | 'kosten', team: str
     .sort((a, b) => (a.team === 'alle' ? 1 : 0) - (b.team === 'alle' ? 1 : 0) || (a.gueltig_ab < b.gueltig_ab ? 1 : -1));
   return passend.length ? Number(passend[0].satz) : null;
 }
+
+// ── PDF-Listen (Lohnauswertung, AG-Liste) ─────────────────────────────────────
+// Zahl-Token im deutschen Format: 12  12,5  1.234,56  -3,25
+const RX_ZAHL = /^-?(\d{1,3}(\.\d{3})+|\d+)(,\d+)?$/;
+
+export interface MaPdfTreffer { employee_id: string; name: string; werte: { ueberstunden?: number; sonntag_stunden?: number; sonntag_zulage_eur?: number; bezahlte_stunden?: number }; zeile: string }
+
+// Liest Zeilen einer Lohn-/Zeitauswertung: Zeile mit Mitarbeitername → Zahlen in der Reihenfolge der Kopfzeile
+export function maAusPdfZeilen(lines: string[], employees: { id: string; name: string; kuerzel?: string | null }[]): { treffer: MaPdfTreffer[]; reihenfolge: string[] } {
+  type K = 'ueberstunden' | 'sonntag_stunden' | 'sonntag_zulage_eur' | 'bezahlte_stunden';
+  const kw: [K, RegExp][] = [
+    ['ueberstunden', /(ü|ue)berstund|mehrarbeit|ü-?std/i],
+    ['sonntag_zulage_eur', /sonntag\S*\s*(zulage|zuschlag)|zulage|zuschlag|€|eur\b/i],
+    ['sonntag_stunden', /sonntag\S*\s*(std|stund|\(h\))|so\.?-?std/i],
+    ['bezahlte_stunden', /bezahlt|ist-?std|ist-?stunden|anwesen|gesamtstunden/i],
+  ];
+  let reihenfolge: K[] = ['ueberstunden', 'sonntag_stunden', 'sonntag_zulage_eur'];
+  const kopf = lines.find(l => /(ü|ue)berstund|sonntag|mehrarbeit/i.test(l));
+  if (kopf) {
+    const spalten = kopf.split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
+    const r: K[] = [];
+    for (const sp of spalten) {
+      for (const [k, re] of kw) if (re.test(sp) && !r.includes(k)) { r.push(k); break; }
+    }
+    if (r.length) reihenfolge = r;
+  }
+  const keys = employees.map(e => ({ e, toks: nameKey(e.name).split(' ').filter(t => t.length > 1), kz: (e.kuerzel || '').toLowerCase() }));
+  const treffer: MaPdfTreffer[] = [];
+  const gesehen = new Set<string>();
+  for (const l of lines) {
+    const low = ' ' + l.toLowerCase().replace(/[^a-zäöüß0-9,.\- ]/g, ' ') + ' ';
+    const m = keys.find(k => !gesehen.has(k.e.id) && k.toks.length > 0 && k.toks.every(t => low.includes(' ' + t + ' ') || low.includes(' ' + t + ',')));
+    if (!m) continue;
+    // Zahlen nach dem letzten Namensteil
+    const lastPos = Math.max(...m.toks.map(t => low.lastIndexOf(t) + t.length));
+    const rest = low.slice(lastPos).split(/\s+/).map(s => s.replace(/[€h]$/i, '')).filter(s => RX_ZAHL.test(s));
+    if (!rest.length) continue;
+    const werte: MaPdfTreffer['werte'] = {};
+    reihenfolge.forEach((k, i) => { if (rest[i] != null) werte[k] = parseZahl(rest[i]) ?? undefined; });
+    treffer.push({ employee_id: m.e.id, name: m.e.name, werte, zeile: l.trim() });
+    gesehen.add(m.e.id);
+  }
+  return { treffer, reihenfolge };
+}
+
+export interface AgPdfZeile { a_nummer: string; beschreibung: string | null; status_ag: string | null; auftragssumme: number | null; verbucht: number | null; kommentar: string | null }
+
+// AG-Liste als PDF: je Zeile mit A-Nr. → Status, Beträge (1. = Auftragssumme, 2. = verbucht), Rest = Beschreibung
+export function agAusPdfZeilen(lines: string[]): AgPdfZeile[] {
+  const STATUS = /(In Arbeit|Offen|Übertragen|Erledigt|Abgeschlossen|Storniert|Widi-Leistungsschein beanstandet|beanstandet|Neu|Freigegeben)/i;
+  const out: AgPdfZeile[] = []; const seen = new Set<string>();
+  for (const l of lines) {
+    const m = /A2\d-\d{5}/.exec(l.toUpperCase());
+    if (!m || seen.has(m[0])) continue;
+    seen.add(m[0]);
+    const rest = l.slice(l.toUpperCase().indexOf(m[0]) + m[0].length);
+    const st = STATUS.exec(rest);
+    const betraege = (rest.match(/-?\d{1,3}(\.\d{3})*,\d{2}(?!\d)/g) || []).map(x => parseZahl(x));
+    let beschr = rest.replace(STATUS, ' ').replace(/-?\d{1,3}(\.\d{3})*,\d{2}(?!\d)/g, ' ').replace(/\d{2}\.\d{2}\.\d{4}/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (beschr.length > 300) beschr = beschr.slice(0, 300);
+    out.push({ a_nummer: m[0], beschreibung: beschr || null, status_ag: st ? st[1] : null, auftragssumme: betraege[0] ?? null, verbucht: betraege[1] ?? null, kommentar: null });
+  }
+  return out;
+}

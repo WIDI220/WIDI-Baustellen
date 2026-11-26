@@ -11,7 +11,7 @@ import { getLocalSession } from '@/pages/AuthPage';
 import { pdfToLines, parseSammelrechnung, leistungsmonat, SrErgebnis } from '@/lib/sammelrechnung-parser';
 import {
   ZIEL_KST, KST_NAME, RX_ANR, monatGrenzen, vormonat, shiftMonat, eur, zahl, parseZahl, deDatumZuIso,
-  fetchAll, nameKey, leseExcel, findeSpalten, downloadExcel, logUpload, satzFuer,
+  fetchAll, nameKey, leseExcel, findeSpalten, downloadExcel, logUpload, satzFuer, maAusPdfZeilen, agAusPdfZeilen,
 } from '@/lib/monatsdaten';
 
 const ACCENT = '#0d9488';
@@ -100,9 +100,9 @@ export default function MonatsdatenPage() {
   const saetzeOk = satzFuer(saetze as any[], 'verrechnung', null, monat) != null && satzFuer(saetze as any[], 'kosten', null, monat) != null;
 
   const checks = [
-    { key: 'ma' as Tab, titel: 'MA-Daten', sub: 'Überstunden, Sonntagszulagen', art: 'händisch · monatlich anfragen', ok: maErfasst > 0, info: `${maErfasst} / ${aktive.length} MA`, icon: Users },
+    { key: 'ma' as Tab, titel: 'MA-Daten', sub: 'Überstunden, Sonntagszulagen (Excel/PDF)', art: 'händisch · monatlich anfragen', ok: maErfasst > 0, info: `${maErfasst} / ${aktive.length} MA`, icon: Users },
     { key: 'sr' as Tab, titel: 'Sammelrechnung', sub: 'PDF hochladen', art: 'wird automatisch ausgelesen', ok: (srBelege as any[]).length > 0, info: `${(srBelege as any[]).length} Belege`, icon: FileText },
-    { key: 'ag' as Tab, titel: 'AG-Liste', sub: 'offene Aufträge Klinik (Excel)', art: 'händisch · Spalten automatisch', ok: agImMonat, info: (agStaende as any[])[0] ? `Stand ${fmtD((agStaende as any[])[0].stand)}` : 'noch keine', icon: ClipboardList },
+    { key: 'ag' as Tab, titel: 'AG-Liste', sub: 'offene Aufträge Klinik (Excel/PDF)', art: 'händisch · Spalten automatisch', ok: agImMonat, info: (agStaende as any[])[0] ? `Stand ${fmtD((agStaende as any[])[0].stand)}` : 'noch keine', icon: ClipboardList },
     { key: 'saetze' as Tab, titel: 'Sätze & Teamkosten', sub: 'Verrechnungs-/Kostensatz, Fahrzeug …', art: 'händisch · bei Änderung', ok: saetzeOk, info: `${(teamkosten as any[]).length} Kostenposten`, icon: Calculator },
     { key: 'auswertung' as Tab, titel: 'Auswertung', sub: 'Stunden, Erlös, Mengen, offen', art: 'automatisch aus dem System', ok: true, info: 'immer aktuell', icon: BarChart3 },
   ];
@@ -189,6 +189,8 @@ function MaTab({ monat, label, employees, maMonat, sys }: { monat: string; label
   const fileRef = useRef<HTMLInputElement>(null);
   const [edit, setEdit] = useState<Record<string, MaRow>>({});
   const [saving, setSaving] = useState(false);
+  const [quelle, setQuelle] = useState('händisch');
+  const [pdfInfo, setPdfInfo] = useState<string | null>(null);
 
   const vorhanden = useMemo(() => {
     const m: Record<string, any> = {};
@@ -224,7 +226,7 @@ function MaTab({ monat, label, employees, maMonat, sys }: { monat: string; label
     setSaving(false);
     if (error) { toast.error('Speichern fehlgeschlagen: ' + error.message); return; }
     toast.success(`${payload.length} Mitarbeiter für ${label} gespeichert`);
-    setEdit({});
+    setEdit({}); setQuelle('händisch'); setPdfInfo(null);
     qc.invalidateQueries({ queryKey: ['md-ma', monat] });
   };
 
@@ -235,6 +237,7 @@ function MaTab({ monat, label, employees, maMonat, sys }: { monat: string; label
   };
 
   const upload = async (file: File) => {
+    if (/\.pdf$/i.test(file.name)) return uploadPdf(file);
     try {
       const rows = await leseExcel(file);
       const sp = findeSpalten(rows, {
@@ -262,6 +265,36 @@ function MaTab({ monat, label, employees, maMonat, sys }: { monat: string; label
     }
   };
 
+  // PDF (z. B. Lohnauswertung): Werte werden nur vorgeschlagen – prüfen, dann „Speichern“
+  const uploadPdf = async (file: File) => {
+    try {
+      const lines = await pdfToLines(await file.arrayBuffer());
+      const { treffer, reihenfolge } = maAusPdfZeilen(lines, employees);
+      if (!treffer.length) { toast.error('In der PDF wurden keine Mitarbeiter mit Zahlen gefunden – bitte Werte händisch eintragen oder die Excel-Vorlage nutzen'); return; }
+      const fmt = (v: number | undefined) => (v == null ? '' : String(v).replace('.', ','));
+      setEdit(prev => {
+        const n = { ...prev };
+        for (const t of treffer) {
+          const e = employees.find(x => x.id === t.employee_id);
+          n[t.employee_id] = {
+            ueberstunden: t.werte.ueberstunden != null ? fmt(t.werte.ueberstunden) : wert(e, 'ueberstunden'),
+            sonntag_stunden: t.werte.sonntag_stunden != null ? fmt(t.werte.sonntag_stunden) : wert(e, 'sonntag_stunden'),
+            sonntag_zulage_eur: t.werte.sonntag_zulage_eur != null ? fmt(t.werte.sonntag_zulage_eur) : wert(e, 'sonntag_zulage_eur'),
+            bezahlte_stunden: t.werte.bezahlte_stunden != null ? fmt(t.werte.bezahlte_stunden) : wert(e, 'bezahlte_stunden'),
+            bemerkung: wert(e, 'bemerkung'),
+          };
+        }
+        return n;
+      });
+      const namen: Record<string, string> = { ueberstunden: 'Überstunden', sonntag_stunden: 'Sonntagsstunden', sonntag_zulage_eur: 'Sonntagszulage €', bezahlte_stunden: 'bezahlte Std.' };
+      setQuelle(`PDF: ${file.name}`);
+      setPdfInfo(`${file.name}: ${treffer.length} von ${employees.length} Mitarbeitern erkannt · Spaltenreihenfolge ${reihenfolge.map(k => namen[k]).join(' → ')}. Werte sind grün markiert – bitte prüfen und dann „Speichern“.`);
+      await logUpload(monat, 'MA-Daten (PDF)', file.name, treffer.length, getLocalSession()?.email);
+    } catch (err: any) {
+      toast.error('PDF konnte nicht gelesen werden: ' + (err?.message || err));
+    }
+  };
+
   const sum = (k: keyof MaRow) => employees.reduce((s, e) => s + (parseZahl(wert(e, k)) || 0), 0);
 
   return (
@@ -269,17 +302,23 @@ function MaTab({ monat, label, employees, maMonat, sys }: { monat: string; label
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
         <div>
           <p style={{ margin: 0, fontWeight: 800, fontSize: 16 }}>MA-Daten {label}</p>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Monatlich bei Personal/Lohn anfragen: Überstunden und Sonntagszulagen je Mitarbeiter. Die Systemstunden kommen automatisch dazu.</p>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Monatlich bei Personal/Lohn anfragen: Überstunden und Sonntagszulagen je Mitarbeiter – als Excel (Vorlage) oder PDF der Lohnauswertung. Die Systemstunden kommen automatisch dazu.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button style={btn('#fff', '#334155')} onClick={vorlage}><Download size={14} /> Vorlage (Excel)</button>
-          <button style={btn('#fff', '#334155')} onClick={() => fileRef.current?.click()}><Upload size={14} /> Excel hochladen</button>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }} />
-          <button style={btn(ACCENT)} disabled={saving} onClick={() => speichern(Object.entries(edit).map(([id, r]) => ({ e: employees.find(x => x.id === id), r })).filter(x => x.e), 'händisch')}>
+          <button style={btn('#fff', '#334155')} onClick={() => fileRef.current?.click()}><Upload size={14} /> Excel / PDF hochladen</button>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }} />
+          <button style={btn(ACCENT)} disabled={saving} onClick={() => speichern(Object.entries(edit).map(([id, r]) => ({ e: employees.find(x => x.id === id), r })).filter(x => x.e), quelle)}>
             <Save size={14} /> {saving ? 'Speichere …' : `Speichern${Object.keys(edit).length ? ` (${Object.keys(edit).length})` : ''}`}
           </button>
         </div>
       </div>
+      {pdfInfo && (
+        <div style={{ marginBottom: 12, padding: '10px 14px', background: '#f0fdfa', border: `1px solid ${ACCENT}55`, borderRadius: 10, fontSize: 13, color: '#134e4a', display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+          <span>{pdfInfo}</span>
+          <button style={{ ...btn('#fff', '#334155'), padding: '4px 10px' }} onClick={() => { setEdit({}); setPdfInfo(null); setQuelle('händisch'); }}>Verwerfen</button>
+        </div>
+      )}
       <div style={{ maxHeight: 560, overflow: 'auto', border: '1px solid #f1f5f9', borderRadius: 10 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>
@@ -464,6 +503,14 @@ function AgTab({ staende }: { staende: any[] }) {
   });
 
   const lesen = async (file: File) => {
+    if (/\.pdf$/i.test(file.name)) {
+      try {
+        const out = agAusPdfZeilen(await pdfToLines(await file.arrayBuffer()));
+        if (!out.length) { toast.error('In der PDF wurden keine A-Nummern gefunden'); return; }
+        setVorschau({ datei: file.name, rows: out, spalten: ['aus PDF: A-Nr., Status, Beträge (1. = Auftragssumme, 2. = verbucht), Beschreibung – bitte stichprobenartig prüfen'] });
+      } catch (err: any) { toast.error('PDF konnte nicht gelesen werden: ' + (err?.message || err)); }
+      return;
+    }
     try {
       const rows = await leseExcel(file);
       const sp = findeSpalten(rows, {
@@ -505,19 +552,29 @@ function AgTab({ staende }: { staende: any[] }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div>
             <p style={{ margin: 0, fontWeight: 800, fontSize: 16 }}>AG-Liste (offene Aufträge der Klinik)</p>
-            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Excel von Fr. Tielke hochladen – Spalten (A-Nr., Status, Auftragssumme, verbucht, Kommentar) werden automatisch erkannt. Jeder Stand bleibt erhalten.</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Excel oder PDF von Fr. Tielke hochladen – A-Nr., Status, Auftragssumme, verbucht und Kommentar werden automatisch erkannt. Jeder Stand bleibt erhalten.</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <label style={{ fontSize: 12, color: '#64748b' }}>Stand</label>
             <input type="date" value={stand} onChange={e => setStand(e.target.value)} style={{ ...inp, width: 150, textAlign: 'left' }} />
-            <button style={btn(ACCENT)} onClick={() => fileRef.current?.click()}><Upload size={14} /> Excel hochladen</button>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) lesen(f); e.target.value = ''; }} />
+            <button style={btn(ACCENT)} onClick={() => fileRef.current?.click()}><Upload size={14} /> Excel / PDF hochladen</button>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) lesen(f); e.target.value = ''; }} />
           </div>
         </div>
         {vorschau && (
           <div style={{ marginTop: 16, padding: 16, background: '#f0fdfa', border: `1px solid ${ACCENT}55`, borderRadius: 12 }}>
             <p style={{ margin: '0 0 6px', fontWeight: 700 }}>{vorschau.datei}: {vorschau.rows.length} Aufträge erkannt</p>
             <p style={{ margin: '0 0 10px', fontSize: 12, color: '#64748b' }}>Erkannte Spalten: {vorschau.spalten.join(', ')}</p>
+            <div style={{ maxHeight: 260, overflow: 'auto', marginBottom: 10, background: '#fff', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead><tr><th style={th}>A-Nr.</th><th style={th}>Beschreibung</th><th style={th}>Status</th><th style={{ ...th, textAlign: 'right' }}>Auftragssumme</th><th style={{ ...th, textAlign: 'right' }}>Verbucht</th></tr></thead>
+                <tbody>{vorschau.rows.slice(0, 15).map(r => (
+                  <tr key={r.a_nummer}><td style={td}>{r.a_nummer}</td><td style={{ ...td, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.beschreibung || '–'}</td>
+                    <td style={td}>{r.status_ag || '–'}</td><td style={tdR}>{eur(r.auftragssumme)}</td><td style={tdR}>{eur(r.verbucht)}</td></tr>
+                ))}</tbody>
+              </table>
+              {vorschau.rows.length > 15 && <p style={{ margin: '6px 10px', fontSize: 11, color: '#94a3b8' }}>… und {vorschau.rows.length - 15} weitere</p>}
+            </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button style={btn(ACCENT)} onClick={speichern}><Save size={14} /> Als Stand {fmtD(stand)} speichern</button>
               <button style={btn('#fff', '#334155')} onClick={() => setVorschau(null)}>Verwerfen</button>
