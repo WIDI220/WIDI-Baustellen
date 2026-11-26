@@ -114,13 +114,6 @@ function AppRoutes() {
     return () => { supabase.removeChannel(channel); };
   }, [loggedIn]);
 
-  // Test-Modus der Kachel „Monatsdaten“: ohne Anmeldung, nur Beispieldaten im Browser
-  if (window.location.pathname.startsWith('/monatsdaten-demo')) return (
-    <Routes>
-      <Route path="*" element={<MonatsdatenPage />} />
-    </Routes>
-  );
-
   if (!loggedIn) return (
     <Routes>
       <Route path="*" element={<AuthPage onLogin={() => setLoggedIn(true)} />} />
