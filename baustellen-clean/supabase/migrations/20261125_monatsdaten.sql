@@ -151,3 +151,9 @@ create policy staff_all on public.md_spdata_monat for all to authenticated using
 
 -- 26.11.2026: MA ohne Buchungen im WIDI-System (z. B. Hygienespülungen, Containerrunde)
 alter table public.employees add column if not exists ohne_systembuchung boolean not null default false;
+
+-- 26.11.2026: Arbeitszeitmodell je MA (Zeitminuten): Mo–Do 8 h, Fr 7 h; Dominik Schmidt 6-Stunden-Vertrag
+alter table public.employees
+  add column if not exists soll_mo_do numeric not null default 8,
+  add column if not exists soll_fr numeric not null default 7;
+update public.employees set soll_mo_do = 6, soll_fr = 6 where name = 'Dominik Schmidt';

@@ -16,14 +16,14 @@ PROMPT = """Du bekommst eine PDF mit einer oder mehreren „Monatsabrechnung“-
 Jede Monatsabrechnung gehört zu genau einem Mitarbeiter (Name oben links, Personalnummer rechts daneben).
 Geht eine Monatsabrechnung über mehrere Seiten, fasse sie zu einem Eintrag zusammen.
 
-Lies die Werte exakt ab (deutsches Zahlenformat 1,25 = 1.25). Erfinde nichts: Was leer oder unleserlich ist, ist null.
+Lies die Werte exakt ab (deutsches Zahlenformat 1,25 = 1.25; alle Zeiten sind Zeitminuten/Industriestunden). Erfinde nichts: Was leer oder unleserlich ist, ist null.
 Spalten der Tabelle: Datum | kommt-geht | Zeiterfassung | Ges. | Soll | Pause | A.o. | Ist-Zeit | Krank | Urlaub | GLZ | Flexi | Ü-Std. | Abwesenheitsgrund.
 Die Zeile „Summe:“ unten enthält die Monatssummen. „Wochensumme“-Zeilen nicht als Tage übernehmen.
 
 Antworte NUR mit JSON in genau dieser Form, ohne weiteren Text:
 {"seiten":[{"name":"Nachname, Vorname","personalnummer":"013356","monat":"2026-10","stand":"2026-11-05",
 "summe":{"ges":179.28,"soll":171.0,"pause":9.0,"ao":0.0,"ist":170.28,"krank":23.0,"urlaub":0.0,"flexi":-3.40,"ue_std":2.68},
-"tage":[{"datum":"2026-10-01","kommt_geht":"06:28-13:52","ges":7.40,"soll":8.0,"ist":6.90,"krank":null,"urlaub":null,"flexi":-1.10,"ue_std":null,"grund":null}]}]}"""
+"tage":[{"datum":"2026-10-01","kommt_geht":"06:28-13:52","ges":7.40,"soll":8.0,"pause":0.5,"ist":6.90,"krank":null,"urlaub":null,"flexi":-1.10,"ue_std":null,"grund":null}]}]}"""
 
 
 def _json(handler, code, obj):

@@ -82,7 +82,7 @@ export function parseDenker(rows: unknown[][]): { monat: string | null; zeilen: 
 }
 
 // ── SP Data (PDF, auch Scan) über die Server-Funktion auslesen ──
-export interface SpTag { datum: string; kommt_geht?: string | null; ges?: number | null; soll?: number | null; ist?: number | null; krank?: number | null; urlaub?: number | null; flexi?: number | null; ue_std?: number | null; grund?: string | null }
+export interface SpTag { datum: string; kommt_geht?: string | null; ges?: number | null; pause?: number | null; soll?: number | null; ist?: number | null; krank?: number | null; urlaub?: number | null; flexi?: number | null; ue_std?: number | null; grund?: string | null }
 export interface SpSeite {
   name: string; personalnummer?: string | null; monat?: string | null; stand?: string | null;
   summe: { ges?: number | null; soll?: number | null; pause?: number | null; ao?: number | null; ist?: number | null; krank?: number | null; urlaub?: number | null; flexi?: number | null; ue_std?: number | null };
@@ -112,6 +112,7 @@ export async function spDataLesen(file: File): Promise<SpSeite[]> {
 // ── Prüfungen je Mitarbeiter ──
 export interface AbgleichZeile {
   employee_id: string | null; name: string; ohneBuchung?: boolean;
+  modell?: { brutto: number; feiertagH: number; netto: number; moDo: number; fr: number };
   sp?: any; denker?: any; widiH: number; widiTage: Record<string, number>;
   anwesend: number | null; quote: number | null;
   ampel: 'grün' | 'gelb' | 'rot' | 'grau'; hinweise: string[];
@@ -133,6 +134,28 @@ export function pruefe(z: AbgleichZeile): AbgleichZeile {
     const soll = (n(d.plusstunden) ?? 0) - (n(d.minusstunden) ?? 0);
     if (Math.abs(soll - (n(d.auszahlung_std) ?? 0)) > 0.015) { gelb = true; h.push(`Auszahlung ${f(n(d.auszahlung_std) ?? 0)} ≠ Plus − Minus ${f(soll)}`); }
   }
+  // Soll SP Data gegen Arbeitszeitmodell (mit bzw. ohne Feiertage)
+  if (sp && z.modell && sp.soll != null) {
+    const ss = Number(sp.soll);
+    if (Math.abs(ss - z.modell.brutto) > 0.02 && Math.abs(ss - z.modell.netto) > 0.02) {
+      gelb = true; h.push(`Soll SP Data ${f(ss)} ≠ Arbeitszeitmodell ${f(z.modell.netto)}${z.modell.feiertagH ? ` (+ ${f(z.modell.feiertagH)} Feiertag)` : ''} – Modell Mo–Do ${f(z.modell.moDo)} / Fr ${f(z.modell.fr)} prüfen`);
+    }
+  }
+  // Saldo Ist − Soll muss Ü-Std. + Flexi ergeben
+  if (sp && sp.ist != null && sp.soll != null && (sp.ue_std != null || sp.flexi != null)) {
+    const saldo = Number(sp.ist) - Number(sp.soll), kto = (n(sp.ue_std) ?? 0) + (n(sp.flexi) ?? 0);
+    if (Math.abs(saldo - kto) > 0.02) { gelb = true; h.push(`Saldo Ist − Soll ${f(saldo)} ≠ Ü-Std. + Flexi ${f(kto)}`); }
+  }
+  // Pausenregel je Tag (0,5 h ab > 6 h, + 0,25 h bei > 9 h Arbeitszeit)
+  if (sp?.tage) {
+    const abw: string[] = [];
+    for (const t of sp.tage as SpTag[]) {
+      if (t.ges == null || t.ist == null || (n(t.krank) ?? 0) > 0 || (n(t.urlaub) ?? 0) > 0) continue;
+      const soll = Number(t.ges) - pauseRegel(t.ges);
+      if (Math.abs(soll - Number(t.ist)) > 0.02) abw.push(`${t.datum.slice(8, 10)}.${t.datum.slice(5, 7)}. (Ges. ${f(Number(t.ges))}, Ist ${f(Number(t.ist))}, nach Pausenregel ${f(soll)})`);
+    }
+    if (abw.length) { gelb = true; h.push(`Pause weicht von der Regel ab: ${abw.slice(0, 4).join(', ')}${abw.length > 4 ? ` … (+${abw.length - 4})` : ''}`); }
+  }
   if (z.ohneBuchung) { h.push('bucht nicht im WIDI-System – Stundenvergleich entfällt'); }
   else if (z.anwesend != null) {
     if (z.widiH > z.anwesend + 0.5) { rot = true; h.push(`im WIDI-System ${f(z.widiH - z.anwesend)} h mehr gebucht als anwesend`); }
@@ -149,4 +172,56 @@ export function pruefe(z: AbgleichZeile): AbgleichZeile {
   }
   const ampel = rot ? 'rot' : gelb ? 'gelb' : (!sp || !d || d.plusstunden == null) ? 'grau' : 'grün';
   return { ...z, ampel, hinweise: h };
+}
+
+// ── Arbeitszeitmodell, Feiertage NRW, Pausenregel (alle Werte in Zeitminuten = Industriestunden, 0,25 = 15 Min.) ──
+export const hhmm = (h: number | null | undefined) => {
+  if (h == null || isNaN(Number(h))) return '';
+  const neg = h < 0; const m = Math.round(Math.abs(h) * 60);
+  return `${neg ? '−' : ''}${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')} h:min`;
+};
+
+function ostersonntag(y: number): Date {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const monat = Math.floor((h + l - 7 * m + 114) / 31), tag = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(y, monat - 1, tag));
+}
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const plusTage = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
+
+// Gesetzliche Feiertage Nordrhein-Westfalen
+export function feiertageNRW(y: number): Record<string, string> {
+  const o = ostersonntag(y);
+  return {
+    [`${y}-01-01`]: 'Neujahr', [iso(plusTage(o, -2))]: 'Karfreitag', [iso(plusTage(o, 1))]: 'Ostermontag', [`${y}-05-01`]: 'Tag der Arbeit',
+    [iso(plusTage(o, 39))]: 'Christi Himmelfahrt', [iso(plusTage(o, 50))]: 'Pfingstmontag', [iso(plusTage(o, 60))]: 'Fronleichnam',
+    [`${y}-10-03`]: 'Tag der Deutschen Einheit', [`${y}-11-01`]: 'Allerheiligen', [`${y}-12-25`]: '1. Weihnachtstag', [`${y}-12-26`]: '2. Weihnachtstag',
+  };
+}
+
+export interface SollTag { datum: string; wt: string; soll: number; feiertag?: string }
+const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+
+// Soll laut Arbeitszeitmodell (Mo–Do / Fr), Feiertage getrennt ausgewiesen
+export function sollModell(monat: string, moDo = 8, fr = 7): { brutto: number; feiertagH: number; netto: number; tage: SollTag[]; feiertage: SollTag[] } {
+  const [y, m] = monat.split('-').map(Number);
+  const ft = feiertageNRW(y);
+  const tage: SollTag[] = [];
+  for (let d = 1; d <= new Date(y, m, 0).getDate(); d++) {
+    const dt = new Date(Date.UTC(y, m - 1, d)); const w = dt.getUTCDay();
+    if (w === 0 || w === 6) continue;
+    tage.push({ datum: iso(dt), wt: WT[w], soll: w === 5 ? fr : moDo, feiertag: ft[iso(dt)] });
+  }
+  const brutto = tage.reduce((s, t) => s + t.soll, 0);
+  const feiertage = tage.filter(t => t.feiertag);
+  const feiertagH = feiertage.reduce((s, t) => s + t.soll, 0);
+  return { brutto, feiertagH, netto: brutto - feiertagH, tage, feiertage };
+}
+
+// Pausenregel SP Data: ab mehr als 6 h Anwesenheit 0,5 h; bei mehr als 9 h Arbeitszeit zusätzlich 0,25 h
+export function pauseRegel(ges: number | null | undefined): number {
+  const g = Number(ges || 0);
+  if (g <= 6) return 0;
+  return g - 0.5 > 9 ? 0.75 : 0.5;
 }

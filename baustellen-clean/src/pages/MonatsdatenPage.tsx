@@ -13,7 +13,7 @@ import {
   ZIEL_KST, KST_NAME, RX_ANR, monatGrenzen, vormonat, shiftMonat, eur, zahl, parseZahl, deDatumZuIso,
   fetchAll, nameKey, leseExcel, findeSpalten, downloadExcel, logUpload, satzFuer, maAusPdfZeilen, agAusPdfZeilen,
 } from '@/lib/monatsdaten';
-import { matchEmployee, istDenkerListe, parseDenker, spDataLesen, pruefe, ZUSCHLAG_LABEL } from '@/lib/zeiterfassung';
+import { matchEmployee, istDenkerListe, parseDenker, spDataLesen, pruefe, ZUSCHLAG_LABEL, sollModell, pauseRegel, hhmm } from '@/lib/zeiterfassung';
 import type { SpSeite, AbgleichZeile } from '@/lib/zeiterfassung';
 
 const ACCENT = '#0d9488';
@@ -35,7 +35,7 @@ export default function MonatsdatenPage() {
   // ── Daten ───────────────────────────────────────────────────────────────
   const { data: employees = [] } = useQuery({
     queryKey: ['md-employees'],
-    queryFn: async () => (await db().from('employees').select('id,name,kuerzel,gewerk,team,aktiv,ohne_systembuchung').order('name')).data ?? [],
+    queryFn: async () => (await db().from('employees').select('id,name,kuerzel,gewerk,team,aktiv,ohne_systembuchung,soll_mo_do,soll_fr').order('name')).data ?? [],
   });
   const { data: maMonat = [] } = useQuery({
     queryKey: ['md-ma', monat],
@@ -1083,18 +1083,25 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
       const widiH = k.employee_id ? (widi.sum[k.employee_id] || 0) : 0;
       const anwesend = sp?.ist != null ? Number(sp.ist) - Number(sp.krank || 0) - Number(sp.urlaub || 0) : null;
       const emp = employees.find(e => e.id === k.employee_id);
-      return pruefe({ employee_id: k.employee_id, name: k.name, ohneBuchung: !!emp?.ohne_systembuchung, sp, denker, widiH, widiTage: k.employee_id ? (widi.tage[k.employee_id] || {}) : {}, anwesend, quote: anwesend && anwesend > 0 ? widiH / anwesend : null, ampel: 'grau', hinweise: [] });
+      const moDo = Number(emp?.soll_mo_do ?? 8), fr = Number(emp?.soll_fr ?? 7);
+      const sm = sollModell(monat, moDo, fr);
+      return pruefe({ employee_id: k.employee_id, name: k.name, ohneBuchung: !!emp?.ohne_systembuchung, modell: { brutto: sm.brutto, feiertagH: sm.feiertagH, netto: sm.netto, moDo, fr }, sp, denker, widiH, widiTage: k.employee_id ? (widi.tage[k.employee_id] || {}) : {}, anwesend, quote: anwesend && anwesend > 0 ? widiH / anwesend : null, ampel: 'grau', hinweise: [] });
     }).sort((a, b) => ({ rot: 0, gelb: 1, grau: 2, grün: 3 }[a.ampel] - { rot: 0, gelb: 1, grau: 2, grün: 3 }[b.ampel]) || a.name.localeCompare(b.name));
-  }, [employees, spMonat, maMonat, widi]);
+  }, [employees, spMonat, maMonat, widi, monat]);
 
+  const sollAZ = (z: AbgleichZeile) => {
+    const basis = z.sp?.soll != null ? Number(z.sp.soll) : z.modell?.netto ?? null;
+    return basis == null ? null : basis - Number(z.sp?.krank || 0) - Number(z.sp?.urlaub || 0);
+  };
+  const saldo = (z: AbgleichZeile) => (z.sp?.ist != null && z.sp?.soll != null ? Number(z.sp.ist) - Number(z.sp.soll) : null);
   const zeig = nurAuffaellig ? zeilen.filter(z => z.ampel === 'rot' || z.ampel === 'gelb') : zeilen;
   const sum = (f: (z: AbgleichZeile) => number | null | undefined) => zeilen.reduce((s, z) => s + (Number(f(z)) || 0), 0);
   const AMP: Record<string, string> = { rot: '#fee2e2', gelb: '#fef3c7', grün: '#dcfce7', grau: '#f1f5f9' };
   const AMPT: Record<string, string> = { rot: '#b91c1c', gelb: '#b45309', grün: '#15803d', grau: '#64748b' };
 
   const exportieren = () => {
-    const rows: (string | number | null)[][] = [['Ampel', 'Mitarbeiter', 'Soll', 'Ist', 'Krank', 'Urlaub', 'Anwesend', 'WIDI gebucht', 'Quote %', 'Ü-Std. (SP)', 'Plus (Liste)', 'Flexi (SP)', 'Minus (Liste)', 'Auszahlung', 'Zuschläge', 'Hinweise']];
-    zeilen.forEach(z => rows.push([z.ampel, z.name, z.sp?.soll ?? null, z.sp?.ist ?? null, z.sp?.krank ?? null, z.sp?.urlaub ?? null, z.anwesend, Math.round(z.widiH * 100) / 100,
+    const rows: (string | number | null)[][] = [['Ampel', 'Mitarbeiter', 'Modell Mo–Do/Fr', 'Soll Modell', 'Feiertage', 'Soll SP', 'Krank', 'Urlaub', 'Soll-Arbeitszeit', 'Ist SP', 'Ist-Arbeitszeit', 'Saldo Ist−Soll', 'WIDI gebucht', 'Quote %', 'Ü-Std. (SP)', 'Plus (Liste)', 'Flexi (SP)', 'Minus (Liste)', 'Auszahlung', 'Zuschläge', 'Hinweise']];
+    zeilen.forEach(z => rows.push([z.ampel, z.name, z.modell ? `${z.modell.moDo}/${z.modell.fr}` : null, z.modell?.netto ?? null, z.modell?.feiertagH || null, z.sp?.soll ?? null, z.sp?.krank ?? null, z.sp?.urlaub ?? null, sollAZ(z), z.sp?.ist ?? null, z.anwesend, saldo(z), Math.round(z.widiH * 100) / 100,
       z.quote != null ? Math.round(z.quote * 1000) / 10 : null, z.sp?.ue_std ?? null, z.denker?.plusstunden ?? null, z.sp?.flexi ?? null, z.denker?.minusstunden ?? null, z.denker?.auszahlung_std ?? null,
       z.denker?.zuschlaege ? Object.entries(z.denker.zuschlaege).map(([k, v]) => `${ZUSCHLAG_LABEL[k] || k}: ${v}`).join('; ') : null, z.hinweise.join(' · ')]));
     downloadExcel(`Stundenabgleich_${monat}.xlsx`, `Abgleich ${monat}`, rows);
@@ -1107,7 +1114,7 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
           <div>
             <p style={{ margin: 0, fontWeight: 800, fontSize: 16 }}>Stundenabgleich {label}</p>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b', maxWidth: 760 }}>
-              SP Data (Zeiterfassung Personal) gegen die Plus/Minus-Liste von Fr. Denker und die im WIDI-System gebuchten Stunden. SP-Data-Monatsabrechnungen als PDF hochladen – auch eingescannt, mehrere Mitarbeiter je Datei möglich.
+              Alle Werte in Zeitminuten (Industriestunden). SP Data (Zeiterfassung Personal) gegen die Plus/Minus-Liste von Fr. Denker und die im WIDI-System gebuchten Stunden. SP-Data-Monatsabrechnungen als PDF hochladen – auch eingescannt, mehrere Mitarbeiter je Datei möglich.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -1195,8 +1202,8 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
         <div style={{ maxHeight: 620, overflow: 'auto', border: '1px solid #f1f5f9', borderRadius: 10 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
-              {['', 'Mitarbeiter', 'Soll', 'Ist', 'Krank', 'Urlaub', 'Anwesend', 'WIDI gebucht', 'Quote', 'Ü-Std. SP', 'Plus Liste', 'Flexi SP', 'Minus Liste', 'Auszahlung', 'Zuschläge', 'Hinweise'].map((h, i) =>
-                <th key={i} style={{ ...th, textAlign: i >= 2 && i <= 13 ? 'right' : 'left' }}>{h}</th>)}
+              {['', 'Mitarbeiter', 'Soll Modell', 'Feiertage', 'Soll SP', 'Krank', 'Urlaub', 'Soll-Arbeitszeit', 'Ist SP', 'Ist-Arbeitszeit', 'Saldo', 'WIDI gebucht', 'Quote', 'Ü-Std. SP', 'Plus Liste', 'Flexi SP', 'Minus Liste', 'Auszahlung', 'Zuschläge', 'Hinweise'].map((h, i) =>
+                <th key={i} style={{ ...th, textAlign: i >= 2 && i <= 17 ? 'right' : 'left' }}>{h}</th>)}
             </tr></thead>
             <tbody>
               {zeig.map(z => (<FragmentRow key={(z.employee_id || '') + z.name}>
@@ -1218,8 +1225,15 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
                     )}
                     {z.ohneBuchung && <span style={{ marginLeft: 6, fontSize: 10, color: '#64748b', fontWeight: 400, border: '1px solid #cbd5e1', borderRadius: 6, padding: '1px 5px' }}>ohne Systembuchung</span>}
                   </td>
-                  <td style={tdR}>{zahl(z.sp?.soll)}</td><td style={tdR}>{zahl(z.sp?.ist)}</td><td style={tdR}>{z.sp?.krank ? zahl(z.sp.krank) : ''}</td>
-                  <td style={tdR}>{z.sp?.urlaub ? zahl(z.sp.urlaub) : ''}</td><td style={tdR}>{zahl(z.anwesend)}</td><td style={tdR}>{zahl(z.widiH)}</td>
+                  <td style={tdR} title={z.modell ? `Mo–Do ${zahl(z.modell.moDo)} h · Fr ${zahl(z.modell.fr)} h` : ''}>{zahl(z.modell?.netto)}{z.modell && (z.modell.moDo !== 8 || z.modell.fr !== 7) ? <span style={{ fontSize: 10, color: '#b45309' }}> *</span> : null}</td>
+                  <td style={tdR}>{z.modell?.feiertagH ? zahl(z.modell.feiertagH) : ''}</td>
+                  <td style={tdR} title={hhmm(z.sp?.soll)}>{zahl(z.sp?.soll)}</td><td style={tdR}>{z.sp?.krank ? zahl(z.sp.krank) : ''}</td>
+                  <td style={tdR}>{z.sp?.urlaub ? zahl(z.sp.urlaub) : ''}</td>
+                  <td style={{ ...tdR, fontWeight: 600 }} title={hhmm(sollAZ(z))}>{zahl(sollAZ(z))}</td>
+                  <td style={tdR} title={hhmm(z.sp?.ist)}>{zahl(z.sp?.ist)}</td>
+                  <td style={{ ...tdR, fontWeight: 600 }} title={hhmm(z.anwesend)}>{zahl(z.anwesend)}</td>
+                  <td style={{ ...tdR, color: (saldo(z) ?? 0) < 0 ? '#b91c1c' : '#15803d' }} title={hhmm(saldo(z))}>{zahl(saldo(z))}</td>
+                  <td style={tdR} title={hhmm(z.widiH)}>{zahl(z.widiH)}</td>
                   <td style={tdR}>{z.quote != null ? `${zahl(z.quote * 100, 0)} %` : '–'}</td>
                   <td style={tdR}>{zahl(z.sp?.ue_std)}</td><td style={tdR}>{zahl(z.denker?.plusstunden)}</td>
                   <td style={tdR}>{zahl(z.sp?.flexi)}</td><td style={tdR}>{zahl(z.denker?.minusstunden)}</td><td style={tdR}>{zahl(z.denker?.auszahlung_std)}</td>
@@ -1227,7 +1241,7 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
                   <td style={{ ...td, fontSize: 12, background: AMP[z.ampel], color: AMPT[z.ampel], minWidth: 260 }}>{z.hinweise.join(' · ') || 'stimmt überein'}</td>
                 </tr>
                 {bearbeiten === (z.employee_id || z.name) && (
-                  <tr><td colSpan={16} style={{ padding: 0, borderBottom: '1px solid #e2e8f0' }}>
+                  <tr><td colSpan={20} style={{ padding: 0, borderBottom: '1px solid #e2e8f0' }}>
                     <WerteEditor z={z} monat={monat} employees={employees} onClose={() => setBearbeiten(null)} onOhneBuchung={ohneBuchungSetzen} />
                   </td></tr>
                 )}
@@ -1236,7 +1250,7 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
           </table>
         </div>
         <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8' }}>
-          Mit ✎ lassen sich alle Werte (SP Data und Plus/Minus-Liste) händisch eintragen oder korrigieren. Prüfregeln: Plusstunden der Liste = Ü-Std. aus SP Data · Minusstunden = Flexi aus SP Data · Auszahlung = Plus − Minus · im WIDI-System nicht mehr gebucht als anwesend und mindestens 70 % der Anwesenheit gebucht · keine Buchungen an Krank-/Urlaubstagen.
+          Alle Stunden in Zeitminuten (Industriestunden: 0,25 = 15 Min., Maus über den Wert zeigt h:min). Soll Modell = Arbeitstage × Mo–Do 8 h / Fr 7 h (je MA anpassbar, * = abweichend) ohne Feiertage NRW; Soll-Arbeitszeit = Soll − Krank − Urlaub; Ist-Arbeitszeit = Ist − Krank − Urlaub. Pausenregel: ab mehr als 6 h 0,5 h, bei mehr als 9 h Arbeitszeit + 0,25 h. Mit ✎ lassen sich Werte händisch eintragen, das Arbeitszeitmodell ändern und die Tage einzeln ansehen. Prüfregeln: Plusstunden der Liste = Ü-Std. aus SP Data · Minusstunden = Flexi aus SP Data · Auszahlung = Plus − Minus · im WIDI-System nicht mehr gebucht als anwesend und mindestens 70 % der Anwesenheit gebucht · keine Buchungen an Krank-/Urlaubstagen.
         </p>
       </div>
     </div>
@@ -1261,6 +1275,32 @@ function WerteEditor({ z, monat, employees, onClose, onOhneBuchung }: {
   });
   const emp = employees.find(e => e.id === z.employee_id);
   const name = emp?.name || z.name;
+  const [modell, setModell] = useState({ moDo: f(emp?.soll_mo_do ?? 8), fr: f(emp?.soll_fr ?? 7) });
+  const [tageOffen, setTageOffen] = useState(false);
+
+  const modellSpeichern = async () => {
+    const moDo = parseZahl(modell.moDo), fr = parseZahl(modell.fr);
+    if (!z.employee_id || moDo == null || fr == null) { toast.error('Bitte Stunden Mo–Do und Fr eingeben'); return; }
+    const { error } = await db().from('employees').update({ soll_mo_do: moDo, soll_fr: fr }).eq('id', z.employee_id);
+    if (error) { toast.error(error.message); return; }
+    toast.success(`Arbeitszeitmodell ${name}: Mo–Do ${zahl(moDo)} h, Fr ${zahl(fr)} h`);
+    qc.invalidateQueries({ queryKey: ['md-employees'] });
+  };
+
+  // Tagesübersicht: Arbeitszeitmodell + Feiertage + SP Data + WIDI-Buchungen
+  const tage = useMemo(() => {
+    const sm = sollModell(monat, Number(emp?.soll_mo_do ?? 8), Number(emp?.soll_fr ?? 7));
+    const spT: Record<string, any> = {}; ((z.sp?.tage || []) as any[]).forEach(t => { spT[t.datum] = t; });
+    const alle = new Set<string>([...sm.tage.map(t => t.datum), ...Object.keys(spT), ...Object.keys(z.widiTage || {})]);
+    const smBy: Record<string, any> = {}; sm.tage.forEach(t => { smBy[t.datum] = t; });
+    return [...alle].sort().map(d => {
+      const t = spT[d]; const m = smBy[d]; const w = z.widiTage?.[d] || 0;
+      const wt = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][new Date(d + 'T12:00:00').getDay()];
+      const abw = t?.grund || ((t?.krank ?? 0) > 0 ? 'Krank' : (t?.urlaub ?? 0) > 0 ? 'Urlaub' : '') || (m?.feiertag ? m.feiertag : '');
+      const pRegel = t?.ges != null ? pauseRegel(t.ges) : null;
+      return { d, wt, soll: m?.soll ?? 0, feiertag: m?.feiertag, ges: t?.ges, pause: t?.pause ?? (t?.ges != null && t?.ist != null ? Math.round((t.ges - t.ist) * 100) / 100 : null), pRegel, ist: t?.ist, abw, w };
+    });
+  }, [monat, emp, z.sp, z.widiTage]);
 
   const speichern = async () => {
     const email = getLocalSession()?.email ?? null;
@@ -1310,6 +1350,40 @@ function WerteEditor({ z, monat, employees, onClose, onOhneBuchung }: {
         {feld('Auszahlung (leer = Plus − Minus)', li.aus, v => setLi(o => ({ ...o, aus: v })))}
         {Object.entries(ZUSCHLAG_LABEL).map(([k, l]) => feld(l, li[k], v => setLi(o => ({ ...o, [k]: v }))))}
       </div>
+      {z.employee_id && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <b style={{ fontSize: 12, width: 130 }}>Arbeitszeitmodell</b>
+          {feld('Mo–Do (h/Tag)', modell.moDo, v => setModell(o => ({ ...o, moDo: v })))}
+          {feld('Freitag (h)', modell.fr, v => setModell(o => ({ ...o, fr: v })))}
+          <button style={{ ...btn('#fff', '#334155'), padding: '6px 10px' }} onClick={modellSpeichern}>Modell speichern</button>
+          <button style={{ ...btn('#fff', '#334155'), padding: '6px 10px' }} onClick={() => setTageOffen(o => !o)}>{tageOffen ? 'Tage ausblenden' : 'Tage einzeln ansehen'}</button>
+        </div>
+      )}
+      {tageOffen && (
+        <div style={{ maxHeight: 360, overflow: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>{['Datum', 'Soll Modell', 'Feiertag / Abwesenheit', 'Ges. SP', 'Pause SP', 'Pause lt. Regel', 'Ist SP', 'WIDI gebucht', 'Ist − WIDI'].map((h, i) => <th key={h} style={{ ...th, textAlign: i === 0 || i === 2 ? 'left' : 'right' }}>{h}</th>)}</tr></thead>
+            <tbody>{tage.map(t => {
+              const pFehler = t.pause != null && t.pRegel != null && Math.abs(t.pause - t.pRegel) > 0.02 && !t.abw;
+              const konflikt = !!t.abw && t.w > 0;
+              return (
+                <tr key={t.d} style={{ background: t.feiertag ? '#eff6ff' : konflikt ? '#fee2e2' : undefined }}>
+                  <td style={td}>{t.wt}, {t.d.slice(8, 10)}.{t.d.slice(5, 7)}.</td>
+                  <td style={tdR}>{t.soll ? zahl(t.soll) : ''}</td>
+                  <td style={{ ...td, color: t.feiertag ? '#1d4ed8' : '#b45309' }}>{t.abw}</td>
+                  <td style={tdR}>{zahl(t.ges)}</td>
+                  <td style={{ ...tdR, color: pFehler ? '#b45309' : undefined, fontWeight: pFehler ? 700 : 400 }}>{zahl(t.pause)}</td>
+                  <td style={tdR}>{t.pRegel != null ? zahl(t.pRegel) : ''}</td>
+                  <td style={tdR}>{zahl(t.ist)}</td>
+                  <td style={{ ...tdR, color: konflikt ? '#b91c1c' : undefined }}>{t.w ? zahl(t.w) : ''}</td>
+                  <td style={tdR}>{t.ist != null && !t.abw ? zahl(Number(t.ist) - t.w) : ''}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table>
+          {!(z.sp?.tage || []).length && <p style={{ margin: 8, fontSize: 12, color: '#94a3b8' }}>Keine Tageswerte aus SP Data vorhanden – angezeigt werden Arbeitszeitmodell, Feiertage und WIDI-Buchungen.</p>}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <button style={btn(ACCENT)} onClick={speichern}><Save size={14} /> Speichern</button>
         <button style={btn('#fff', '#334155')} onClick={onClose}>Abbrechen</button>
