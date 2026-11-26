@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Upload, Download, Save, Users, FileText, ClipboardList, Calculator, BarChart3,
   CheckCircle2, Circle, AlertTriangle, Trash2, Plus, Database,
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { db, isDemo } from '@/lib/md-db';
 import { getLocalSession } from '@/pages/AuthPage';
 import { pdfToLines, parseSammelrechnung, leistungsmonat, SrErgebnis } from '@/lib/sammelrechnung-parser';
 import {
@@ -33,19 +33,19 @@ export default function MonatsdatenPage() {
   // ── Daten ───────────────────────────────────────────────────────────────
   const { data: employees = [] } = useQuery({
     queryKey: ['md-employees'],
-    queryFn: async () => (await supabase.from('employees').select('id,name,kuerzel,gewerk,team,aktiv').order('name')).data ?? [],
+    queryFn: async () => (await db().from('employees').select('id,name,kuerzel,gewerk,team,aktiv').order('name')).data ?? [],
   });
   const { data: maMonat = [] } = useQuery({
     queryKey: ['md-ma', monat],
-    queryFn: async () => (await supabase.from('md_ma_monat').select('*').eq('monat', monat)).data ?? [],
+    queryFn: async () => (await db().from('md_ma_monat').select('*').eq('monat', monat)).data ?? [],
   });
   const { data: sysStunden = {} as Record<string, { ticket: number; baustelle: number; intern: number }> } = useQuery({
     queryKey: ['md-sysstd', monat],
     queryFn: async () => {
       const [tw, bs, ins] = await Promise.all([
-        fetchAll<any>((f, t) => supabase.from('ticket_worklogs').select('employee_id,stunden').gte('leistungsdatum', von).lte('leistungsdatum', bis).range(f, t)),
-        fetchAll<any>((f, t) => supabase.from('bs_stundeneintraege').select('mitarbeiter_id,stunden').gte('datum', von).lte('datum', bis).range(f, t)),
-        fetchAll<any>((f, t) => supabase.from('interne_stunden').select('employee_id,stunden').gte('datum', von).lte('datum', bis).range(f, t)),
+        fetchAll<any>((f, t) => db().from('ticket_worklogs').select('employee_id,stunden').gte('leistungsdatum', von).lte('leistungsdatum', bis).range(f, t)),
+        fetchAll<any>((f, t) => db().from('bs_stundeneintraege').select('mitarbeiter_id,stunden').gte('datum', von).lte('datum', bis).range(f, t)),
+        fetchAll<any>((f, t) => db().from('interne_stunden').select('employee_id,stunden').gte('datum', von).lte('datum', bis).range(f, t)),
       ]);
       const m: Record<string, { ticket: number; baustelle: number; intern: number }> = {};
       const add = (id: string | null, k: 'ticket' | 'baustelle' | 'intern', h: number) => {
@@ -59,39 +59,39 @@ export default function MonatsdatenPage() {
   });
   const { data: srBelege = [] } = useQuery({
     queryKey: ['md-sr-belege', monat],
-    queryFn: async () => (await supabase.from('md_sr_belege').select('*').eq('monat', monat).order('beleg')).data ?? [],
+    queryFn: async () => (await db().from('md_sr_belege').select('*').eq('monat', monat).order('beleg')).data ?? [],
   });
   const { data: srPos = [] } = useQuery({
     queryKey: ['md-sr-pos', monat],
-    queryFn: async () => fetchAll<any>((f, t) => supabase.from('md_sr_positionen').select('beleg,kst,menge,einheit,leistung,gp,a_nummer').eq('monat', monat).range(f, t)),
+    queryFn: async () => fetchAll<any>((f, t) => db().from('md_sr_positionen').select('beleg,kst,menge,einheit,leistung,gp,a_nummer').eq('monat', monat).range(f, t)),
   });
   const { data: saetze = [] } = useQuery({
     queryKey: ['md-saetze'],
-    queryFn: async () => (await supabase.from('md_saetze').select('*').order('gueltig_ab', { ascending: false })).data ?? [],
+    queryFn: async () => (await db().from('md_saetze').select('*').order('gueltig_ab', { ascending: false })).data ?? [],
   });
   const { data: teamkosten = [] } = useQuery({
     queryKey: ['md-teamkosten', monat],
-    queryFn: async () => (await supabase.from('md_teamkosten').select('*').eq('monat', monat).order('team')).data ?? [],
+    queryFn: async () => (await db().from('md_teamkosten').select('*').eq('monat', monat).order('team')).data ?? [],
   });
   const { data: mengen = [] } = useQuery({
     queryKey: ['md-mengen', monat],
-    queryFn: async () => (await supabase.from('md_leistungsmengen').select('*').eq('monat', monat).order('leistung')).data ?? [],
+    queryFn: async () => (await db().from('md_leistungsmengen').select('*').eq('monat', monat).order('leistung')).data ?? [],
   });
   const { data: agStaende = [] } = useQuery({
     queryKey: ['md-ag-staende'],
     queryFn: async () => {
-      const rows = await fetchAll<any>((f, t) => supabase.from('md_ag_status').select('stand').range(f, t));
+      const rows = await fetchAll<any>((f, t) => db().from('md_ag_status').select('stand').range(f, t));
       const c = new Map<string, number>(); rows.forEach(r => c.set(r.stand, (c.get(r.stand) || 0) + 1));
       return [...c.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([stand, n]) => ({ stand, n }));
     },
   });
   const { data: dguv = [] } = useQuery({
     queryKey: ['md-dguv', monat],
-    queryFn: async () => (await supabase.from('dguv_mess_importe').select('monat,kunde,gesamt').eq('monat', monat)).data ?? [],
+    queryFn: async () => (await db().from('dguv_mess_importe').select('monat,kunde,gesamt').eq('monat', monat)).data ?? [],
   });
   const { data: uploads = [] } = useQuery({
     queryKey: ['md-uploads', monat],
-    queryFn: async () => (await supabase.from('md_uploads').select('*').or(`monat.eq.${monat},monat.is.null`).order('created_at', { ascending: false }).limit(20)).data ?? [],
+    queryFn: async () => (await db().from('md_uploads').select('*').or(`monat.eq.${monat},monat.is.null`).order('created_at', { ascending: false }).limit(20)).data ?? [],
   });
 
   const aktive = (employees as any[]).filter(e => e.aktiv);
@@ -112,10 +112,10 @@ export default function MonatsdatenPage() {
       {/* Kopf */}
       <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 5 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button onClick={() => navigate('/')} style={{ padding: '6px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12, color: '#64748b', cursor: 'pointer' }}>← Startseite</button>
+          <button onClick={() => (isDemo() ? window.location.reload() : navigate('/'))} style={{ padding: '6px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12, color: '#64748b', cursor: 'pointer' }}>← Startseite</button>
           <div style={{ width: 34, height: 34, borderRadius: 10, background: `${ACCENT}1a`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Database size={18} color={ACCENT} /></div>
           <div>
-            <p style={{ margin: 0, fontWeight: 800, fontSize: 17, color: '#0f172a' }}>Monatsdaten</p>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: 17, color: '#0f172a' }}>Monatsdaten{isDemo() ? ' · Test' : ''}</p>
             <p style={{ margin: 0, fontSize: 11, color: '#94a3b8' }}>Händische Uploads & automatische Auswertung je Monat</p>
           </div>
         </div>
@@ -127,6 +127,12 @@ export default function MonatsdatenPage() {
       </div>
 
       <div style={{ padding: '24px 32px', maxWidth: 1500, margin: '0 auto' }}>
+        {isDemo() && (
+          <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, fontSize: 13, color: '#92400e' }}>
+            <b>Test-Modus ohne Anmeldung:</b> erfundene Beispiel-Mitarbeiter und -Stunden, nichts wird gespeichert (beim Neuladen ist alles wieder leer).
+            Zum Ausprobieren z. B. Monat Oktober 2026 wählen und die Sammelrechnung-PDF oder eine AG-Liste hochladen.
+          </div>
+        )}
         {/* Checkliste */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginBottom: 20 }}>
           {checks.map(c => (
@@ -214,7 +220,7 @@ function MaTab({ monat, label, employees, maMonat, sys }: { monat: string; label
       sonntag_zulage_eur: parseZahl(r.sonntag_zulage_eur), bezahlte_stunden: parseZahl(r.bezahlte_stunden),
       bemerkung: r.bemerkung || null, quelle, updated_by: email ?? null,
     }));
-    const { error } = await supabase.from('md_ma_monat').upsert(payload, { onConflict: 'monat,mitarbeiter_name' });
+    const { error } = await db().from('md_ma_monat').upsert(payload, { onConflict: 'monat,mitarbeiter_name' });
     setSaving(false);
     if (error) { toast.error('Speichern fehlgeschlagen: ' + error.message); return; }
     toast.success(`${payload.length} Mitarbeiter für ${label} gespeichert`);
@@ -344,7 +350,7 @@ function SrTab({ monat, label, belege, pos }: { monat: string; label: string; be
       const nummern = r.belege.map(b => b.beleg);
       // vorhandene Belege dieser Datei ersetzen (Positionen werden per Cascade gelöscht)
       for (let i = 0; i < nummern.length; i += 200) {
-        const { error } = await supabase.from('md_sr_belege').delete().in('beleg', nummern.slice(i, i + 200));
+        const { error } = await db().from('md_sr_belege').delete().in('beleg', nummern.slice(i, i + 200));
         if (error) throw error;
       }
       const belegRows = r.belege.map(b => ({
@@ -352,7 +358,7 @@ function SrTab({ monat, label, belege, pos }: { monat: string; label: string; be
         bezug: b.bezug || null, kopf: b.kopf || null, a_nummer: b.a_nummer, netto: b.netto, steuer: b.steuer, brutto: b.brutto, quelle_datei: datei,
       }));
       for (let i = 0; i < belegRows.length; i += 200) {
-        const { error } = await supabase.from('md_sr_belege').insert(belegRows.slice(i, i + 200));
+        const { error } = await db().from('md_sr_belege').insert(belegRows.slice(i, i + 200));
         if (error) throw error;
       }
       const posRows = r.positionen.map(p => ({
@@ -360,7 +366,7 @@ function SrTab({ monat, label, belege, pos }: { monat: string; label: string; be
         leistung: p.leistung, text: p.text, ep: p.ep, gp: p.gp, a_nummer: p.a_nummer,
       }));
       for (let i = 0; i < posRows.length; i += 300) {
-        const { error } = await supabase.from('md_sr_positionen').insert(posRows.slice(i, i + 300));
+        const { error } = await db().from('md_sr_positionen').insert(posRows.slice(i, i + 300));
         if (error) throw error;
       }
       await logUpload(m, 'Sammelrechnung', datei, posRows.length, getLocalSession()?.email);
@@ -454,7 +460,7 @@ function AgTab({ staende }: { staende: any[] }) {
   const { data: liste = [] } = useQuery({
     queryKey: ['md-ag-liste', gewaehlt || staende[0]?.stand],
     enabled: !!(gewaehlt || staende[0]?.stand),
-    queryFn: async () => fetchAll<any>((f, t) => supabase.from('md_ag_status').select('*').eq('stand', gewaehlt || staende[0]?.stand).order('a_nummer').range(f, t)),
+    queryFn: async () => fetchAll<any>((f, t) => db().from('md_ag_status').select('*').eq('stand', gewaehlt || staende[0]?.stand).order('a_nummer').range(f, t)),
   });
 
   const lesen = async (file: File) => {
@@ -484,7 +490,7 @@ function AgTab({ staende }: { staende: any[] }) {
     if (!vorschau) return;
     const payload = vorschau.rows.map(r => ({ ...r, stand, quelle_datei: vorschau.datei }));
     for (let i = 0; i < payload.length; i += 300) {
-      const { error } = await supabase.from('md_ag_status').upsert(payload.slice(i, i + 300), { onConflict: 'stand,a_nummer' });
+      const { error } = await db().from('md_ag_status').upsert(payload.slice(i, i + 300), { onConflict: 'stand,a_nummer' });
       if (error) { toast.error('Speichern fehlgeschlagen: ' + error.message); return; }
     }
     await logUpload(stand.slice(0, 7), 'AG-Liste', vorschau.datei, payload.length, getLocalSession()?.email);
@@ -568,7 +574,7 @@ function SaetzeTab({ monat, label, saetze, teamkosten, employees }: { monat: str
   const addSatz = async () => {
     const satz = parseZahl(neuSatz.satz);
     if (satz == null) { toast.error('Bitte einen Satz eingeben'); return; }
-    const { error } = await supabase.from('md_saetze').insert({ ...neuSatz, satz, bemerkung: neuSatz.bemerkung || null });
+    const { error } = await db().from('md_saetze').insert({ ...neuSatz, satz, bemerkung: neuSatz.bemerkung || null });
     if (error) { toast.error(error.message); return; }
     toast.success('Satz gespeichert'); setNeuSatz({ ...neuSatz, satz: '', bemerkung: '' });
     qc.invalidateQueries({ queryKey: ['md-saetze'] });
@@ -576,18 +582,18 @@ function SaetzeTab({ monat, label, saetze, teamkosten, employees }: { monat: str
   const addKosten = async () => {
     const betrag = parseZahl(neuKosten.betrag);
     if (betrag == null) { toast.error('Bitte einen Betrag eingeben'); return; }
-    const { error } = await supabase.from('md_teamkosten').insert({ ...neuKosten, monat, betrag, bemerkung: neuKosten.bemerkung || null });
+    const { error } = await db().from('md_teamkosten').insert({ ...neuKosten, monat, betrag, bemerkung: neuKosten.bemerkung || null });
     if (error) { toast.error(error.message); return; }
     toast.success('Kostenposten gespeichert'); setNeuKosten({ ...neuKosten, betrag: '', bemerkung: '' });
     qc.invalidateQueries({ queryKey: ['md-teamkosten', monat] });
   };
   const loeschen = async (tabelle: 'md_saetze' | 'md_teamkosten', id: string) => {
-    const { error } = await supabase.from(tabelle).delete().eq('id', id);
+    const { error } = await db().from(tabelle).delete().eq('id', id);
     if (error) { toast.error(error.message); return; }
     qc.invalidateQueries({ queryKey: [tabelle === 'md_saetze' ? 'md-saetze' : 'md-teamkosten'] });
   };
   const setTeam = async (id: string, team: string) => {
-    const { error } = await supabase.from('employees').update({ team: team || null }).eq('id', id);
+    const { error } = await db().from('employees').update({ team: team || null }).eq('id', id);
     if (error) { toast.error(error.message); return; }
     qc.invalidateQueries({ queryKey: ['md-employees'] });
   };
@@ -675,9 +681,9 @@ function AuswertungTab({ monat, label, employees, maMonat, sys, srPos, saetze, t
     queryKey: ['md-offen', monat],
     queryFn: async () => {
       const [std, belegA, posA] = await Promise.all([
-        fetchAll<any>((f, t) => supabase.from('bs_stundeneintraege').select('stunden,baustelle_id,baustellen(name,a_nummer,status)').gte('datum', von).lte('datum', bis).range(f, t)),
-        fetchAll<any>((f, t) => supabase.from('md_sr_belege').select('a_nummer').not('a_nummer', 'is', null).range(f, t)),
-        fetchAll<any>((f, t) => supabase.from('md_sr_positionen').select('a_nummer').not('a_nummer', 'is', null).range(f, t)),
+        fetchAll<any>((f, t) => db().from('bs_stundeneintraege').select('stunden,baustelle_id,baustellen(name,a_nummer,status)').gte('datum', von).lte('datum', bis).range(f, t)),
+        fetchAll<any>((f, t) => db().from('md_sr_belege').select('a_nummer').not('a_nummer', 'is', null).range(f, t)),
+        fetchAll<any>((f, t) => db().from('md_sr_positionen').select('a_nummer').not('a_nummer', 'is', null).range(f, t)),
       ]);
       const abgerechnet = new Set<string>([...belegA, ...posA].map(r => r.a_nummer));
       const m = new Map<string, { anr: string | null; name: string; status: string; h: number }>();
@@ -734,12 +740,12 @@ function AuswertungTab({ monat, label, employees, maMonat, sys, srPos, saetze, t
   const addMenge = async () => {
     const menge = parseZahl(neu.menge);
     if (!neu.leistung || menge == null) { toast.error('Leistung und Menge eingeben'); return; }
-    const { error } = await supabase.from('md_leistungsmengen').insert({ monat, leistung: neu.leistung, menge, einheit: neu.einheit || null, kst: neu.kst || null, bemerkung: neu.bemerkung || null });
+    const { error } = await db().from('md_leistungsmengen').insert({ monat, leistung: neu.leistung, menge, einheit: neu.einheit || null, kst: neu.kst || null, bemerkung: neu.bemerkung || null });
     if (error) { toast.error(error.message); return; }
     setNeu({ leistung: '', menge: '', einheit: 'Stk.', kst: '', bemerkung: '' });
     qc.invalidateQueries({ queryKey: ['md-mengen', monat] });
   };
-  const delMenge = async (id: string) => { await supabase.from('md_leistungsmengen').delete().eq('id', id); qc.invalidateQueries({ queryKey: ['md-mengen', monat] }); };
+  const delMenge = async (id: string) => { await db().from('md_leistungsmengen').delete().eq('id', id); qc.invalidateQueries({ queryKey: ['md-mengen', monat] }); };
 
   const kpi = (t: string, v: string, sub: string, warn = false) => (
     <div style={{ ...card, padding: 16 }}>

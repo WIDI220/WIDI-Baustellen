@@ -1,6 +1,6 @@
 // Hilfsfunktionen für die Kachel „Monatsdaten“
 import * as XLSX from 'xlsx';
-import { supabase } from '@/integrations/supabase/client';
+import { db } from '@/lib/md-db';
 
 export const ZIEL_KST = ['244800', '244801', '244802', '244803'];
 export const KST_NAME: Record<string, string> = {
@@ -98,7 +98,7 @@ export function downloadExcel(dateiname: string, blatt: string, rows: (string | 
 }
 
 export async function logUpload(monat: string | null, art: string, dateiname: string, zeilen: number, email?: string) {
-  await supabase.from('md_uploads').insert({ monat, art, dateiname, zeilen, user_email: email ?? null });
+  await db().from('md_uploads').insert({ monat, art, dateiname, zeilen, user_email: email ?? null });
 }
 
 // Gültigen Satz (Verrechnung/Kosten) für Team und Monat
