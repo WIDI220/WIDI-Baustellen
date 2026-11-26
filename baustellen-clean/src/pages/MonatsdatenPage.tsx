@@ -1028,7 +1028,7 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
     const neu: SpVorschlag[] = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
-      setLaeuft(`Lese ${f.name} (${i + 1}/${files.length}) … das dauert bei Scans etwas`);
+      setLaeuft(`Lese ${f.name} (${i + 1}/${files.length}) … digitale SP-Data-Exporte gehen sofort, Scans dauern etwas`);
       try {
         const seiten = await spDataLesen(f);
         for (const s of seiten) {
@@ -1250,7 +1250,7 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
           </table>
         </div>
         <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8' }}>
-          Alle Stunden in Zeitminuten (Industriestunden: 0,25 = 15 Min., Maus über den Wert zeigt h:min). Soll Modell = Arbeitstage × Mo–Do 8 h / Fr 7 h (je MA anpassbar, * = abweichend) ohne Feiertage NRW; Soll-Arbeitszeit = Soll − Krank − Urlaub; Ist-Arbeitszeit = Ist − Krank − Urlaub. Pausenregel: ab mehr als 6 h 0,5 h, bei mehr als 9 h Arbeitszeit + 0,25 h. Mit ✎ lassen sich Werte händisch eintragen, das Arbeitszeitmodell ändern und die Tage einzeln ansehen. Prüfregeln: Plusstunden der Liste = Ü-Std. aus SP Data · Minusstunden = Flexi aus SP Data · Auszahlung = Plus − Minus · im WIDI-System nicht mehr gebucht als anwesend und mindestens 70 % der Anwesenheit gebucht · keine Buchungen an Krank-/Urlaubstagen.
+          Alle Stunden in Zeitminuten (Industriestunden: 0,25 = 15 Min., Maus über den Wert zeigt h:min). Soll Modell = Arbeitstage × Mo–Do 8 h / Fr 7 h (je MA anpassbar, * = abweichend) ohne Feiertage NRW; Soll-Arbeitszeit = Soll − Krank − Urlaub; Ist-Arbeitszeit = Ist − Krank − Urlaub. Pausenregel: ab mehr als 6 h 0,5 h (Ist aber nicht unter 6,00 h), bei mehr als 9 h Arbeitszeit + 0,25 h. Sonntags- und Feiertagsstunden aus SP Data werden mit So-Std. / FT der Liste verglichen. Mit ✎ lassen sich Werte händisch eintragen, das Arbeitszeitmodell ändern und die Tage einzeln ansehen. Prüfregeln: Plusstunden der Liste = Ü-Std. aus SP Data · Minusstunden = Flexi aus SP Data · Auszahlung = Plus − Minus · im WIDI-System nicht mehr gebucht als anwesend und mindestens 70 % der Anwesenheit gebucht · keine Buchungen an Krank-/Urlaubstagen.
         </p>
       </div>
     </div>

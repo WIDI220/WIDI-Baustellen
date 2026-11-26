@@ -82,7 +82,7 @@ export function parseDenker(rows: unknown[][]): { monat: string | null; zeilen: 
 }
 
 // ── SP Data (PDF, auch Scan) über die Server-Funktion auslesen ──
-export interface SpTag { datum: string; kommt_geht?: string | null; ges?: number | null; pause?: number | null; soll?: number | null; ist?: number | null; krank?: number | null; urlaub?: number | null; flexi?: number | null; ue_std?: number | null; grund?: string | null }
+export interface SpTag { datum: string; kommt_geht?: string | null; ges?: number | null; pause?: number | null; soll?: number | null; ist?: number | null; krank?: number | null; urlaub?: number | null; flexi?: number | null; ue_std?: number | null; grund?: string | null; bestand?: number | null; feiertag?: boolean }
 export interface SpSeite {
   name: string; personalnummer?: string | null; monat?: string | null; stand?: string | null;
   summe: { ges?: number | null; soll?: number | null; pause?: number | null; ao?: number | null; ist?: number | null; krank?: number | null; urlaub?: number | null; flexi?: number | null; ue_std?: number | null };
@@ -96,6 +96,17 @@ function toBase64(buf: ArrayBuffer): string {
 }
 
 export async function spDataLesen(file: File): Promise<SpSeite[]> {
+  // 1. Digitaler Export (Monatsauswertung Professional): direkt im Browser aus dem PDF-Text lesen
+  try {
+    const { spDataTextLesen } = await import('./spdata-text');
+    const seiten = await spDataTextLesen(await file.arrayBuffer());
+    if (seiten && seiten.length) return seiten;
+    if (seiten) throw new Error('In der PDF wurde keine SP-Data-Monatsauswertung erkannt');
+  } catch (e: any) {
+    if (/keine SP-Data/.test(e?.message || '')) throw e;
+    console.warn('SP Data Textauswertung fehlgeschlagen, nutze Server', e);
+  }
+  // 2. Scan ohne Text: Server-Funktion (liest die Seiten per KI)
   if (file.size > 3_000_000) throw new Error('PDF ist größer als 3 MB – bitte in kleinere Dateien aufteilen (z. B. 10 Mitarbeiter je Datei)');
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
@@ -155,6 +166,19 @@ export function pruefe(z: AbgleichZeile): AbgleichZeile {
       if (Math.abs(soll - Number(t.ist)) > 0.02) abw.push(`${t.datum.slice(8, 10)}.${t.datum.slice(5, 7)}. (Ges. ${f(Number(t.ges))}, Ist ${f(Number(t.ist))}, nach Pausenregel ${f(soll)})`);
     }
     if (abw.length) { gelb = true; h.push(`Pause weicht von der Regel ab: ${abw.slice(0, 4).join(', ')}${abw.length > 4 ? ` … (+${abw.length - 4})` : ''}`); }
+  }
+  // Sonntags- und Feiertagsstunden laut SP Data gegen die Zuschläge in der Liste
+  if (sp?.tage && d && d.plusstunden != null) {
+    let so = 0, ft = 0;
+    for (const t of sp.tage as SpTag[]) {
+      const ist = (n(t.ist) ?? 0) - (n(t.krank) ?? 0) - (n(t.urlaub) ?? 0);
+      if (ist <= 0) continue;
+      if (t.feiertag) ft += ist; else if (new Date(t.datum + 'T12:00:00Z').getUTCDay() === 0) so += ist;
+    }
+    const zu = (d.zuschlaege || {}) as Record<string, number>;
+    const soL = n(zu.so_std) ?? 0, ftL = n(zu.ft_std) ?? 0;
+    if (Math.abs(so - soL) > 0.015) { gelb = true; h.push(`Sonntagsstunden SP Data ${f(so)} ≠ Liste So-Std. ${f(soL)}`); }
+    if (Math.abs(ft - ftL) > 0.015) { gelb = true; h.push(`Feiertagsstunden SP Data ${f(ft)} ≠ Liste FT ${f(ftL)}`); }
   }
   if (z.ohneBuchung) { h.push('bucht nicht im WIDI-System – Stundenvergleich entfällt'); }
   else if (z.anwesend != null) {
@@ -223,5 +247,6 @@ export function sollModell(monat: string, moDo = 8, fr = 7): { brutto: number; f
 export function pauseRegel(ges: number | null | undefined): number {
   const g = Number(ges || 0);
   if (g <= 6) return 0;
+  if (g < 6.5) return Math.round((g - 6) * 100) / 100; // SP Data kürzt nur bis auf 6,00 h Ist
   return g - 0.5 > 9 ? 0.75 : 0.5;
 }

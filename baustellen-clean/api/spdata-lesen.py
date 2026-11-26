@@ -84,6 +84,8 @@ class handler(BaseHTTPRequestHandler):
         except Exception as e:
             return _json(self, 502, {'error': f'Claude-API nicht erreichbar: {e}'})
 
+        if resp.get('stop_reason') == 'max_tokens':
+            return _json(self, 502, {'error': 'Die PDF enthält zu viele Seiten zum Auslesen per Scan – bitte in kleinere Dateien aufteilen (höchstens 5 Mitarbeiter je Datei)'})
         text = ''.join(b.get('text', '') for b in resp.get('content', []) if b.get('type') == 'text')
         m = re.search(r'\{.*\}', text, re.S)
         if not m:
