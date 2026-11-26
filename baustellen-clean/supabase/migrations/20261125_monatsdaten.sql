@@ -148,3 +148,6 @@ create table if not exists public.md_spdata_monat (
 alter table public.md_spdata_monat enable row level security;
 drop policy if exists staff_all on public.md_spdata_monat;
 create policy staff_all on public.md_spdata_monat for all to authenticated using (not is_hw()) with check (not is_hw());
+
+-- 26.11.2026: MA ohne Buchungen im WIDI-System (z. B. Hygienespülungen, Containerrunde)
+alter table public.employees add column if not exists ohne_systembuchung boolean not null default false;

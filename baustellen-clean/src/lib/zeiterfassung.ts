@@ -102,7 +102,7 @@ export async function spDataLesen(file: File): Promise<SpSeite[]> {
 
 // ── Prüfungen je Mitarbeiter ──
 export interface AbgleichZeile {
-  employee_id: string | null; name: string;
+  employee_id: string | null; name: string; ohneBuchung?: boolean;
   sp?: any; denker?: any; widiH: number; widiTage: Record<string, number>;
   anwesend: number | null; quote: number | null;
   ampel: 'grün' | 'gelb' | 'rot' | 'grau'; hinweise: string[];
@@ -124,12 +124,13 @@ export function pruefe(z: AbgleichZeile): AbgleichZeile {
     const soll = (n(d.plusstunden) ?? 0) - (n(d.minusstunden) ?? 0);
     if (Math.abs(soll - (n(d.auszahlung_std) ?? 0)) > 0.015) { gelb = true; h.push(`Auszahlung ${f(n(d.auszahlung_std) ?? 0)} ≠ Plus − Minus ${f(soll)}`); }
   }
-  if (z.anwesend != null) {
+  if (z.ohneBuchung) { h.push('bucht nicht im WIDI-System – Stundenvergleich entfällt'); }
+  else if (z.anwesend != null) {
     if (z.widiH > z.anwesend + 0.5) { rot = true; h.push(`im WIDI-System ${f(z.widiH - z.anwesend)} h mehr gebucht als anwesend`); }
     else if (z.anwesend > 0 && z.quote != null && z.quote < 0.7) { gelb = true; h.push(`${f(z.anwesend - z.widiH)} h anwesend, aber nicht im WIDI-System gebucht`); }
   }
   // Tagesabgleich: Krank/Urlaub mit Buchungen im WIDI-System
-  if (sp?.tage) {
+  if (sp?.tage && !z.ohneBuchung) {
     const konflikt: string[] = [];
     for (const t of sp.tage as SpTag[]) {
       const abw = (n(t.krank) ?? 0) > 0 || (n(t.urlaub) ?? 0) > 0 || /krank|urlaub/i.test(t.grund || '');

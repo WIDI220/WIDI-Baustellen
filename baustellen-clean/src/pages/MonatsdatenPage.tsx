@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ChevronLeft, ChevronRight, Upload, Download, Save, Users, FileText, ClipboardList, Calculator, BarChart3, Clock,
+  ChevronLeft, ChevronRight, Upload, Pencil, UserPlus, X, Download, Save, Users, FileText, ClipboardList, Calculator, BarChart3, Clock,
   CheckCircle2, Circle, AlertTriangle, Trash2, Plus, Database,
 } from 'lucide-react';
 import { db, isDemo } from '@/lib/md-db';
@@ -35,7 +35,7 @@ export default function MonatsdatenPage() {
   // ── Daten ───────────────────────────────────────────────────────────────
   const { data: employees = [] } = useQuery({
     queryKey: ['md-employees'],
-    queryFn: async () => (await db().from('employees').select('id,name,kuerzel,gewerk,team,aktiv').order('name')).data ?? [],
+    queryFn: async () => (await db().from('employees').select('id,name,kuerzel,gewerk,team,aktiv,ohne_systembuchung').order('name')).data ?? [],
   });
   const { data: maMonat = [] } = useQuery({
     queryKey: ['md-ma', monat],
@@ -949,7 +949,55 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
   const [laeuft, setLaeuft] = useState<string | null>(null);
   const [vorschlaege, setVorschlaege] = useState<SpVorschlag[]>([]);
   const [nurAuffaellig, setNurAuffaellig] = useState(false);
+  const [bearbeiten, setBearbeiten] = useState<string | null>(null);
+  const [anlegen, setAnlegen] = useState<{ name: string; kuerzel: string; gewerk: string; team: string; ohne: boolean } | null>(null);
   const { von, bis } = monatGrenzen(monat);
+
+  // Nachträglich angelegte Mitarbeiter: offene Einträge (ohne Zuordnung) automatisch verknüpfen
+  useEffect(() => {
+    const offen = [
+      ...maMonat.filter(r => !r.employee_id).map(r => ({ t: 'md_ma_monat', r })),
+      ...spMonat.filter(r => !r.employee_id).map(r => ({ t: 'md_spdata_monat', r })),
+    ];
+    if (!offen.length || !employees.length) return;
+    (async () => {
+      let n = 0;
+      for (const { t, r } of offen) {
+        const { e } = matchEmployee(r.name_sp || r.mitarbeiter_name, employees);
+        if (!e) continue;
+        const { error } = await db().from(t).update({ employee_id: e.id }).eq('id', r.id);
+        if (!error) n++;
+      }
+      if (n) { toast.success(`${n} Einträge neu angelegten Mitarbeitern zugeordnet`); qc.invalidateQueries({ queryKey: ['md-ma'] }); qc.invalidateQueries({ queryKey: ['md-sp'] }); }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employees.length, maMonat.length, spMonat.length]);
+
+  const zuordnen = async (z: AbgleichZeile, employeeId: string) => {
+    const e = employees.find(x => x.id === employeeId); if (!e) return;
+    if (z.denker?.id) await db().from('md_ma_monat').update({ employee_id: e.id }).eq('id', z.denker.id);
+    if (z.sp?.id) await db().from('md_spdata_monat').update({ employee_id: e.id }).eq('id', z.sp.id);
+    toast.success(`${z.name} → ${e.name} zugeordnet`);
+    qc.invalidateQueries({ queryKey: ['md-ma'] }); qc.invalidateQueries({ queryKey: ['md-sp'] });
+  };
+
+  const mitarbeiterAnlegen = async () => {
+    if (!anlegen?.name.trim()) { toast.error('Bitte einen Namen eingeben'); return; }
+    const { error } = await db().from('employees').insert({
+      name: anlegen.name.trim(), kuerzel: anlegen.kuerzel.trim() || null, gewerk: anlegen.gewerk, team: anlegen.team.trim() || null,
+      aktiv: true, ohne_systembuchung: anlegen.ohne,
+    });
+    if (error) { toast.error('Anlegen fehlgeschlagen: ' + error.message); return; }
+    toast.success(`${anlegen.name} angelegt – vorhandene Daten werden zugeordnet`);
+    setAnlegen(null);
+    qc.invalidateQueries({ queryKey: ['md-employees'] });
+  };
+
+  const ohneBuchungSetzen = async (employeeId: string, wert: boolean) => {
+    const { error } = await db().from('employees').update({ ohne_systembuchung: wert }).eq('id', employeeId);
+    if (error) { toast.error(error.message); return; }
+    qc.invalidateQueries({ queryKey: ['md-employees'] });
+  };
 
   // WIDI-Stunden je MA und Tag
   const { data: widi = { sum: {}, tage: {} } as { sum: Record<string, number>; tage: Record<string, Record<string, number>> } } = useQuery({
@@ -1030,7 +1078,8 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
       const denker = maMonat.find(r => r.plusstunden != null && ((k.employee_id && r.employee_id === k.employee_id) || (!k.employee_id && r.mitarbeiter_name === k.name)));
       const widiH = k.employee_id ? (widi.sum[k.employee_id] || 0) : 0;
       const anwesend = sp?.ist != null ? Number(sp.ist) - Number(sp.krank || 0) - Number(sp.urlaub || 0) : null;
-      return pruefe({ employee_id: k.employee_id, name: k.name, sp, denker, widiH, widiTage: k.employee_id ? (widi.tage[k.employee_id] || {}) : {}, anwesend, quote: anwesend && anwesend > 0 ? widiH / anwesend : null, ampel: 'grau', hinweise: [] });
+      const emp = employees.find(e => e.id === k.employee_id);
+      return pruefe({ employee_id: k.employee_id, name: k.name, ohneBuchung: !!emp?.ohne_systembuchung, sp, denker, widiH, widiTage: k.employee_id ? (widi.tage[k.employee_id] || {}) : {}, anwesend, quote: anwesend && anwesend > 0 ? widiH / anwesend : null, ampel: 'grau', hinweise: [] });
     }).sort((a, b) => ({ rot: 0, gelb: 1, grau: 2, grün: 3 }[a.ampel] - { rot: 0, gelb: 1, grau: 2, grün: 3 }[b.ampel]) || a.name.localeCompare(b.name));
   }, [employees, spMonat, maMonat, widi]);
 
@@ -1119,10 +1168,26 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
       <div style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <p style={{ margin: 0, fontWeight: 800, fontSize: 15 }}>Abgleich je Mitarbeiter</p>
-          <label style={{ fontSize: 12, color: '#64748b', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input type="checkbox" checked={nurAuffaellig} onChange={e => setNurAuffaellig(e.target.checked)} /> nur auffällige
-          </label>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <button style={{ ...btn('#fff', '#334155'), padding: '5px 10px', fontSize: 12 }} onClick={() => setAnlegen({ name: '', kuerzel: '', gewerk: 'Hochbau', team: '', ohne: true })}><UserPlus size={13} /> Mitarbeiter anlegen</button>
+            <label style={{ fontSize: 12, color: '#64748b', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={nurAuffaellig} onChange={e => setNurAuffaellig(e.target.checked)} /> nur auffällige
+            </label>
+          </div>
         </div>
+        {anlegen && (
+          <div style={{ marginBottom: 12, padding: 14, background: '#f0fdfa', border: `1px solid ${ACCENT}55`, borderRadius: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <b style={{ fontSize: 13 }}>Neuer Mitarbeiter:</b>
+            <input value={anlegen.name} onChange={e => setAnlegen({ ...anlegen, name: e.target.value })} placeholder="Vorname Nachname" style={{ ...inp, width: 190, textAlign: 'left' }} />
+            <input value={anlegen.kuerzel} onChange={e => setAnlegen({ ...anlegen, kuerzel: e.target.value })} placeholder="Kürzel" style={{ ...inp, width: 70, textAlign: 'left' }} />
+            <select value={anlegen.gewerk} onChange={e => setAnlegen({ ...anlegen, gewerk: e.target.value })} style={{ ...inp, width: 110, textAlign: 'left' }}><option>Hochbau</option><option>Elektro</option></select>
+            <input list="md-teams-st" value={anlegen.team} onChange={e => setAnlegen({ ...anlegen, team: e.target.value })} placeholder="Team (z. B. Hygiene)" style={{ ...inp, width: 160, textAlign: 'left' }} />
+            <datalist id="md-teams-st">{['Hygienespülungen', 'Containerrunde', 'Hausmeister', 'HM Elektro', 'Elektro', 'Hochbau'].map(t => <option key={t} value={t} />)}</datalist>
+            <label style={{ fontSize: 12, display: 'flex', gap: 5, alignItems: 'center' }}><input type="checkbox" checked={anlegen.ohne} onChange={e => setAnlegen({ ...anlegen, ohne: e.target.checked })} /> bucht nicht im WIDI-System</label>
+            <button style={btn(ACCENT)} onClick={mitarbeiterAnlegen}><Save size={14} /> Anlegen</button>
+            <button style={btn('#fff', '#334155')} onClick={() => setAnlegen(null)}><X size={14} /></button>
+          </div>
+        )}
         <div style={{ maxHeight: 620, overflow: 'auto', border: '1px solid #f1f5f9', borderRadius: 10 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
@@ -1130,10 +1195,25 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
                 <th key={i} style={{ ...th, textAlign: i >= 2 && i <= 13 ? 'right' : 'left' }}>{h}</th>)}
             </tr></thead>
             <tbody>
-              {zeig.map(z => (
-                <tr key={(z.employee_id || '') + z.name}>
+              {zeig.map(z => (<FragmentRow key={(z.employee_id || '') + z.name}>
+                <tr>
                   <td style={td}><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 5, background: AMPT[z.ampel] }} title={z.ampel} /></td>
-                  <td style={{ ...td, fontWeight: 600 }}>{z.name}{!z.employee_id && <span style={{ color: '#b45309', fontWeight: 400 }}> (nicht im System)</span>}</td>
+                  <td style={{ ...td, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    <button title="Werte händisch eintragen/ändern" onClick={() => setBearbeiten(b => (b === (z.employee_id || z.name) ? null : (z.employee_id || z.name)))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: ACCENT, marginRight: 4, verticalAlign: -2 }}><Pencil size={13} /></button>
+                    {z.name}
+                    {!z.employee_id && (
+                      <span style={{ display: 'inline-flex', gap: 6, marginLeft: 8, fontWeight: 400 }}>
+                        <span style={{ color: '#b45309' }}>nicht im System</span>
+                        <button onClick={() => { const p = z.name.split(',').map(x => x.trim()); setAnlegen({ name: p.length === 2 ? `${p[1]} ${p[0]}` : z.name, kuerzel: '', gewerk: 'Hochbau', team: '', ohne: true }); }}
+                          style={{ ...btn('#fff', '#334155'), padding: '2px 8px', fontSize: 11 }}><UserPlus size={12} /> anlegen</button>
+                        <select defaultValue="" onChange={e => e.target.value && zuordnen(z, e.target.value)} style={{ ...inp, width: 130, padding: '2px 6px', fontSize: 11, textAlign: 'left' }}>
+                          <option value="">zuordnen …</option>
+                          {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                        </select>
+                      </span>
+                    )}
+                    {z.ohneBuchung && <span style={{ marginLeft: 6, fontSize: 10, color: '#64748b', fontWeight: 400, border: '1px solid #cbd5e1', borderRadius: 6, padding: '1px 5px' }}>ohne Systembuchung</span>}
+                  </td>
                   <td style={tdR}>{zahl(z.sp?.soll)}</td><td style={tdR}>{zahl(z.sp?.ist)}</td><td style={tdR}>{z.sp?.krank ? zahl(z.sp.krank) : ''}</td>
                   <td style={tdR}>{z.sp?.urlaub ? zahl(z.sp.urlaub) : ''}</td><td style={tdR}>{zahl(z.anwesend)}</td><td style={tdR}>{zahl(z.widiH)}</td>
                   <td style={tdR}>{z.quote != null ? `${zahl(z.quote * 100, 0)} %` : '–'}</td>
@@ -1142,13 +1222,100 @@ function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
                   <td style={{ ...td, fontSize: 12, color: '#64748b' }}>{z.denker?.zuschlaege ? Object.entries(z.denker.zuschlaege).map(([k, v]) => `${ZUSCHLAG_LABEL[k] || k} ${zahl(Number(v))}`).join(', ') : ''}</td>
                   <td style={{ ...td, fontSize: 12, background: AMP[z.ampel], color: AMPT[z.ampel], minWidth: 260 }}>{z.hinweise.join(' · ') || 'stimmt überein'}</td>
                 </tr>
-              ))}
+                {bearbeiten === (z.employee_id || z.name) && (
+                  <tr><td colSpan={16} style={{ padding: 0, borderBottom: '1px solid #e2e8f0' }}>
+                    <WerteEditor z={z} monat={monat} employees={employees} onClose={() => setBearbeiten(null)} onOhneBuchung={ohneBuchungSetzen} />
+                  </td></tr>
+                )}
+              </FragmentRow>))}
             </tbody>
           </table>
         </div>
         <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8' }}>
-          Prüfregeln: Plusstunden der Liste = Ü-Std. aus SP Data · Minusstunden = Flexi aus SP Data · Auszahlung = Plus − Minus · im WIDI-System nicht mehr gebucht als anwesend und mindestens 70 % der Anwesenheit gebucht · keine Buchungen an Krank-/Urlaubstagen.
+          Mit ✎ lassen sich alle Werte (SP Data und Plus/Minus-Liste) händisch eintragen oder korrigieren. Prüfregeln: Plusstunden der Liste = Ü-Std. aus SP Data · Minusstunden = Flexi aus SP Data · Auszahlung = Plus − Minus · im WIDI-System nicht mehr gebucht als anwesend und mindestens 70 % der Anwesenheit gebucht · keine Buchungen an Krank-/Urlaubstagen.
         </p>
+      </div>
+    </div>
+  );
+}
+
+function FragmentRow({ children }: { children: React.ReactNode }) { return <>{children}</>; }
+
+// Händische Eingabe/Korrektur je Mitarbeiter: SP-Data-Summen und Plus/Minus-Liste
+function WerteEditor({ z, monat, employees, onClose, onOhneBuchung }: {
+  z: AbgleichZeile; monat: string; employees: any[]; onClose: () => void; onOhneBuchung: (id: string, wert: boolean) => void;
+}) {
+  const qc = useQueryClient();
+  const f = (v: any) => (v == null ? '' : String(v).replace('.', ','));
+  const [sp, setSp] = useState<Record<string, string>>({
+    soll: f(z.sp?.soll), ist: f(z.sp?.ist), krank: f(z.sp?.krank), urlaub: f(z.sp?.urlaub), flexi: f(z.sp?.flexi), ue_std: f(z.sp?.ue_std),
+  });
+  const zu = (z.denker?.zuschlaege || {}) as Record<string, number>;
+  const [li, setLi] = useState<Record<string, string>>({
+    plus: f(z.denker?.plusstunden), minus: f(z.denker?.minusstunden), aus: f(z.denker?.auszahlung_std),
+    ...Object.fromEntries(Object.keys(ZUSCHLAG_LABEL).map(k => [k, f(zu[k])])),
+  });
+  const emp = employees.find(e => e.id === z.employee_id);
+  const name = emp?.name || z.name;
+
+  const speichern = async () => {
+    const email = getLocalSession()?.email ?? null;
+    const spVals = Object.fromEntries(Object.entries(sp).map(([k, v]) => [k, parseZahl(v)]));
+    if (Object.values(spVals).some(v => v != null) || z.sp) {
+      const { error } = await db().from('md_spdata_monat').upsert({
+        monat, employee_id: z.employee_id, mitarbeiter_name: z.sp?.mitarbeiter_name || name, ...spVals,
+        quelle_datei: z.sp?.quelle_datei ? `${z.sp.quelle_datei} (händisch korrigiert)` : 'händisch', updated_by: email,
+      }, { onConflict: 'monat,mitarbeiter_name' });
+      if (error) { toast.error('SP Data: ' + error.message); return; }
+    }
+    const plus = parseZahl(li.plus), minus = parseZahl(li.minus);
+    let aus = parseZahl(li.aus);
+    if (aus == null && (plus != null || minus != null)) aus = Math.round(((plus || 0) - (minus || 0)) * 100) / 100;
+    const zus: Record<string, number> = {};
+    Object.keys(ZUSCHLAG_LABEL).forEach(k => { const v = parseZahl(li[k]); if (v != null && v !== 0) zus[k] = v; });
+    if (plus != null || minus != null || aus != null || Object.keys(zus).length || z.denker) {
+      const { error } = await db().from('md_ma_monat').upsert({
+        monat, employee_id: z.employee_id, mitarbeiter_name: z.denker?.mitarbeiter_name || name,
+        plusstunden: plus, minusstunden: minus, auszahlung_std: aus, zuschlaege: Object.keys(zus).length ? zus : null,
+        ueberstunden: aus, sonntag_stunden: zus.so_std ?? null, quelle: 'händisch (Stundenabgleich)', updated_by: email,
+      }, { onConflict: 'monat,mitarbeiter_name' });
+      if (error) { toast.error('Plus/Minus-Liste: ' + error.message); return; }
+    }
+    toast.success(`Werte für ${name} gespeichert`);
+    qc.invalidateQueries({ queryKey: ['md-ma'] }); qc.invalidateQueries({ queryKey: ['md-sp'] });
+    onClose();
+  };
+
+  const feld = (label: string, val: string, set: (v: string) => void) => (
+    <label key={label} style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: '#64748b' }}>
+      {label}<input value={val} onChange={e => set(e.target.value)} style={{ ...inp, width: 82 }} inputMode="decimal" />
+    </label>
+  );
+
+  return (
+    <div style={{ padding: 14, background: '#f8fafc', display: 'grid', gap: 12 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <b style={{ fontSize: 12, width: 130 }}>SP Data (Monatssumme)</b>
+        {([['soll', 'Soll'], ['ist', 'Ist-Zeit'], ['krank', 'Krank'], ['urlaub', 'Urlaub'], ['flexi', 'Flexi'], ['ue_std', 'Ü-Std.']] as [string, string][])
+          .map(([k, l]) => feld(l, sp[k], v => setSp(o => ({ ...o, [k]: v }))))}
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <b style={{ fontSize: 12, width: 130 }}>Plus/Minus-Liste</b>
+        {feld('Plusstunden', li.plus, v => setLi(o => ({ ...o, plus: v })))}
+        {feld('Minusstunden', li.minus, v => setLi(o => ({ ...o, minus: v })))}
+        {feld('Auszahlung (leer = Plus − Minus)', li.aus, v => setLi(o => ({ ...o, aus: v })))}
+        {Object.entries(ZUSCHLAG_LABEL).map(([k, l]) => feld(l, li[k], v => setLi(o => ({ ...o, [k]: v }))))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <button style={btn(ACCENT)} onClick={speichern}><Save size={14} /> Speichern</button>
+        <button style={btn('#fff', '#334155')} onClick={onClose}>Abbrechen</button>
+        {z.employee_id && (
+          <label style={{ fontSize: 12, color: '#334155', display: 'flex', gap: 6, alignItems: 'center', marginLeft: 12 }}>
+            <input type="checkbox" checked={!!emp?.ohne_systembuchung} onChange={e => onOhneBuchung(z.employee_id as string, e.target.checked)} />
+            bucht nicht im WIDI-System (z. B. Hygienespülungen, Containerrunde) – Stundenvergleich entfällt
+          </label>
+        )}
+        {!z.employee_id && <span style={{ fontSize: 12, color: '#b45309' }}>Tipp: Mitarbeiter anlegen oder zuordnen – die Werte bleiben erhalten und werden übernommen.</span>}
       </div>
     </div>
   );
