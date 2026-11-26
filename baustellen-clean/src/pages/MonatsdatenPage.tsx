@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ChevronLeft, ChevronRight, Upload, Download, Save, Users, FileText, ClipboardList, Calculator, BarChart3,
+  ChevronLeft, ChevronRight, Upload, Download, Save, Users, FileText, ClipboardList, Calculator, BarChart3, Clock,
   CheckCircle2, Circle, AlertTriangle, Trash2, Plus, Database,
 } from 'lucide-react';
 import { db, isDemo } from '@/lib/md-db';
@@ -13,6 +13,8 @@ import {
   ZIEL_KST, KST_NAME, RX_ANR, monatGrenzen, vormonat, shiftMonat, eur, zahl, parseZahl, deDatumZuIso,
   fetchAll, nameKey, leseExcel, findeSpalten, downloadExcel, logUpload, satzFuer, maAusPdfZeilen, agAusPdfZeilen,
 } from '@/lib/monatsdaten';
+import { matchEmployee, istDenkerListe, parseDenker, spDataLesen, pruefe, ZUSCHLAG_LABEL } from '@/lib/zeiterfassung';
+import type { SpSeite, AbgleichZeile } from '@/lib/zeiterfassung';
 
 const ACCENT = '#0d9488';
 const card: React.CSSProperties = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' };
@@ -22,7 +24,7 @@ const tdR: React.CSSProperties = { ...td, textAlign: 'right', fontVariantNumeric
 const inp: React.CSSProperties = { width: 90, padding: '5px 8px', border: '1px solid #cbd5e1', borderRadius: 7, fontSize: 13, textAlign: 'right' };
 const btn = (bg: string, fg = '#fff'): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: bg, color: fg, border: bg === '#fff' ? '1px solid #cbd5e1' : 'none', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' });
 
-type Tab = 'ma' | 'sr' | 'ag' | 'saetze' | 'auswertung';
+type Tab = 'ma' | 'stunden' | 'sr' | 'ag' | 'saetze' | 'auswertung';
 
 export default function MonatsdatenPage() {
   const navigate = useNavigate();
@@ -94,13 +96,20 @@ export default function MonatsdatenPage() {
     queryFn: async () => (await db().from('md_uploads').select('*').or(`monat.eq.${monat},monat.is.null`).order('created_at', { ascending: false }).limit(20)).data ?? [],
   });
 
+  const { data: spMonat = [] } = useQuery({
+    queryKey: ['md-sp', monat],
+    queryFn: async () => (await db().from('md_spdata_monat').select('*').eq('monat', monat)).data ?? [],
+  });
+
   const aktive = (employees as any[]).filter(e => e.aktiv);
+  const denkerN = (maMonat as any[]).filter(r => r.plusstunden != null).length;
   const maErfasst = (maMonat as any[]).length;
   const agImMonat = (agStaende as any[]).some(s => String(s.stand).startsWith(monat) || String(s.stand).startsWith(shiftMonat(monat, 1)));
   const saetzeOk = satzFuer(saetze as any[], 'verrechnung', null, monat) != null && satzFuer(saetze as any[], 'kosten', null, monat) != null;
 
   const checks = [
     { key: 'ma' as Tab, titel: 'MA-Daten', sub: 'Überstunden, Sonntagszulagen (Excel/PDF)', art: 'händisch · monatlich anfragen', ok: maErfasst > 0, info: `${maErfasst} / ${aktive.length} MA`, icon: Users },
+    { key: 'stunden' as Tab, titel: 'Stundenabgleich', sub: 'SP Data · Plus/Minus-Liste · System', art: 'Upload · Abgleich automatisch', ok: (spMonat as any[]).length > 0 && denkerN > 0, info: `SP ${(spMonat as any[]).length} · Liste ${denkerN} MA`, icon: Clock },
     { key: 'sr' as Tab, titel: 'Sammelrechnung', sub: 'PDF hochladen', art: 'wird automatisch ausgelesen', ok: (srBelege as any[]).length > 0, info: `${(srBelege as any[]).length} Belege`, icon: FileText },
     { key: 'ag' as Tab, titel: 'AG-Liste', sub: 'offene Aufträge Klinik (Excel/PDF)', art: 'händisch · Spalten automatisch', ok: agImMonat, info: (agStaende as any[])[0] ? `Stand ${fmtD((agStaende as any[])[0].stand)}` : 'noch keine', icon: ClipboardList },
     { key: 'saetze' as Tab, titel: 'Sätze & Teamkosten', sub: 'Verrechnungs-/Kostensatz, Fahrzeug …', art: 'händisch · bei Änderung', ok: saetzeOk, info: `${(teamkosten as any[]).length} Kostenposten`, icon: Calculator },
@@ -151,11 +160,12 @@ export default function MonatsdatenPage() {
         </div>
 
         {tab === 'ma' && <MaTab monat={monat} label={label} employees={aktive} maMonat={maMonat as any[]} sys={sysStunden as any} />}
+        {tab === 'stunden' && <StundenTab monat={monat} label={label} setMonat={setMonat} employees={employees as any[]} maMonat={maMonat as any[]} spMonat={spMonat as any[]} />}
         {tab === 'sr' && <SrTab monat={monat} label={label} belege={srBelege as any[]} pos={srPos as any[]} />}
         {tab === 'ag' && <AgTab staende={agStaende as any[]} />}
         {tab === 'saetze' && <SaetzeTab monat={monat} label={label} saetze={saetze as any[]} teamkosten={teamkosten as any[]} employees={employees as any[]} />}
         {tab === 'auswertung' && <AuswertungTab monat={monat} label={label} employees={aktive} maMonat={maMonat as any[]} sys={sysStunden as any}
-          srPos={srPos as any[]} saetze={saetze as any[]} teamkosten={teamkosten as any[]} mengen={mengen as any[]} dguv={dguv as any[]} />}
+          srPos={srPos as any[]} saetze={saetze as any[]} teamkosten={teamkosten as any[]} mengen={mengen as any[]} dguv={dguv as any[]} spMonat={spMonat as any[]} />}
 
         {/* Upload-Protokoll */}
         {(uploads as any[]).length > 0 && (
@@ -240,6 +250,7 @@ function MaTab({ monat, label, employees, maMonat, sys }: { monat: string; label
     if (/\.pdf$/i.test(file.name)) return uploadPdf(file);
     try {
       const rows = await leseExcel(file);
+      if (istDenkerListe(rows)) { await importDenker(rows, file.name, monat, employees, () => qc.invalidateQueries({ queryKey: ['md-ma'] })); return; }
       const sp = findeSpalten(rows, {
         name: /mitarbeiter|^name|personal/i, kuerzel: /k(ü|ue)rzel|pers\.?-?nr|personalnummer/i,
         ueber: /(ü|ue)berstund/i, sonntagH: /sonntag.*(std|stund|\(h\))/i, sonntagE: /sonntag.*(zulage|€|eur|betrag)|zulage/i,
@@ -726,8 +737,8 @@ function SaetzeTab({ monat, label, saetze, teamkosten, employees }: { monat: str
 // ════════════════════════════════════════════════════════════════════════
 // Auswertung (automatisch)
 // ════════════════════════════════════════════════════════════════════════
-function AuswertungTab({ monat, label, employees, maMonat, sys, srPos, saetze, teamkosten, mengen, dguv }: {
-  monat: string; label: string; employees: any[]; maMonat: any[]; sys: Record<string, any>; srPos: any[]; saetze: any[]; teamkosten: any[]; mengen: any[]; dguv: any[];
+function AuswertungTab({ monat, label, employees, maMonat, sys, srPos, saetze, teamkosten, mengen, dguv, spMonat }: {
+  monat: string; label: string; employees: any[]; maMonat: any[]; sys: Record<string, any>; srPos: any[]; saetze: any[]; teamkosten: any[]; mengen: any[]; dguv: any[]; spMonat: any[];
 }) {
   const qc = useQueryClient();
   const { von, bis } = monatGrenzen(monat);
@@ -762,7 +773,8 @@ function AuswertungTab({ monat, label, employees, maMonat, sys, srPos, saetze, t
     employees.forEach(e => {
       const team = e.team || e.gewerk || 'ohne Team';
       const s = sys[e.id]; const sysH = s ? s.ticket + s.baustelle + s.intern : 0;
-      const r = maBy[e.id];
+      const r0 = maBy[e.id]; const sp = spMonat.find(x => x.employee_id === e.id);
+      const r = r0?.bezahlte_stunden == null && sp?.ist != null ? { ...(r0 || {}), bezahlte_stunden: Number(sp.ist) - Number(sp.krank || 0) - Number(sp.urlaub || 0) } : r0;
       const cur = t[team] || { ma: 0, sysH: 0, bezahlt: 0, bezahltN: 0, ueber: 0, sonntagEur: 0, kosten: 0, kostenOk: true };
       cur.ma++; cur.sysH += sysH;
       if (r?.bezahlte_stunden != null) { cur.bezahlt += Number(r.bezahlte_stunden); cur.bezahltN++; }
@@ -775,7 +787,7 @@ function AuswertungTab({ monat, label, employees, maMonat, sys, srPos, saetze, t
     teamkosten.forEach(k => { const team = k.team === 'alle' ? 'alle Teams' : k.team; const cur = t[team] || { ma: 0, sysH: 0, bezahlt: 0, bezahltN: 0, ueber: 0, sonntagEur: 0, kosten: 0, kostenOk: true }; cur.kosten += Number(k.betrag); t[team] = cur; });
     Object.values(t).forEach(v => { v.kosten += v.sonntagEur; });
     return Object.entries(t).sort((a, b) => b[1].sysH - a[1].sysH);
-  }, [employees, sys, maBy, saetze, teamkosten, monat]);
+  }, [employees, sys, maBy, saetze, teamkosten, monat, spMonat]);
 
   const erloesZiel = srPos.filter(p => ZIEL_KST.includes(p.kst)).reduce((s, p) => s + Number(p.gp || 0), 0);
   const kostenGesamt = teams.reduce((s, [, v]) => s + v.kosten, 0);
@@ -842,7 +854,7 @@ function AuswertungTab({ monat, label, employees, maMonat, sys, srPos, saetze, t
             ))}
           </tbody>
         </table>
-        <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8' }}>Auslastung = Systemstunden ÷ bezahlte Stunden (nur wenn bezahlte Stunden eingetragen sind). Kosten = Kostensatz × bezahlte Stunden (ersatzweise Systemstunden + Überstunden) + Sonntagszulagen + Teamkosten.</p>
+        <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8' }}>Auslastung = Systemstunden ÷ bezahlte bzw. anwesende Stunden (aus MA-Daten oder SP Data: Ist − Krank − Urlaub). Kosten = Kostensatz × bezahlte Stunden (ersatzweise Systemstunden + Überstunden) + Sonntagszulagen + Teamkosten.</p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(460px,1fr))', gap: 16 }}>
@@ -889,6 +901,254 @@ function AuswertungTab({ monat, label, employees, maMonat, sys, srPos, saetze, t
             </table>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Plus/Minus-Liste Fr. Denker (Excel) → md_ma_monat
+// ════════════════════════════════════════════════════════════════════════
+async function importDenker(rows: unknown[][], datei: string, monatAuswahl: string, employees: any[], fertig: () => void, setMonat?: (m: string) => void) {
+  const { monat: mListe, zeilen } = parseDenker(rows);
+  if (!zeilen.length) { toast.error('In der Liste wurden keine Mitarbeiterzeilen gefunden'); return; }
+  const monat = mListe || monatAuswahl;
+  if (mListe && mListe !== monatAuswahl) toast.info(`Liste gilt für ${monatGrenzen(mListe).label} – dort gespeichert`);
+  const email = getLocalSession()?.email ?? null;
+  const unbekannt: string[] = [];
+  const payload = zeilen.map(z => {
+    const { e } = matchEmployee(z.name, employees);
+    if (!e) unbekannt.push(z.name);
+    return {
+      monat, employee_id: e?.id ?? null, mitarbeiter_name: e?.name ?? z.name,
+      plusstunden: z.plus, minusstunden: z.minus, auszahlung_std: z.auszahlung, zuschlaege: Object.keys(z.zuschlaege).length ? z.zuschlaege : null,
+      ueberstunden: z.auszahlung, sonntag_stunden: z.zuschlaege.so_std ?? null,
+      quelle: `Plus/Minus-Liste: ${datei}`, updated_by: email,
+    };
+  });
+  const { error } = await db().from('md_ma_monat').upsert(payload, { onConflict: 'monat,mitarbeiter_name' });
+  if (error) { toast.error('Speichern fehlgeschlagen: ' + error.message); return; }
+  await logUpload(monat, 'Plus/Minus-Liste', datei, payload.length, email ?? undefined);
+  toast.success(`${payload.length} Mitarbeiter aus der Plus/Minus-Liste für ${monatGrenzen(monat).label} übernommen`);
+  if (unbekannt.length) toast.warning(`Nicht im System angelegt: ${unbekannt.join(', ')} – trotzdem gespeichert`);
+  if (setMonat && monat !== monatAuswahl) setMonat(monat);
+  fertig();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Stundenabgleich: SP Data · Plus/Minus-Liste · WIDI-System
+// ════════════════════════════════════════════════════════════════════════
+type SpVorschlag = { datei: string; seite: SpSeite; employee_id: string | null; monat: string };
+
+function StundenTab({ monat, label, setMonat, employees, maMonat, spMonat }: {
+  monat: string; label: string; setMonat: (m: string) => void; employees: any[]; maMonat: any[]; spMonat: any[];
+}) {
+  const qc = useQueryClient();
+  const spRef = useRef<HTMLInputElement>(null);
+  const listeRef = useRef<HTMLInputElement>(null);
+  const [laeuft, setLaeuft] = useState<string | null>(null);
+  const [vorschlaege, setVorschlaege] = useState<SpVorschlag[]>([]);
+  const [nurAuffaellig, setNurAuffaellig] = useState(false);
+  const { von, bis } = monatGrenzen(monat);
+
+  // WIDI-Stunden je MA und Tag
+  const { data: widi = { sum: {}, tage: {} } as { sum: Record<string, number>; tage: Record<string, Record<string, number>> } } = useQuery({
+    queryKey: ['md-widitage', monat],
+    queryFn: async () => {
+      const [tw, bs, ins] = await Promise.all([
+        fetchAll<any>((f, t) => db().from('ticket_worklogs').select('employee_id,stunden,leistungsdatum').gte('leistungsdatum', von).lte('leistungsdatum', bis).range(f, t)),
+        fetchAll<any>((f, t) => db().from('bs_stundeneintraege').select('mitarbeiter_id,stunden,datum').gte('datum', von).lte('datum', bis).range(f, t)),
+        fetchAll<any>((f, t) => db().from('interne_stunden').select('employee_id,stunden,datum').gte('datum', von).lte('datum', bis).range(f, t)),
+      ]);
+      const sum: Record<string, number> = {}; const tage: Record<string, Record<string, number>> = {};
+      const add = (id: string | null, d: string, h: number) => {
+        if (!id) return; sum[id] = (sum[id] || 0) + Number(h || 0);
+        tage[id] = tage[id] || {}; tage[id][d] = (tage[id][d] || 0) + Number(h || 0);
+      };
+      tw.forEach(r => add(r.employee_id, r.leistungsdatum, r.stunden));
+      bs.forEach(r => add(r.mitarbeiter_id, r.datum, r.stunden));
+      ins.forEach(r => add(r.employee_id, r.datum, r.stunden));
+      return { sum, tage };
+    },
+  });
+
+  const spLesen = async (files: FileList) => {
+    const neu: SpVorschlag[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      setLaeuft(`Lese ${f.name} (${i + 1}/${files.length}) … das dauert bei Scans etwas`);
+      try {
+        const seiten = await spDataLesen(f);
+        for (const s of seiten) {
+          const { e } = matchEmployee(s.name, employees);
+          neu.push({ datei: f.name, seite: s, employee_id: e?.id ?? null, monat: s.monat && /^\d{4}-\d{2}$/.test(s.monat) ? s.monat : monat });
+        }
+        await logUpload(monat, 'SP Data (gelesen)', f.name, seiten.length, getLocalSession()?.email);
+      } catch (err: any) {
+        toast.error(`${f.name}: ${err?.message || err}`);
+      }
+    }
+    setLaeuft(null);
+    if (neu.length) { setVorschlaege(v => [...v, ...neu]); toast.success(`${neu.length} Monatsabrechnung(en) erkannt – bitte prüfen und übernehmen`); }
+  };
+
+  const spSpeichern = async () => {
+    const email = getLocalSession()?.email ?? null;
+    const payload = vorschlaege.map(v => {
+      const e = employees.find(x => x.id === v.employee_id);
+      const s = v.seite.summe || {};
+      return {
+        monat: v.monat, employee_id: e?.id ?? null, mitarbeiter_name: e?.name ?? v.seite.name, name_sp: v.seite.name,
+        personalnummer: v.seite.personalnummer ?? null, stand: v.seite.stand && /^\d{4}-\d{2}-\d{2}$/.test(v.seite.stand) ? v.seite.stand : null,
+        ges: s.ges ?? null, soll: s.soll ?? null, pause: s.pause ?? null, ao: s.ao ?? null, ist: s.ist ?? null,
+        krank: s.krank ?? null, urlaub: s.urlaub ?? null, flexi: s.flexi ?? null, ue_std: s.ue_std ?? null,
+        tage: v.seite.tage ?? null, quelle_datei: v.datei, updated_by: email,
+      };
+    });
+    const { error } = await db().from('md_spdata_monat').upsert(payload, { onConflict: 'monat,mitarbeiter_name' });
+    if (error) { toast.error('Speichern fehlgeschlagen: ' + error.message); return; }
+    toast.success(`${payload.length} Monatsabrechnung(en) gespeichert`);
+    const andererMonat = payload.find(p => p.monat !== monat)?.monat;
+    setVorschlaege([]);
+    qc.invalidateQueries({ queryKey: ['md-sp'] });
+    if (andererMonat) setMonat(andererMonat);
+  };
+
+  const listeLesen = async (file: File) => {
+    try { await importDenker(await leseExcel(file), file.name, monat, employees, () => qc.invalidateQueries({ queryKey: ['md-ma'] }), setMonat); }
+    catch (err: any) { toast.error('Excel konnte nicht gelesen werden: ' + (err?.message || err)); }
+  };
+
+  // Abgleich-Zeilen
+  const zeilen: AbgleichZeile[] = useMemo(() => {
+    const keys = new Map<string, { employee_id: string | null; name: string }>();
+    employees.filter(e => e.aktiv).forEach(e => keys.set(e.id, { employee_id: e.id, name: e.name }));
+    spMonat.forEach(s => { const k = s.employee_id || `n:${s.mitarbeiter_name}`; if (!keys.has(k)) keys.set(k, { employee_id: s.employee_id, name: s.mitarbeiter_name }); });
+    maMonat.filter(r => r.plusstunden != null).forEach(r => { const k = r.employee_id || `n:${r.mitarbeiter_name}`; if (!keys.has(k)) keys.set(k, { employee_id: r.employee_id, name: r.mitarbeiter_name }); });
+    return [...keys.values()].map(k => {
+      const sp = spMonat.find(s => (k.employee_id && s.employee_id === k.employee_id) || (!k.employee_id && s.mitarbeiter_name === k.name));
+      const denker = maMonat.find(r => r.plusstunden != null && ((k.employee_id && r.employee_id === k.employee_id) || (!k.employee_id && r.mitarbeiter_name === k.name)));
+      const widiH = k.employee_id ? (widi.sum[k.employee_id] || 0) : 0;
+      const anwesend = sp?.ist != null ? Number(sp.ist) - Number(sp.krank || 0) - Number(sp.urlaub || 0) : null;
+      return pruefe({ employee_id: k.employee_id, name: k.name, sp, denker, widiH, widiTage: k.employee_id ? (widi.tage[k.employee_id] || {}) : {}, anwesend, quote: anwesend && anwesend > 0 ? widiH / anwesend : null, ampel: 'grau', hinweise: [] });
+    }).sort((a, b) => ({ rot: 0, gelb: 1, grau: 2, grün: 3 }[a.ampel] - { rot: 0, gelb: 1, grau: 2, grün: 3 }[b.ampel]) || a.name.localeCompare(b.name));
+  }, [employees, spMonat, maMonat, widi]);
+
+  const zeig = nurAuffaellig ? zeilen.filter(z => z.ampel === 'rot' || z.ampel === 'gelb') : zeilen;
+  const sum = (f: (z: AbgleichZeile) => number | null | undefined) => zeilen.reduce((s, z) => s + (Number(f(z)) || 0), 0);
+  const AMP: Record<string, string> = { rot: '#fee2e2', gelb: '#fef3c7', grün: '#dcfce7', grau: '#f1f5f9' };
+  const AMPT: Record<string, string> = { rot: '#b91c1c', gelb: '#b45309', grün: '#15803d', grau: '#64748b' };
+
+  const exportieren = () => {
+    const rows: (string | number | null)[][] = [['Ampel', 'Mitarbeiter', 'Soll', 'Ist', 'Krank', 'Urlaub', 'Anwesend', 'WIDI gebucht', 'Quote %', 'Ü-Std. (SP)', 'Plus (Liste)', 'Flexi (SP)', 'Minus (Liste)', 'Auszahlung', 'Zuschläge', 'Hinweise']];
+    zeilen.forEach(z => rows.push([z.ampel, z.name, z.sp?.soll ?? null, z.sp?.ist ?? null, z.sp?.krank ?? null, z.sp?.urlaub ?? null, z.anwesend, Math.round(z.widiH * 100) / 100,
+      z.quote != null ? Math.round(z.quote * 1000) / 10 : null, z.sp?.ue_std ?? null, z.denker?.plusstunden ?? null, z.sp?.flexi ?? null, z.denker?.minusstunden ?? null, z.denker?.auszahlung_std ?? null,
+      z.denker?.zuschlaege ? Object.entries(z.denker.zuschlaege).map(([k, v]) => `${ZUSCHLAG_LABEL[k] || k}: ${v}`).join('; ') : null, z.hinweise.join(' · ')]));
+    downloadExcel(`Stundenabgleich_${monat}.xlsx`, `Abgleich ${monat}`, rows);
+  };
+
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div style={card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div>
+            <p style={{ margin: 0, fontWeight: 800, fontSize: 16 }}>Stundenabgleich {label}</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b', maxWidth: 760 }}>
+              SP Data (Zeiterfassung Personal) gegen die Plus/Minus-Liste von Fr. Denker und die im WIDI-System gebuchten Stunden. SP-Data-Monatsabrechnungen als PDF hochladen – auch eingescannt, mehrere Mitarbeiter je Datei möglich.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button style={btn(ACCENT)} disabled={!!laeuft} onClick={() => spRef.current?.click()}><Upload size={14} /> {laeuft ? 'Lese …' : 'SP Data (PDF)'}</button>
+            <input ref={spRef} type="file" accept=".pdf" multiple style={{ display: 'none' }} onChange={e => { if (e.target.files?.length) spLesen(e.target.files); e.target.value = ''; }} />
+            <button style={btn('#fff', '#334155')} onClick={() => listeRef.current?.click()}><Upload size={14} /> Plus/Minus-Liste (Excel)</button>
+            <input ref={listeRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) listeLesen(f); e.target.value = ''; }} />
+            <button style={btn('#fff', '#334155')} onClick={exportieren}><Download size={14} /> Abgleich (Excel)</button>
+          </div>
+        </div>
+        {laeuft && <p style={{ margin: '12px 0 0', fontSize: 13, color: ACCENT, fontWeight: 600 }}>{laeuft}</p>}
+
+        {vorschlaege.length > 0 && (
+          <div style={{ marginTop: 16, padding: 16, background: '#f0fdfa', border: `1px solid ${ACCENT}55`, borderRadius: 12 }}>
+            <p style={{ margin: '0 0 8px', fontWeight: 700 }}>Erkannte SP-Data-Monatsabrechnungen – Zuordnung prüfen</p>
+            <div style={{ overflow: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff' }}>
+                <thead><tr>{['Name (SP Data)', 'Pers.-Nr.', 'Mitarbeiter im System', 'Monat', 'Soll', 'Ist', 'Krank', 'Urlaub', 'Flexi', 'Ü-Std.', 'Tage', ''].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <tbody>{vorschlaege.map((v, i) => (
+                  <tr key={i}>
+                    <td style={td}>{v.seite.name}</td><td style={td}>{v.seite.personalnummer || '–'}</td>
+                    <td style={td}>
+                      <select value={v.employee_id || ''} onChange={e => setVorschlaege(vs => vs.map((x, j) => (j === i ? { ...x, employee_id: e.target.value || null } : x)))}
+                        style={{ ...inp, width: 190, textAlign: 'left', borderColor: v.employee_id ? '#cbd5e1' : '#f59e0b' }}>
+                        <option value="">– nicht im System –</option>
+                        {employees.map(e => <option key={e.id} value={e.id}>{e.name}{e.aktiv ? '' : ' (inaktiv)'}</option>)}
+                      </select>
+                    </td>
+                    <td style={td}><input value={v.monat} onChange={e => setVorschlaege(vs => vs.map((x, j) => (j === i ? { ...x, monat: e.target.value } : x)))} style={{ ...inp, width: 80, textAlign: 'left' }} /></td>
+                    <td style={tdR}>{zahl(v.seite.summe?.soll)}</td><td style={tdR}>{zahl(v.seite.summe?.ist)}</td><td style={tdR}>{zahl(v.seite.summe?.krank)}</td>
+                    <td style={tdR}>{zahl(v.seite.summe?.urlaub)}</td><td style={tdR}>{zahl(v.seite.summe?.flexi)}</td><td style={tdR}>{zahl(v.seite.summe?.ue_std)}</td>
+                    <td style={tdR}>{v.seite.tage?.length ?? 0}</td>
+                    <td style={td}><button onClick={() => setVorschlaege(vs => vs.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><Trash2 size={14} /></button></td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button style={btn(ACCENT)} onClick={spSpeichern}><Save size={14} /> Übernehmen</button>
+              <button style={btn('#fff', '#334155')} onClick={() => setVorschlaege([])}>Verwerfen</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
+        {[
+          ['SP Data erfasst', `${spMonat.length} MA`, 'Monatsabrechnungen'],
+          ['Plus/Minus-Liste', `${maMonat.filter(r => r.plusstunden != null).length} MA`, 'Fr. Denker'],
+          ['Anwesend (SP Data)', `${zahl(sum(z => z.anwesend), 1)} h`, 'Ist − Krank − Urlaub'],
+          ['Im System gebucht', `${zahl(sum(z => (z.sp ? z.widiH : 0)), 1)} h`, sum(z => z.anwesend) > 0 ? `${zahl((sum(z => (z.sp ? z.widiH : 0)) / sum(z => z.anwesend)) * 100, 0)} % der Anwesenheit` : 'bei MA mit SP Data'],
+          ['Auffällig', `${zeilen.filter(z => z.ampel === 'rot').length} rot · ${zeilen.filter(z => z.ampel === 'gelb').length} gelb`, 'siehe Hinweise'],
+        ].map(([t, v, s]) => (
+          <div key={t} style={{ ...card, padding: 16 }}>
+            <p style={{ margin: 0, fontSize: 11, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 700 }}>{t}</p>
+            <p style={{ margin: '6px 0 2px', fontSize: 22, fontWeight: 800, color: '#0f172a' }}>{v}</p>
+            <p style={{ margin: 0, fontSize: 12, color: '#94a3b8' }}>{s}</p>
+          </div>
+        ))}
+      </div>
+
+      <div style={card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <p style={{ margin: 0, fontWeight: 800, fontSize: 15 }}>Abgleich je Mitarbeiter</p>
+          <label style={{ fontSize: 12, color: '#64748b', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input type="checkbox" checked={nurAuffaellig} onChange={e => setNurAuffaellig(e.target.checked)} /> nur auffällige
+          </label>
+        </div>
+        <div style={{ maxHeight: 620, overflow: 'auto', border: '1px solid #f1f5f9', borderRadius: 10 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>
+              {['', 'Mitarbeiter', 'Soll', 'Ist', 'Krank', 'Urlaub', 'Anwesend', 'WIDI gebucht', 'Quote', 'Ü-Std. SP', 'Plus Liste', 'Flexi SP', 'Minus Liste', 'Auszahlung', 'Zuschläge', 'Hinweise'].map((h, i) =>
+                <th key={i} style={{ ...th, textAlign: i >= 2 && i <= 13 ? 'right' : 'left' }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {zeig.map(z => (
+                <tr key={(z.employee_id || '') + z.name}>
+                  <td style={td}><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 5, background: AMPT[z.ampel] }} title={z.ampel} /></td>
+                  <td style={{ ...td, fontWeight: 600 }}>{z.name}{!z.employee_id && <span style={{ color: '#b45309', fontWeight: 400 }}> (nicht im System)</span>}</td>
+                  <td style={tdR}>{zahl(z.sp?.soll)}</td><td style={tdR}>{zahl(z.sp?.ist)}</td><td style={tdR}>{z.sp?.krank ? zahl(z.sp.krank) : ''}</td>
+                  <td style={tdR}>{z.sp?.urlaub ? zahl(z.sp.urlaub) : ''}</td><td style={tdR}>{zahl(z.anwesend)}</td><td style={tdR}>{zahl(z.widiH)}</td>
+                  <td style={tdR}>{z.quote != null ? `${zahl(z.quote * 100, 0)} %` : '–'}</td>
+                  <td style={tdR}>{zahl(z.sp?.ue_std)}</td><td style={tdR}>{zahl(z.denker?.plusstunden)}</td>
+                  <td style={tdR}>{zahl(z.sp?.flexi)}</td><td style={tdR}>{zahl(z.denker?.minusstunden)}</td><td style={tdR}>{zahl(z.denker?.auszahlung_std)}</td>
+                  <td style={{ ...td, fontSize: 12, color: '#64748b' }}>{z.denker?.zuschlaege ? Object.entries(z.denker.zuschlaege).map(([k, v]) => `${ZUSCHLAG_LABEL[k] || k} ${zahl(Number(v))}`).join(', ') : ''}</td>
+                  <td style={{ ...td, fontSize: 12, background: AMP[z.ampel], color: AMPT[z.ampel], minWidth: 260 }}>{z.hinweise.join(' · ') || 'stimmt überein'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p style={{ margin: '10px 0 0', fontSize: 11, color: '#94a3b8' }}>
+          Prüfregeln: Plusstunden der Liste = Ü-Std. aus SP Data · Minusstunden = Flexi aus SP Data · Auszahlung = Plus − Minus · im WIDI-System nicht mehr gebucht als anwesend und mindestens 70 % der Anwesenheit gebucht · keine Buchungen an Krank-/Urlaubstagen.
+        </p>
       </div>
     </div>
   );

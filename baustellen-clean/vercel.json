@@ -1,1 +1,1 @@
-{"regions":["fra1"],"rewrites":[{"source":"/((?!api/.*).*)", "destination":"/index.html"}]}
+{"regions": ["fra1"], "rewrites": [{"source": "/((?!api/.*).*)", "destination": "/index.html"}], "functions": {"api/spdata-lesen.py": {"maxDuration": 300}}}

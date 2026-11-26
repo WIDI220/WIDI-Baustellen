@@ -121,3 +121,30 @@ begin
     execute format('create policy staff_all on public.%I for all to authenticated using (not is_hw()) with check (not is_hw())', t);
   end loop;
 end $$;
+
+-- 26.11.2026: Stundenabgleich (SP Data + Plus/Minus-Liste Fr. Denker)
+alter table public.md_ma_monat
+  add column if not exists plusstunden numeric,
+  add column if not exists minusstunden numeric,
+  add column if not exists auszahlung_std numeric,
+  add column if not exists zuschlaege jsonb;
+
+create table if not exists public.md_spdata_monat (
+  id uuid primary key default gen_random_uuid(),
+  monat text not null check (monat ~ '^\d{4}-\d{2}$'),
+  employee_id uuid references public.employees(id) on delete set null,
+  mitarbeiter_name text not null,
+  name_sp text,
+  personalnummer text,
+  stand date,
+  ges numeric, soll numeric, pause numeric, ao numeric, ist numeric,
+  krank numeric, urlaub numeric, flexi numeric, ue_std numeric,
+  tage jsonb,
+  quelle_datei text,
+  updated_by text,
+  created_at timestamptz not null default now(),
+  unique (monat, mitarbeiter_name)
+);
+alter table public.md_spdata_monat enable row level security;
+drop policy if exists staff_all on public.md_spdata_monat;
+create policy staff_all on public.md_spdata_monat for all to authenticated using (not is_hw()) with check (not is_hw());
