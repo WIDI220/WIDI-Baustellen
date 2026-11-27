@@ -23,7 +23,7 @@ const STATUS_OPTIONS = [
   { value:'abgerechnet',    label:'Abgerechnet',     dot:'#8b5cf6', bg:'#faf5ff', text:'#5b21b6' },
 ];
 const GEWERK_OPTIONS = ['Hochbau', 'Elektro', 'Beides'];
-const EMPTY = { name:'', adresse:'', auftraggeber:'', kostenstelle:'', startdatum:'', enddatum:'', status:'offen', gewerk:'Hochbau', projektleiter:'', beschreibung:'', budgetInput:'' };
+const EMPTY = { name:'', adresse:'', auftraggeber:'', kunde_id:'', ansprechpartner:'', kostenstelle:'', startdatum:'', enddatum:'', status:'offen', gewerk:'Hochbau', projektleiter:'', beschreibung:'', budgetInput:'' };
 
 
 // A-Nummer aus Baustellenname extrahieren: "[A20917] Betreff" → "20917"
@@ -46,8 +46,9 @@ export default function BaustellenPage() {
   const [editItem, setEditItem] = useState<any>(null);
   const [form, setForm] = useState<any>(EMPTY);
 
+  const { data: kundenListe = [] } = useQuery({ queryKey: ['kunden-liste'], queryFn: async () => { const { data } = await supabase.from('kunden' as any).select('id,name,aktiv').order('name'); return (data ?? []) as any[]; } });
   const { data: baustellen = [] } = useQuery({ queryKey: ['baustellen-list'], queryFn: async () => { const { data } = await supabase.from('baustellen').select('*').order('created_at',{ascending:false}); return data??[]; } });
-  const { data: stunden = [] }    = useQuery({ queryKey: ['bs-stunden-list'], queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('baustelle_id,stunden,employees(stundensatz)'); return data??[]; } });
+  const { data: stunden = [] }    = useQuery({ queryKey: ['bs-stunden-list'], queryFn: async () => { const { data } = await supabase.from('bs_stundeneintraege').select('baustelle_id,stunden,satz,employees(stundensatz)'); return data??[]; } });
   const { data: materialien = [] }= useQuery({ queryKey: ['bs-mat-list'],     queryFn: async () => { const { data } = await supabase.from('bs_materialien').select('baustelle_id,gesamtpreis'); return data??[]; } });
   const { data: nachtraege = [] } = useQuery({ queryKey: ['bs-nach-list'],    queryFn: async () => { const { data } = await supabase.from('bs_nachtraege').select('baustelle_id,betrag,status'); return data??[]; } });
 
@@ -57,7 +58,9 @@ export default function BaustellenPage() {
       const payload = {
         name: form.name,
         adresse: form.adresse || null,
-        auftraggeber: form.auftraggeber || null,
+        auftraggeber: (form.kunde_id ? (kundenListe as any[]).find((k:any)=>k.id===form.kunde_id)?.name : form.auftraggeber) || form.auftraggeber || null,
+        kunde_id: form.kunde_id || null,
+        ansprechpartner: form.ansprechpartner || null,
         typ: aktiverTyp,
         kostenstelle: (form as any).kostenstelle || null,
         startdatum: form.startdatum || null,
@@ -113,7 +116,7 @@ export default function BaustellenPage() {
     let budgetInput = String(b.budget || '');
     if (b.budget_typ === 'stunden' && b.budget_menge) budgetInput = `${b.budget_menge}h`;
     else if (b.budget_typ === 'stueckzahl' && b.budget_menge) budgetInput = `${b.budget_menge}stk`;
-    setForm({ name:b.name, adresse:b.adresse||'', auftraggeber:b.auftraggeber||'', kostenstelle:(b as any).kostenstelle||'', startdatum:b.startdatum||'', enddatum:b.enddatum||'', status:b.status, gewerk:b.gewerk||'Hochbau', projektleiter:b.projektleiter||'', beschreibung:b.beschreibung||'', budgetInput });
+    setForm({ name:b.name, adresse:b.adresse||'', auftraggeber:b.auftraggeber||'', kunde_id:(b as any).kunde_id||'', ansprechpartner:(b as any).ansprechpartner||'', kostenstelle:(b as any).kostenstelle||'', startdatum:b.startdatum||'', enddatum:b.enddatum||'', status:b.status, gewerk:b.gewerk||'Hochbau', projektleiter:b.projektleiter||'', beschreibung:b.beschreibung||'', budgetInput });
     setEditItem(b);
     setDialog(true);
   };
@@ -278,7 +281,14 @@ export default function BaustellenPage() {
           <div className="space-y-3 pt-1">
             <div><Label>Name *</Label><Input value={form.name} onChange={e=>setForm((f:any)=>({...f,name:e.target.value}))} autoFocus placeholder="z.B. Klinikum – Station 3" /></div>
             <div className="grid grid-cols-2 gap-2">
-              <div><Label>Auftraggeber</Label><Input value={form.auftraggeber} onChange={e=>setForm((f:any)=>({...f,auftraggeber:e.target.value}))} /></div>
+              <div><Label>Kunde</Label>
+                <select value={form.kunde_id} onChange={e=>setForm((f:any)=>({...f,kunde_id:e.target.value}))} className="w-full h-10 rounded-md border px-2 text-sm" style={{borderColor:'#e2e8f0'}}>
+                  <option value="">– Kunde wählen –</option>
+                  {(kundenListe as any[]).filter((k:any)=>k.aktiv || k.id===form.kunde_id).map((k:any)=><option key={k.id} value={k.id}>{k.name}</option>)}
+                </select>
+                {!form.kunde_id && form.auftraggeber && <p className="text-xs mt-1" style={{color:'#94a3b8'}}>bisher: {form.auftraggeber}</p>}
+              </div>
+              <div><Label>Ansprechpartner</Label><Input value={form.ansprechpartner} placeholder="z.B. Frau Tielke" onChange={e=>setForm((f:any)=>({...f,ansprechpartner:e.target.value}))} /></div>
               {aktiverTyp==='extern' && <div><Label>Kostenstelle</Label><Input value={(form as any).kostenstelle||''} placeholder="z.B. 900120" onChange={e=>setForm((f:any)=>({...f,kostenstelle:e.target.value}))} /></div>}
               <div><Label>Adresse / Ort</Label><Input value={form.adresse} onChange={e=>setForm((f:any)=>({...f,adresse:e.target.value}))} /></div>
             </div>

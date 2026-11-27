@@ -63,14 +63,14 @@ export default function ZeiterfassungPage() {
   });
 
   const totalH = filtered.reduce((s,w) => s + Number(w.stunden??0), 0);
-  const totalK = filtered.reduce((s,w) => s + Number(w.stunden??0) * Number(w.employees?.stundensatz??38.08), 0);
+  const totalK = filtered.reduce((s,w) => s + Number(w.stunden??0) * Number((w.satz ?? w.employees?.stundensatz)??38.08), 0);
 
   // Stunden pro Mitarbeiter Chart
   const stundenProMa = emps.map(e => ({
     name: e.kuerzel || e.name.split(' ')[0],
     fullName: e.name,
     stunden: Math.round(sw.filter(w => w.mitarbeiter_id === e.id).reduce((s,w) => s+Number(w.stunden??0), 0) * 10) / 10,
-    kosten: sw.filter(w => w.mitarbeiter_id === e.id).reduce((s,w) => s+Number(w.stunden??0)*Number(w.employees?.stundensatz??38.08), 0),
+    kosten: sw.filter(w => w.mitarbeiter_id === e.id).reduce((s,w) => s+Number(w.stunden??0)*Number((w.satz ?? w.employees?.stundensatz)??38.08), 0),
   })).filter(x => x.stunden > 0).sort((a,b) => b.stunden - a.stunden);
 
   // Gruppiert nach Datum
@@ -147,7 +147,7 @@ export default function ZeiterfassungPage() {
         )}
         {Object.entries(grouped).map(([datum, eintraege]) => {
           const tagH = eintraege.reduce((s,w) => s+Number(w.stunden??0), 0);
-          const tagK = eintraege.reduce((s,w) => s+Number(w.stunden??0)*Number(w.employees?.stundensatz??38.08), 0);
+          const tagK = eintraege.reduce((s,w) => s+Number(w.stunden??0)*Number((w.satz ?? w.employees?.stundensatz)??38.08), 0);
           return (
             <div key={datum} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-100">
@@ -169,7 +169,7 @@ export default function ZeiterfassungPage() {
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className="font-mono font-bold text-gray-700 text-sm">{w.stunden}h</p>
-                      <p className="text-xs text-gray-400">{fmtEur(Number(w.stunden)*Number(w.employees?.stundensatz??38.08))}</p>
+                      <p className="text-xs text-gray-400">{fmtEur(Number(w.stunden)*Number((w.satz ?? w.employees?.stundensatz)??38.08))}</p>
                     </div>
                     <div className="flex gap-1 flex-shrink-0">
                       <button onClick={() => { setForm({ baustelle_id:w.baustelle_id, mitarbeiter_id:w.mitarbeiter_id, datum:w.datum, stunden:String(w.stunden), beschreibung:w.beschreibung||'' }); setEditItem(w); setDialog(true); }} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">

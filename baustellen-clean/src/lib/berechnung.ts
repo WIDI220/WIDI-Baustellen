@@ -3,7 +3,7 @@ const STUNDEN_SATZ_DEFAULT = 38.08;
 export function berechneKosten(baustelleId: string, stunden: any[], materialien: any[], nachtraege: any[], budget: number) {
   const personalkosten = stunden
     .filter(w => w.baustelle_id === baustelleId)
-    .reduce((s, w) => s + Number(w.stunden ?? 0) * Number(w.employees?.stundensatz ?? STUNDEN_SATZ_DEFAULT), 0);
+    .reduce((s, w) => s + Number(w.stunden ?? 0) * Number((w.satz ?? w.employees?.stundensatz) ?? STUNDEN_SATZ_DEFAULT), 0);
 
   const materialkosten = materialien
     .filter(m => m.baustelle_id === baustelleId)

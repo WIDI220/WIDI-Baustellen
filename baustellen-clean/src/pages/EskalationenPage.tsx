@@ -49,7 +49,7 @@ export default function EskalationenPage() {
     queryKey: ['bs-esk-stunden'],
     queryFn: async () => {
       const { data } = await supabase.from('bs_stundeneintraege')
-        .select('baustelle_id, stunden, employees(stundensatz)');
+        .select('baustelle_id, stunden, satz, employees(stundensatz)');
       return data ?? [];
     }
   });

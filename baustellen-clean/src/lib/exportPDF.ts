@@ -137,7 +137,7 @@ export async function exportBaustellePDF(
   const maMap: Record<string, {name:string, stunden:number, kosten:number}> = {};
   stunden.forEach(s => {
     const name = s.employees?.name || 'Unbekannt';
-    const satz = Number(s.employees?.stundensatz ?? STUNDENSATZ_LOCAL);
+    const satz = Number((s.satz ?? s.employees?.stundensatz) ?? STUNDENSATZ_LOCAL);
     if (!maMap[name]) maMap[name] = {name, stunden:0, kosten:0};
     maMap[name].stunden += Number(s.stunden);
     maMap[name].kosten  += Number(s.stunden) * satz;
@@ -145,7 +145,7 @@ export async function exportBaustellePDF(
   const maList = Object.values(maMap).sort((a,b) => b.kosten - a.kosten);
 
   const gesamtH   = stunden.reduce((s,e) => s + Number(e.stunden), 0);
-  const personal  = stunden.reduce((s,e) => s + Number(e.stunden) * Number(e.employees?.stundensatz ?? STUNDENSATZ_LOCAL), 0);
+  const personal  = stunden.reduce((s,e) => s + Number(e.stunden) * Number((e.satz ?? e.employees?.stundensatz) ?? STUNDENSATZ_LOCAL), 0);
   const material  = materialien.reduce((s,m) => s + Number(m.gesamtpreis ?? 0), 0);
   const gesamt    = personal + material;
   const budget    = Number(bs.budget ?? 0);
@@ -277,8 +277,8 @@ export async function exportBaustellePDF(
       head: [['Datum', 'Mitarbeiter', 'Stunden', 'Stundensatz', 'Kosten', 'Tätigkeit']],
       body: stunden.map(w => [
         fmtDate(w.datum), w.employees?.name||'–', `${w.stunden}h`,
-        `${eur(Number(w.employees?.stundensatz??STUNDENSATZ_LOCAL))}/h`,
-        eur(Number(w.stunden)*Number(w.employees?.stundensatz??STUNDENSATZ_LOCAL)),
+        `${eur(Number((w.satz ?? w.employees?.stundensatz)??STUNDENSATZ_LOCAL))}/h`,
+        eur(Number(w.stunden)*Number((w.satz ?? w.employees?.stundensatz)??STUNDENSATZ_LOCAL)),
         w.beschreibung||'–',
       ]),
       foot: [['','Gesamt',`${fmt(gesamtH)}h`,'',eur(personal),'']],
@@ -470,7 +470,7 @@ export async function exportAbnahmeschein(
   const PW = 210; const PH = 297;
 
   const STUNDENSATZ_LOCAL = 38.08;
-  const personal   = stunden.reduce((s: number, e: any) => s + Number(e.stunden) * Number(e.employees?.stundensatz ?? STUNDENSATZ_LOCAL), 0);
+  const personal   = stunden.reduce((s: number, e: any) => s + Number(e.stunden) * Number((e.satz ?? e.employees?.stundensatz) ?? STUNDENSATZ_LOCAL), 0);
   const material   = materialien.reduce((s: number, m: any) => s + Number(m.gesamtpreis ?? 0), 0);
   const gesamtH    = stunden.reduce((s: number, e: any) => s + Number(e.stunden), 0);
   const nGenehmigt = nachtraege.filter((n: any) => n.status === 'genehmigt').reduce((s: number, n: any) => s + Number(n.betrag), 0);
@@ -699,7 +699,7 @@ export async function exportAbnahmeschein(
     const maMap2: Record<string,{name:string;stunden:number;kosten:number}> = {};
     stunden.forEach((s: any) => {
       const name = s.employees?.name || 'Unbekannt';
-      const satz = Number(s.employees?.stundensatz ?? STUNDENSATZ_LOCAL);
+      const satz = Number((s.satz ?? s.employees?.stundensatz) ?? STUNDENSATZ_LOCAL);
       if (!maMap2[name]) maMap2[name] = {name,stunden:0,kosten:0};
       maMap2[name].stunden += Number(s.stunden);
       maMap2[name].kosten  += Number(s.stunden) * satz;

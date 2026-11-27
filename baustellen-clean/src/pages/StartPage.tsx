@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { getLocalSession, clearLocalSession } from '@/pages/AuthPage';
-import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield, CalendarDays, Clock, X, Database } from 'lucide-react';
+import { LogOut, ArrowRight, TrendingUp, HardHat, Ticket, CheckCircle, AlertCircle, Shield, CalendarDays, Clock, X, Database, Building2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -62,6 +62,8 @@ export default function StartPage() {
   const vormonatKey = `${vm.getFullYear()}-${String(vm.getMonth() + 1).padStart(2, '0')}`;
   const { data: mdVormonat = 0 } = useQuery({ queryKey: ['start-md', vormonatKey], queryFn: async () => { const { count } = await supabase.from('md_ma_monat').select('id', { count: 'exact', head: true }).eq('monat', vormonatKey); return count ?? 0; } });
 
+  const { data: kundenAnzahl = 0 } = useQuery({ queryKey: ['start-kunden'], queryFn: async () => { const { count } = await supabase.from('kunden' as any).select('id', { count: 'exact', head: true }).eq('aktiv', true); return count ?? 0; } });
+
   const t = tickets as any[];
   const b = baustellen as any[];
   const wp = wpEintraege as any[];
@@ -84,6 +86,7 @@ export default function StartPage() {
     { path: '/dguv', color: '#f59e0b', colorRgb: '245,158,11', icon: Shield, titel: 'DGUV Prüfung', sub: 'Geräteprüfung & Roadmap', stat: 23352, statLabel: 'Prüflinge gesamt', punkte: ['Rohdaten verarbeiten', 'Roadmap 2025/2026', 'Prüfer-Auswertung', 'Neue Prüflinge'] },
     { path: '/planung', color: '#6366f1', colorRgb: '99,102,241', icon: CalendarDays, titel: 'Wochenplanung', sub: `KW ${kw} · Personalplanung`, stat: wpMaCount, statLabel: 'MA eingeplant', punkte: ['Baustellen planen', 'Tickets & DGUV', 'Begehungen', 'Interne Stunden'] },
     { path: '/monatsdaten', color: '#0d9488', colorRgb: '13,148,136', icon: Database, titel: 'Monatsdaten', sub: `Uploads · ${vm.toLocaleString('de-DE', { month: 'long' })}`, stat: mdVormonat as number, statLabel: 'MA-Daten erfasst', punkte: ['Überstunden & Zulagen', 'Sammelrechnung (PDF)', 'AG-Listen', 'Sätze & Auswertung'] },
+    { path: '/kunden', color: '#0369a1', colorRgb: '3,105,161', icon: Building2, titel: 'Kunden & Konditionen', sub: 'Sätze je Kunde', stat: kundenAnzahl as number, statLabel: 'Kunden', punkte: ['Stundensatz je Kunde', 'Material-Aufschlag & Anfahrt', 'Sonntag/Feiertag/Nacht/Notdienst', 'Ausnahmen je MA'] },
   ];
 
   return (

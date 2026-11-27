@@ -34,7 +34,7 @@ const NACH_STATUS = [
   { value:'abgelehnt', label:'Abgelehnt', bg:'#fef2f2', text:'#b91c1c' },
 ];
 const TABS = ['Übersicht','Analyse','Stunden','Material','Nachträge','Fotos','Dokumente','Teilabrechnung','Rechnungen BD'];
-const STUNDEN_EMPTY = { mitarbeiter_id:'', datum:new Date().toISOString().split('T')[0], stunden:'', beschreibung:'' };
+const STUNDEN_EMPTY = { mitarbeiter_id:'', datum:new Date().toISOString().split('T')[0], stunden:'', beschreibung:'', zuschlag_art:'' };
 const MAT_EMPTY = { bezeichnung:'', menge:'1', einheit:'Stk', einzelpreis:'', gesamtpreis:'', status:'bestellt', datum:new Date().toISOString().split('T')[0] };
 const NACH_EMPTY = { titel:'', beschreibung:'', betrag:'', status:'entwurf', datum:new Date().toISOString().split('T')[0], begruendung:'' };
 const FOTO_EMPTY = { beschreibung:'', kategorie:'fortschritt' };
@@ -533,6 +533,13 @@ export default function BaustelleDetail() {
   const [abnahmePDFDialog, setAbnahmePDFDialog] = useState(false);
   const [pdfPositionen, setPdfPositionen] = useState<AbnahmePDFPosition[]>([{ leistung: 'Stunden', einheit: 'Std.', menge: '' }]);
 
+  const { data: kundeInfo } = useQuery({ queryKey:['bs-kunde', id], queryFn: async () => {
+    const { data: b } = await supabase.from('baustellen').select('kunde_id').eq('id', id!).single();
+    const kid = (b as any)?.kunde_id; if (!kid) return null;
+    const { data: k } = await supabase.from('kunden' as any).select('id,name').eq('id', kid).single();
+    const { data: kd } = await supabase.from('kunden_konditionen' as any).select('*').eq('kunde_id', kid).lte('gueltig_ab', new Date().toISOString().slice(0,10)).order('gueltig_ab', { ascending: false }).limit(1);
+    return { ...(k as any), kond: (kd as any[])?.[0] ?? null };
+  }, enabled: !!id });
   const { data: bs, isLoading: bsLoading } = useQuery({ queryKey:['baustelle',id], queryFn: async () => { const {data,error}=await supabase.from('baustellen').select('*').eq('id',id!).single(); if(error)throw error; return data; }, enabled:!!id });
   const { data: employees=[] } = useQuery({ queryKey:['employees'], queryFn: async () => { const {data}=await supabase.from('employees').select('id,name,kuerzel,stundensatz').eq('aktiv',true).order('name'); return data??[]; } });
   const { data: stunden=[] } = useQuery({ queryKey:['bs-stunden',id], queryFn: async () => { const {data,error}=await supabase.from('bs_stundeneintraege').select('*, employees(id,name,kuerzel,stundensatz)').eq('baustelle_id',id!).order('datum',{ascending:false}); if(error)throw error; return data??[]; }, enabled:!!id });
@@ -686,7 +693,7 @@ export default function BaustelleDetail() {
     },
     onError:(e:any)=>{ if(e.message !== 'Abgebrochen') toast.error(e.message); }
   });
-  const saveStunden = useMutation({ mutationFn: async () => { if(!stundenForm.mitarbeiter_id)throw new Error('Mitarbeiter wählen'); const payload={baustelle_id:id,mitarbeiter_id:stundenForm.mitarbeiter_id,datum:stundenForm.datum,stunden:parseFloat(String(stundenForm.stunden).replace(',','.')),beschreibung:stundenForm.beschreibung||null}; if(editStunden){const{error}=await supabase.from('bs_stundeneintraege').update(payload).eq('id',editStunden.id);if(error)throw error;}else{const{error}=await supabase.from('bs_stundeneintraege').insert(payload);if(error)throw error;} }, onSuccess:()=>{ toast.success('Stunden gespeichert'); setStundenDialog(false); setEditStunden(null); setStundenForm(STUNDEN_EMPTY); queryClient.invalidateQueries({queryKey:['bs-stunden',id]}); }, onError:(e:any)=>toast.error(e.message) });
+  const saveStunden = useMutation({ mutationFn: async () => { if(!stundenForm.mitarbeiter_id)throw new Error('Mitarbeiter wählen'); const payload={baustelle_id:id,mitarbeiter_id:stundenForm.mitarbeiter_id,datum:stundenForm.datum,stunden:parseFloat(String(stundenForm.stunden).replace(',','.')),beschreibung:stundenForm.beschreibung||null,zuschlag_art:stundenForm.zuschlag_art||null}; if(editStunden){const{error}=await supabase.from('bs_stundeneintraege').update(payload).eq('id',editStunden.id);if(error)throw error;}else{const{error}=await supabase.from('bs_stundeneintraege').insert(payload);if(error)throw error;} }, onSuccess:()=>{ toast.success('Stunden gespeichert'); setStundenDialog(false); setEditStunden(null); setStundenForm(STUNDEN_EMPTY); queryClient.invalidateQueries({queryKey:['bs-stunden',id]}); }, onError:(e:any)=>toast.error(e.message) });
   const deleteStunden = useMutation({ mutationFn: async (sid:string)=>{ const{error}=await supabase.from('bs_stundeneintraege').delete().eq('id',sid);if(error)throw error; }, onSuccess:()=>queryClient.invalidateQueries({queryKey:['bs-stunden',id]}), onError:(e:any)=>toast.error(e.message) });
   const saveMat = useMutation({ mutationFn: async ()=>{ const ep=parseFloat(String(matForm.einzelpreis).replace(',','.'))||0; const mg=parseFloat(String(matForm.menge).replace(',','.'))||1; const gp=parseFloat(String(matForm.gesamtpreis).replace(',','.'))||ep*mg; const payload={baustelle_id:id,bezeichnung:matForm.bezeichnung,menge:mg,einheit:matForm.einheit,einzelpreis:ep,gesamtpreis:gp,status:matForm.status,datum:matForm.datum}; if(editMaterial){const{error}=await supabase.from('bs_materialien').update(payload).eq('id',editMaterial.id);if(error)throw error;}else{const{error}=await supabase.from('bs_materialien').insert(payload);if(error)throw error;} }, onSuccess:()=>{ toast.success('Material gespeichert'); setMaterialDialog(false); setEditMaterial(null); setMatForm(MAT_EMPTY); queryClient.invalidateQueries({queryKey:['bs-mat',id]}); }, onError:(e:any)=>toast.error(e.message) });
   const deleteMat = useMutation({ mutationFn: async (mid:string)=>{ const{error}=await supabase.from('bs_materialien').delete().eq('id',mid);if(error)throw error; }, onSuccess:()=>queryClient.invalidateQueries({queryKey:['bs-mat',id]}), onError:(e:any)=>toast.error(e.message) });
@@ -731,8 +738,15 @@ export default function BaustelleDetail() {
   const sw = stunden as any[], mat = materialien as any[], nach = nachtraege as any[], fts = fotos as any[], emps = employees as any[];
 
   const gesamtStunden = sw.reduce((s,w) => s+Number(w.stunden??0), 0);
-  const personalkosten = sw.reduce((s,w) => s+Number(w.stunden??0)*Number(w.employees?.stundensatz??STUNDEN_SATZ), 0);
+  const personalkosten = sw.reduce((s,w) => s+Number(w.stunden??0)*Number((w.satz ?? w.employees?.stundensatz)??STUNDEN_SATZ), 0);
   const materialkosten = mat.reduce((s,m) => s+Number(m.gesamtpreis??0), 0);
+  // Abrechnung nach Kundenkonditionen
+  const kond: any = kundeInfo?.kond;
+  const zuschlagsAnteil = sw.reduce((s,w:any) => s + (w.zuschlag_pct && w.satz_basis!=null ? Number(w.stunden??0)*(Number(w.satz)-Number(w.satz_basis)) : 0), 0);
+  const einsatztage = new Set(sw.filter((w:any)=>Number(w.stunden)>0).map((w:any)=>w.datum)).size;
+  const materialAufschlag = kond?.material_aufschlag_pct ? materialkosten*Number(kond.material_aufschlag_pct)/100 : 0;
+  const anfahrtGesamt = kond?.anfahrt_pauschale ? einsatztage*Number(kond.anfahrt_pauschale) : 0;
+  const abrechnungGesamt = personalkosten + materialkosten + materialAufschlag + anfahrtGesamt;
   const nachtragGenehmigt = nach.filter(n=>n.status==='genehmigt').reduce((s,n)=>s+Number(n.betrag??0),0);
   const nachtragEingereicht = nach.filter(n=>n.status==='eingereicht').reduce((s,n)=>s+Number(n.betrag??0),0);
   const gesamtkosten = personalkosten + materialkosten;
@@ -744,8 +758,10 @@ export default function BaustelleDetail() {
 
   // Analyse-Daten
   const stundenProMa = emps.map(e => {
-    const h = sw.filter(w=>w.mitarbeiter_id===e.id).reduce((s,w)=>s+Number(w.stunden??0),0);
-    return {name: e.kuerzel||e.name?.split(' ')[0]||'?', fullName:e.name, stunden:Math.round(h*10)/10, kosten:h*Number(e.stundensatz??STUNDEN_SATZ)};
+    const ew = sw.filter(w=>w.mitarbeiter_id===e.id);
+    const h = ew.reduce((s,w)=>s+Number(w.stunden??0),0);
+    const k = ew.reduce((s,w:any)=>s+Number(w.stunden??0)*Number(w.satz ?? e.stundensatz ?? STUNDEN_SATZ),0);
+    return {name: e.kuerzel||e.name?.split(' ')[0]||'?', fullName:e.name, stunden:Math.round(h*10)/10, kosten:k};
   }).filter(x=>x.stunden>0).sort((a,b)=>b.stunden-a.stunden);
 
   // Stunden nach Woche
@@ -837,7 +853,7 @@ export default function BaustelleDetail() {
               </span>
             )}
           </div>
-          <p className="text-sm mt-0.5" style={{color:'#9ca3af'}}>{bs.auftraggeber}{bs.adresse?` · ${bs.adresse}`:''}</p>
+          <p className="text-sm mt-0.5" style={{color:'#9ca3af'}}>{kundeInfo?.name || bs.auftraggeber}{(bs as any).ansprechpartner?` · ${(bs as any).ansprechpartner}`:''}{bs.adresse?` · ${bs.adresse}`:''}</p>
         </div>
         <Button variant="outline" size="sm" onClick={exportPDF}>PDF</Button>
         <Button variant="outline" size="sm" onClick={() => setAbnahmePDFDialog(true)} style={{borderColor:'#22c55e',color:'#15803d',fontWeight:600}}>Abnahmeschein</Button>
@@ -947,6 +963,27 @@ export default function BaustelleDetail() {
       {/* ── ÜBERSICHT ── */}
       {tab==='Übersicht' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="card p-5 lg:col-span-2">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold" style={{color:'#0f1f3d'}}>Abrechnung nach Kundenkonditionen</h3>
+              <span className="text-xs" style={{color:'#9ca3af'}}>{kundeInfo ? `Kunde: ${kundeInfo.name}${kond ? '' : ' · keine Konditionen hinterlegt'}` : 'Kein Kunde gewählt – Sätze der Mitarbeiter'} · Pflege in der Kachel „Kunden & Konditionen“</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {[
+                {l:'Personal', v:personalkosten, sub:`${Math.round(gesamtStunden*100)/100} h${kond?.stundensatz!=null?` · Kundensatz ${fmtEur(Number(kond.stundensatz))}/h`:''}${zuschlagsAnteil?` · davon Zuschläge ${fmtEur(zuschlagsAnteil)}`:''}`},
+                {l:'Material', v:materialkosten, sub:'Einkauf'},
+                {l:'Material-Aufschlag', v:materialAufschlag, sub:kond?.material_aufschlag_pct?`${String(kond.material_aufschlag_pct).replace('.',',')} %`:'–'},
+                {l:'Anfahrt', v:anfahrtGesamt, sub:kond?.anfahrt_pauschale?`${einsatztage} Einsatztage × ${fmtEur(Number(kond.anfahrt_pauschale))}`:'–'},
+                {l:'Gesamt', v:abrechnungGesamt, sub:budget>0?`Budget ${fmtEur(budget+nachtragGenehmigt)}`:'', bold:true},
+              ].map((x:any)=>(
+                <div key={x.l} className="rounded-xl p-3" style={{background:x.bold?'rgba(30,58,95,.06)':'#f8fafc'}}>
+                  <p className="text-xs" style={{color:'#64748b'}}>{x.l}</p>
+                  <p className="text-base font-bold" style={{color:'#0f1f3d'}}>{fmtEur(x.v)}</p>
+                  <p className="text-xs" style={{color:'#9ca3af'}}>{x.sub}</p>
+                </div>
+              ))}
+            </div>
+          </div>
           <div className="card p-5">
             <h3 className="text-sm font-semibold mb-4" style={{color:'#0f1f3d'}}>Kostenaufteilung</h3>
             {kostenPie.length===0 ? <div className="flex items-center justify-center h-40 text-sm" style={{color:'#d1d5db'}}>Noch keine Kosten</div> : (
@@ -1128,10 +1165,10 @@ export default function BaustelleDetail() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="font-bold text-sm" style={{color:'#0f1f3d', fontFamily:'DM Mono, monospace'}}>{w.stunden}h</p>
-                  <p className="text-xs" style={{color:'#9ca3af'}}>{fmtEur(Number(w.stunden)*Number(w.employees?.stundensatz??STUNDEN_SATZ))}</p>
+                  <p className="text-xs" style={{color:'#9ca3af'}} title={`${fmtEur(Number((w.satz ?? w.employees?.stundensatz)??STUNDEN_SATZ))}/h · Satz: ${w.satz_quelle||'Mitarbeiter'}${w.zuschlag_pct?` · Zuschlag ${String(w.zuschlag_pct).replace('.',',')} %`:''}`}>{fmtEur(Number(w.stunden)*Number((w.satz ?? w.employees?.stundensatz)??STUNDEN_SATZ))}{w.zuschlag_pct?` · +${String(w.zuschlag_pct).replace('.',',')} %`:''}{w.zuschlag_art?` · ${w.zuschlag_art==='nacht'?'Nacht':'Notdienst'}`:''}</p>
                 </div>
                 <div className="flex gap-1">
-                  <button onClick={()=>{setStundenForm({mitarbeiter_id:w.mitarbeiter_id,datum:w.datum,stunden:String(w.stunden),beschreibung:w.beschreibung||''});setEditStunden(w);setStundenDialog(true);}} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"><Pencil className="h-3.5 w-3.5" style={{color:'#9ca3af'}} /></button>
+                  <button onClick={()=>{setStundenForm({mitarbeiter_id:w.mitarbeiter_id,datum:w.datum,stunden:String(w.stunden),beschreibung:w.beschreibung||'',zuschlag_art:w.zuschlag_art||''});setEditStunden(w);setStundenDialog(true);}} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"><Pencil className="h-3.5 w-3.5" style={{color:'#9ca3af'}} /></button>
                   <button onClick={()=>{if(confirm('Löschen?'))deleteStunden.mutate(w.id);}} className="p-1.5 rounded-lg hover:bg-red-50 transition-colors"><Trash2 className="h-3.5 w-3.5" style={{color:'#fca5a5'}} /></button>
                 </div>
               </div>
@@ -1316,6 +1353,7 @@ export default function BaustelleDetail() {
             <div><Label>Mitarbeiter *</Label><Select value={stundenForm.mitarbeiter_id} onValueChange={v=>setStundenForm((f:any)=>({...f,mitarbeiter_id:v}))}><SelectOption value="">Wählen...</SelectOption>{emps.map((e:any)=><SelectOption key={e.id} value={e.id}>{e.name}{e.kuerzel?` (${e.kuerzel})`:''}</SelectOption>)}</Select></div>
             <div className="grid grid-cols-2 gap-3"><div><Label>Datum *</Label><Input type="date" value={stundenForm.datum} onChange={e=>setStundenForm((f:any)=>({...f,datum:e.target.value}))} /></div><div><Label>Stunden *</Label><Input placeholder="7.5" value={stundenForm.stunden} onChange={e=>setStundenForm((f:any)=>({...f,stunden:e.target.value}))} /></div></div>
             <div><Label>Tätigkeit</Label><Input value={stundenForm.beschreibung} onChange={e=>setStundenForm((f:any)=>({...f,beschreibung:e.target.value}))} /></div>
+            <div><Label>Zuschlag</Label><Select value={stundenForm.zuschlag_art||''} onValueChange={v=>setStundenForm((f:any)=>({...f,zuschlag_art:v}))}><SelectOption value="">kein (Sonntag/Feiertag wird automatisch erkannt)</SelectOption><SelectOption value="nacht">Nachtarbeit</SelectOption><SelectOption value="notdienst">Notdienst</SelectOption></Select></div>
             <div className="flex gap-3 pt-1"><Button variant="outline" className="flex-1" onClick={()=>setStundenDialog(false)}>Abbrechen</Button><Button className="flex-1" onClick={()=>saveStunden.mutate()} disabled={saveStunden.isPending||!stundenForm.mitarbeiter_id}>{saveStunden.isPending?'…':'Speichern'}</Button></div>
           </div>
         </DialogContent>
