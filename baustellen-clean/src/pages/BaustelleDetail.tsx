@@ -671,7 +671,7 @@ export default function BaustelleDetail() {
   const updateStatus = useMutation({
     mutationFn: async (status:string) => {
       const archivStatus = ['abgeschlossen','abgerechnet'];
-      if (archivStatus.includes(status)) {
+      if (archivStatus.includes(status) && !archivStatus.includes(String(bs?.status))) {
         const label = status === 'abgeschlossen' ? 'Abgeschlossen' : 'Abgerechnet';
         if (!confirm(`Baustelle als "${label}" markieren und ins Archiv verschieben?\n\nSie ist danach nicht mehr in der aktiven Liste sichtbar, aber jederzeit im Archiv abrufbar.`)) {
           throw new Error('Abgebrochen');
@@ -686,9 +686,9 @@ export default function BaustelleDetail() {
       queryClient.invalidateQueries({queryKey:['baustellen-list']});
       queryClient.invalidateQueries({queryKey:['baustellen-archiv']});
       queryClient.invalidateQueries({queryKey:['bs-dashboard']});
-      if(['abgeschlossen','abgerechnet'].includes(status)){
+      if(['abgeschlossen','abgerechnet'].includes(status) && !['abgeschlossen','abgerechnet'].includes(String(bs?.status))){
         toast.success('Baustelle wurde ins Archiv verschoben');
-        setTimeout(()=>navigate('/archiv'),800);
+        setTimeout(()=>navigate('/baustellen/archiv'),800);
       }
     },
     onError:(e:any)=>{ if(e.message !== 'Abgebrochen') toast.error(e.message); }
@@ -840,7 +840,7 @@ export default function BaustelleDetail() {
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <button onClick={()=>navigate('/baustellen')} className="p-2 rounded-xl transition-colors hover:bg-white" style={{border:'1px solid #e5e9f2'}}>
+        <button onClick={()=>navigate(['abgeschlossen','abgerechnet'].includes(String(bs.status)) ? '/baustellen/archiv' : '/baustellen/liste')} className="p-2 rounded-xl transition-colors hover:bg-white" style={{border:'1px solid #e5e9f2'}}>
           <ArrowLeft className="h-4 w-4" style={{color:'#6b7a99'}} />
         </button>
         <div className="flex-1 min-w-0">

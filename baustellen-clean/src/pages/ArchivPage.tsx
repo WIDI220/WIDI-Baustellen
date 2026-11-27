@@ -1,8 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { Archive, HardHat, ArrowRight, Calendar, TrendingUp, Euro, Clock, Pencil } from 'lucide-react';
-import { useState } from 'react';
+import { Archive, HardHat, ArrowRight, Calendar, TrendingUp, Euro, Clock, Pencil, Search, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -22,12 +22,20 @@ const STATUS_OPTIONS = [
   { value:'abgerechnet',    label:'Abgerechnet',     dot:'#8b5cf6', bg:'#faf5ff', text:'#5b21b6' },
 ];
 const GEWERK_OPTIONS = ['Hochbau', 'Elektro', 'Beides'];
+// Sortierschlüssel A-Nummer: neueste oben, ohne A-Nr. ganz unten
+function aNrKey(b: any): number {
+  const m = /A(\d{2})-(\d{4,6})/i.exec(`${b?.a_nummer || ''} ${b?.name || ''}`);
+  return m ? Number(m[1]) * 1_000_000 + Number(m[2]) : -1;
+}
 
 export default function ArchivPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [editItem, setEditItem] = useState<any>(null);
   const [form, setForm] = useState<any>({});
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'alle'|'abgeschlossen'|'abgerechnet'>('alle');
+  const [typFilter, setTypFilter] = useState<'alle'|'intern'|'extern'>('alle');
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -76,7 +84,22 @@ export default function ArchivPage() {
   const { data: materialien = [] }= useQuery({ queryKey: ['bs-mat-list'],     queryFn: async () => { const { data } = await supabase.from('bs_materialien').select('baustelle_id,gesamtpreis'); return data??[]; } });
   const { data: nachtraege = [] } = useQuery({ queryKey: ['bs-nach-list'],    queryFn: async () => { const { data } = await supabase.from('bs_nachtraege').select('baustelle_id,betrag,status'); return data??[]; } });
 
-  const bs = baustellen as any[], sw = stunden as any[], mat = materialien as any[], nach = nachtraege as any[];
+  const alleBs = baustellen as any[];
+  const bs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const worte = q.split(/\s+/).filter(Boolean);
+    return alleBs
+      .filter(b => statusFilter === 'alle' || b.status === statusFilter)
+      .filter(b => typFilter === 'alle' || (b.typ || 'intern') === typFilter)
+      .filter(b => {
+        if (!worte.length) return true;
+        const text = [b.name, b.a_nummer, b.auftraggeber, b.ansprechpartner, b.adresse, b.kostenstelle, b.beschreibung, b.gewerk, b.projektleiter]
+          .filter(Boolean).join(' ').toLowerCase();
+        return worte.every(w => text.includes(w));
+      })
+      .sort((a, b) => aNrKey(b) - aNrKey(a) || String(b.created_at).localeCompare(String(a.created_at)));
+  }, [alleBs, search, statusFilter, typFilter]);
+  const sw = stunden as any[], mat = materialien as any[], nach = nachtraege as any[];
 
   // Gesamtstatistik Archiv
   const alleKosten = bs.map(b => ({...b, ...berechneKosten(b.id, sw, mat, nach, Number(b.budget??0))}));
@@ -89,7 +112,29 @@ export default function ArchivPage() {
       {/* Header */}
       <div>
         <h1 style={{fontFamily:'DM Sans',fontWeight:700,fontSize:'1.5rem',color:'#0f1f3d',letterSpacing:'-.02em'}}>Archiv</h1>
-        <p className="text-sm mt-1" style={{color:'#6b7a99'}}>{bs.length} abgeschlossene Baustellen</p>
+        <p className="text-sm mt-1" style={{color:'#6b7a99'}}>{bs.length === alleBs.length ? `${alleBs.length} archivierte Projekte` : `${bs.length} von ${alleBs.length} archivierten Projekten`} · zum Bearbeiten einfach öffnen – den Status (und damit die Ablage) legst du in der Baustelle fest</p>
+      </div>
+
+      {/* Suche & Filter */}
+      <div className="flex gap-2 flex-wrap items-center">
+        <div style={{ position:'relative', flex:'1 1 320px' }}>
+          <Search size={15} style={{ position:'absolute', left:14, top:'50%', transform:'translateY(-50%)', color:'#94a3b8' }} />
+          <input
+            placeholder="Suchen: A-Nummer, Name, Auftraggeber, Ansprechpartner, Adresse, KST ..."
+            value={search} onChange={e=>setSearch(e.target.value)} autoFocus
+            style={{ width:'100%', padding:'10px 36px 10px 40px', borderRadius:12, border:'1px solid #e2e8f0', background:'#fff', fontSize:13, color:'#0f172a', outline:'none', boxSizing:'border-box', fontFamily:'inherit', transition:'border-color .15s' }}
+            onFocus={e=>{e.target.style.borderColor='#2563eb';}}
+            onBlur={e=>{e.target.style.borderColor='#e2e8f0';}}
+          />
+          {search && <button onClick={()=>setSearch('')} title="Suche leeren" style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#94a3b8', display:'flex' }}><X size={15} /></button>}
+        </div>
+        {([['alle','Alle'],['abgeschlossen','Abgeschlossen'],['abgerechnet','Abgerechnet']] as const).map(([v,l]) => (
+          <button key={v} onClick={()=>setStatusFilter(v)} style={{ padding:'8px 14px', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', border:'1px solid', borderColor: statusFilter===v?'#1e3a5f':'#e2e8f0', background: statusFilter===v?'#1e3a5f':'#fff', color: statusFilter===v?'#fff':'#64748b' }}>{l}</button>
+        ))}
+        <span style={{ width:1, height:24, background:'#e2e8f0' }} />
+        {([['alle','Alle Typen'],['intern','Baustellen'],['extern','Ext. Tickets']] as const).map(([v,l]) => (
+          <button key={v} onClick={()=>setTypFilter(v)} style={{ padding:'8px 14px', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', border:'1px solid', borderColor: typFilter===v?'#1e3a5f':'#e2e8f0', background: typFilter===v?'#1e3a5f':'#fff', color: typFilter===v?'#fff':'#64748b' }}>{l}</button>
+        ))}
       </div>
 
       {/* Gesamt-KPIs */}
@@ -112,7 +157,13 @@ export default function ArchivPage() {
       )}
 
       {/* Liste */}
-      {bs.length === 0 ? (
+      {bs.length === 0 && alleBs.length > 0 ? (
+        <div className="card p-10 text-center">
+          <Search className="h-10 w-10 mx-auto mb-3" style={{color:'#e5e9f2'}} />
+          <p className="font-semibold" style={{color:'#9ca3af'}}>Nichts gefunden</p>
+          <p className="text-sm mt-1" style={{color:'#d1d5db'}}>Suchbegriff oder Filter anpassen</p>
+        </div>
+      ) : bs.length === 0 ? (
         <div className="card p-16 text-center">
           <Archive className="h-12 w-12 mx-auto mb-4" style={{color:'#e5e9f2'}} />
           <p className="font-semibold" style={{color:'#9ca3af'}}>Noch keine archivierten Baustellen</p>
@@ -126,7 +177,7 @@ export default function ArchivPage() {
             const margePos = marge >= 0;
 
             return (
-              <div key={b.id} onClick={()=>navigate(`/baustellen/${b.id}`)}
+              <div key={b.id} onClick={()=>navigate(`/baustellen/liste/${b.id}`)}
                 className="card p-5 cursor-pointer transition-all hover:shadow-md"
                 style={{borderLeft:`3px solid ${st.dot}`}}>
                 <div className="flex items-start gap-4">
@@ -135,11 +186,13 @@ export default function ArchivPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
+                      {b.a_nummer && !String(b.name).includes(b.a_nummer) && <span className="text-xs px-2 py-0.5 rounded-full font-mono font-bold" style={{background:'rgba(30,58,95,.1)', color:'#1e3a5f'}}>{b.a_nummer}</span>}
                       <h3 className="font-bold" style={{color:'#0f1f3d'}}>{b.name}</h3>
+                      {(b.typ||'intern')==='extern' && <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{background:'#fff1f2', color:'#be123c'}}>Ext. Ticket</span>}
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{background:st.bg, color:st.text}}>{st.label}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full" style={{background:'#f4f6fa', color:'#6b7a99'}}>{b.gewerk}</span>
                     </div>
-                    <p className="text-sm mt-0.5" style={{color:'#9ca3af'}}>{b.auftraggeber||'–'}{b.adresse?` · ${b.adresse}`:''}</p>
+                    <p className="text-sm mt-0.5" style={{color:'#9ca3af'}}>{b.auftraggeber||'–'}{b.ansprechpartner?` · ${b.ansprechpartner}`:''}{b.adresse?` · ${b.adresse}`:''}{b.kostenstelle?` · KST ${b.kostenstelle}`:''}</p>
 
                     {/* Abrechnung */}
                     <div className="flex gap-4 mt-3 flex-wrap">
