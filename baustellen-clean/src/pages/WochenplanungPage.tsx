@@ -4,8 +4,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { feiertageNRW } from '@/lib/zeiterfassung';
 
-type Typ = 'baustelle' | 'extern' | 'tickets' | 'intern' | 'dguv' | 'begehung';
+type Typ = 'baustelle' | 'extern' | 'tickets' | 'intern' | 'dguv' | 'begehung' | 'urlaub' | 'krank';
 
 interface PoolItem {
   id: string;
@@ -34,6 +35,8 @@ const TYP_FARBE: Record<Typ, string> = {
   intern:    '#8b5cf6',
   dguv:      '#0891b2',
   begehung:  '#f59e0b',
+  urlaub:    '#16a34a',
+  krank:     '#dc2626',
 };
 const TYP_LABEL: Record<Typ, string> = {
   baustelle: 'Baustelle',
@@ -42,6 +45,8 @@ const TYP_LABEL: Record<Typ, string> = {
   intern:    'Intern',
   dguv:      'DGUV',
   begehung:  'Begehung',
+  urlaub:    'Urlaub',
+  krank:     'Krank',
 };
 
 // Feste Breiten — ändern sich NIE
@@ -192,7 +197,7 @@ export default function WochenplanungPage() {
 
   const { data: employees = [] } = useQuery({
     queryKey: ['wp-employees'],
-    queryFn: async () => { const { data } = await supabase.from('employees').select('id,name,kuerzel').eq('aktiv', true).order('name'); return data ?? []; },
+    queryFn: async () => { const { data } = await supabase.from('employees').select('id,name,kuerzel,soll_mo_do,soll_fr').eq('aktiv', true).order('name'); return data ?? []; },
   });
   const { data: baustellen = [] } = useQuery({
     queryKey: ['wp-baustellen'],
@@ -214,6 +219,10 @@ export default function WochenplanungPage() {
       { id: 'dguv',     label: 'DGUV-Messungen',  typ: 'dguv',     farbe: '#0891b2' },
       { id: 'begehung', label: 'Begehung',         typ: 'begehung', farbe: '#f59e0b' },
     ] as PoolItem[] },
+    { section: 'Abwesenheit', items: [
+      { id: 'urlaub', label: 'Urlaub', sub: 'erscheint auch im MA-Kalender', typ: 'urlaub', farbe: '#16a34a' },
+      { id: 'krank',  label: 'Krank',  sub: 'erscheint auch im MA-Kalender', typ: 'krank',  farbe: '#dc2626' },
+    ] as PoolItem[] },
   ];
 
   const handleDrop = useCallback(async (maId: string, datum: string) => {
@@ -221,10 +230,21 @@ export default function WochenplanungPage() {
     const { item } = dragging;
     setDragging(null); setDragOver(null);
 
+    const abw = item.typ === 'urlaub' || item.typ === 'krank';
+    let stunden = 8;
+    if (abw) {
+      // Abwesenheit = Soll-Arbeitszeit des Tages (Mo–Do / Fr laut Arbeitszeitmodell)
+      const e = (employees as any[]).find(x => x.id === maId);
+      const wd = new Date(datum + 'T12:00:00').getDay();
+      if (wd === 0 || wd === 6) { toast.error('Urlaub/Krank nur an Arbeitstagen'); return; }
+      const ft = feiertageNRW(Number(datum.slice(0, 4)))[datum];
+      if (ft) { toast.error(`${ft} ist ein Feiertag – kein Urlaub/Krank nötig`); return; }
+      stunden = Number(wd === 5 ? (e?.soll_fr ?? 7) : (e?.soll_mo_do ?? 8));
+    }
     const { data: wp, error } = await supabase.from('wochenplanung').insert({
       mitarbeiter_id: maId, datum, typ: item.typ,
       baustelle_id: item.baustelle_id ?? null,
-      bezeichnung: item.label, stunden: 8,
+      bezeichnung: item.label, stunden,
     }).select().single();
     if (error) { toast.error('Fehler beim Speichern'); return; }
 
@@ -234,9 +254,9 @@ export default function WochenplanungPage() {
       }).select('id').single();
       if (bse) await supabase.from('wochenplanung').update({ bs_eintrag_id: bse.id }).eq('id', wp.id);
     }
-    toast.success(`${item.label} eingeplant`);
+    toast.success(abw ? `${item.label} eingetragen – auch im Kalender der MA-Auswertung` : `${item.label} eingeplant`);
     refetchBlocks();
-  }, [dragging, refetchBlocks]);
+  }, [dragging, refetchBlocks, employees]);
 
   const updateStunden = useCallback(async (block: PlanBlock, newH: number) => {
     const h = roundH(Math.max(MIN_H, Math.min(MAX_H, newH)));
