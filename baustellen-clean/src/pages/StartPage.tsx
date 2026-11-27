@@ -80,13 +80,13 @@ export default function StartPage() {
   const zeigeModal = offeneAnfragenCount > 0 && !modalGeschlossen;
 
   const BEREICHE = [
-    { path: '/baustellen/dashboard', color: '#2563eb', colorRgb: '37,99,235', icon: HardHat, titel: 'Baustellen', sub: 'Controlling & Management', stat: b.filter(x => x.status !== 'abgerechnet').length, statLabel: 'aktive Projekte', punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'] },
-    { path: '/tickets/dashboard', color: '#10b981', colorRgb: '16,185,129', icon: Ticket, titel: 'Ticketsystem', sub: 'WIDI Controlling', stat: t.filter(x => x.status === 'in_bearbeitung').length, statLabel: 'Tickets offen', punkte: ['Tickets erfassen', 'PDF-Rücklauf OCR', 'Excel-Import', 'Monatsanalyse'] },
-    { path: '/auswertung', color: '#8b5cf6', colorRgb: '139,92,246', icon: TrendingUp, titel: 'MA-Auswertung', sub: 'Mitarbeiter & Statistik', stat: (employees as any[]).length, statLabel: 'Mitarbeiter', punkte: ['Stunden & Kosten', 'Einzelperson', 'Monatsabschluss'] },
-    { path: '/dguv', color: '#f59e0b', colorRgb: '245,158,11', icon: Shield, titel: 'DGUV Prüfung', sub: 'Geräteprüfung & Roadmap', stat: 23352, statLabel: 'Prüflinge gesamt', punkte: ['Rohdaten verarbeiten', 'Roadmap 2025/2026', 'Prüfer-Auswertung', 'Neue Prüflinge'] },
-    { path: '/planung', color: '#6366f1', colorRgb: '99,102,241', icon: CalendarDays, titel: 'Wochenplanung', sub: `KW ${kw} · Personalplanung`, stat: wpMaCount, statLabel: 'MA eingeplant', punkte: ['Baustellen planen', 'Tickets & DGUV', 'Begehungen', 'Interne Stunden'] },
-    { path: '/monatsdaten', color: '#0d9488', colorRgb: '13,148,136', icon: Database, titel: 'Monatsdaten', sub: `Uploads · ${vm.toLocaleString('de-DE', { month: 'long' })}`, stat: mdVormonat as number, statLabel: 'MA-Daten erfasst', punkte: ['Überstunden & Zulagen', 'Sammelrechnung (PDF)', 'AG-Listen', 'Sätze & Auswertung'] },
-    { path: '/kunden', color: '#0369a1', colorRgb: '3,105,161', icon: Building2, titel: 'Kunden & Konditionen', sub: 'Sätze je Kunde', stat: kundenAnzahl as number, statLabel: 'Kunden', punkte: ['Stundensatz je Kunde', 'Material-Aufschlag & Anfahrt', 'Sonntag/Feiertag/Nacht/Notdienst', 'Ausnahmen je MA'] },
+    { gruppe: 'tag', path: '/baustellen/dashboard', color: '#2563eb', colorRgb: '37,99,235', icon: HardHat, titel: 'Baustellen', sub: 'Controlling & Management', stat: b.filter(x => x.status !== 'abgerechnet').length, statLabel: 'aktive Projekte', punkte: ['Budget & Kosten', 'Zeiterfassung', 'Aufträge importieren', 'Eskalationen'] },
+    { gruppe: 'tag', path: '/tickets/dashboard', color: '#10b981', colorRgb: '16,185,129', icon: Ticket, titel: 'Ticketsystem', sub: 'WIDI Controlling', stat: t.filter(x => x.status === 'in_bearbeitung').length, statLabel: 'Tickets offen', punkte: ['Tickets erfassen', 'PDF-Rücklauf OCR', 'Excel-Import', 'Monatsanalyse'] },
+    { gruppe: 'ctl', path: '/auswertung', color: '#8b5cf6', colorRgb: '139,92,246', icon: TrendingUp, titel: 'MA-Auswertung', sub: 'Stunden, Kosten, Monatsabschluss', stat: (employees as any[]).length, statLabel: 'Mitarbeiter', punkte: ['Stunden & Kosten', 'Einzelperson', 'Monatsabschluss'] },
+    { gruppe: 'tag', path: '/dguv', color: '#f59e0b', colorRgb: '245,158,11', icon: Shield, titel: 'DGUV Prüfung', sub: 'Geräteprüfung & Roadmap', stat: 23352, statLabel: 'Prüflinge gesamt', punkte: ['Rohdaten verarbeiten', 'Roadmap 2025/2026', 'Prüfer-Auswertung', 'Neue Prüflinge'] },
+    { gruppe: 'tag', path: '/planung', color: '#6366f1', colorRgb: '99,102,241', icon: CalendarDays, titel: 'Wochenplanung', sub: `KW ${kw} · Personalplanung`, stat: wpMaCount, statLabel: 'MA eingeplant', punkte: ['Baustellen planen', 'Tickets & DGUV', 'Begehungen', 'Interne Stunden'] },
+    { gruppe: 'ctl', path: '/monatsdaten', color: '#0d9488', colorRgb: '13,148,136', icon: Database, titel: 'Monatsdaten', sub: `Uploads · ${vm.toLocaleString('de-DE', { month: 'long' })}`, stat: mdVormonat as number, statLabel: 'MA-Daten erfasst', punkte: ['Überstunden & Zulagen', 'Sammelrechnung (PDF)', 'AG-Listen', 'Sätze & Auswertung'] },
+    { gruppe: 'ctl', path: '/kunden', color: '#0369a1', colorRgb: '3,105,161', icon: Building2, titel: 'Kunden & Konditionen', sub: 'Sätze, Aufschläge, Zuschläge', stat: kundenAnzahl as number, statLabel: 'Kunden', punkte: ['Stundensatz je Kunde', 'Material-Aufschlag & Anfahrt', 'Sonntag/Feiertag/Nacht/Notdienst', 'Ausnahmen je MA'] },
   ];
 
   return (
@@ -259,7 +259,7 @@ export default function StartPage() {
         </div>
 
         {/* Stats chips */}
-        <div className="s-chips" style={{ display:'flex', gap:10, marginBottom:44, flexWrap:'wrap', justifyContent:'center' }}>
+        <div className="s-chips" style={{ display:'flex', gap:10, marginBottom:32, flexWrap:'wrap', justifyContent:'center' }}>
           {[
             { icon:Ticket, value:t.filter(x=>x.status==='in_bearbeitung').length, label:'Offen', color:'#2563eb', bg:'rgba(37,99,235,0.08)', border:'rgba(37,99,235,0.2)' },
             { icon:CheckCircle, value:t.filter(x=>['erledigt','abgerechnet'].includes(x.status)).length, label:'Erledigt', color:'#10b981', bg:'rgba(16,185,129,0.08)', border:'rgba(16,185,129,0.2)' },
@@ -283,9 +283,10 @@ export default function StartPage() {
           )}
         </div>
 
-        {/* Cards */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))', gap:16, width:'100%', maxWidth:1560, marginBottom: isAdmin ? 24 : 0 }}>
-          {BEREICHE.map((bereich, i) => (
+        {/* Tagesgeschäft */}
+        <p style={{ width:'100%', maxWidth:1240, margin:'0 0 10px', fontSize:11, fontWeight:800, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.08em' }}>Tagesgeschäft</p>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(230px,1fr))', gap:16, width:'100%', maxWidth:1240, marginBottom:28 }}>
+          {BEREICHE.filter(x => x.gruppe === 'tag').map((bereich, i) => (
             <div key={i} className="s-card"
               onClick={() => navigate(bereich.path)}
               style={{ background:'rgba(255,255,255,0.85)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.9)', borderRadius:24, padding:'28px 26px', cursor:'pointer', position:'relative', overflow:'hidden', boxShadow:'0 4px 24px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)' }}
@@ -330,6 +331,31 @@ export default function StartPage() {
                 Öffnen
                 <ArrowRight size={14} className="card-arrow" style={{ opacity:0.7 }} />
               </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Controlling & Stammdaten – kompakt */}
+        <p style={{ width:'100%', maxWidth:1240, margin:'0 0 10px', fontSize:11, fontWeight:800, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.08em' }}>Controlling & Stammdaten</p>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:12, width:'100%', maxWidth:1240, marginBottom: isAdmin ? 24 : 0 }}>
+          {BEREICHE.filter(x => x.gruppe === 'ctl').map((bereich, i) => (
+            <div key={i} className="s-card" onClick={() => navigate(bereich.path)} title={bereich.punkte.join(' · ')}
+              style={{ background:'rgba(255,255,255,0.85)', backdropFilter:'blur(20px)', border:'1px solid rgba(255,255,255,0.9)', borderRadius:18, padding:'16px 18px', cursor:'pointer', position:'relative', overflow:'hidden', display:'flex', alignItems:'center', gap:14, boxShadow:'0 4px 24px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)' }}
+              onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.boxShadow=`0 14px 40px rgba(${bereich.colorRgb},0.18), 0 4px 16px rgba(0,0,0,0.06)`;(e.currentTarget as HTMLElement).style.borderColor=`rgba(${bereich.colorRgb},0.3)`;}}
+              onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.boxShadow='0 4px 24px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)';(e.currentTarget as HTMLElement).style.borderColor='rgba(255,255,255,0.9)';}}>
+              <div style={{ position:'absolute', left:0, top:0, bottom:0, width:3, background:bereich.color }} />
+              <div style={{ width:42, height:42, borderRadius:13, background:`rgba(${bereich.colorRgb},0.1)`, border:`1.5px solid rgba(${bereich.colorRgb},0.2)`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <bereich.icon size={20} style={{ color:bereich.color }} />
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ color:'#0f172a', fontSize:15, fontWeight:800, margin:0, letterSpacing:'-.02em' }}>{bereich.titel}</p>
+                <p style={{ color:'#94a3b8', fontSize:12, margin:'2px 0 0', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{bereich.sub}</p>
+              </div>
+              <div style={{ textAlign:'right', flexShrink:0 }}>
+                <p style={{ color:bereich.color, fontSize:22, fontWeight:900, margin:0, lineHeight:1, letterSpacing:'-.04em' }}>{bereich.stat}</p>
+                <p style={{ color:'#94a3b8', fontSize:9, margin:'3px 0 0', fontWeight:600, textTransform:'uppercase', letterSpacing:'.05em' }}>{bereich.statLabel}</p>
+              </div>
+              <ArrowRight size={15} className="card-arrow" style={{ color:bereich.color, opacity:0.7, flexShrink:0 }} />
             </div>
           ))}
         </div>
