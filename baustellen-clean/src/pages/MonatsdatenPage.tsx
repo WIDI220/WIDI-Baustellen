@@ -401,21 +401,27 @@ function SrTab({ monat, label, belege, pos }: { monat: string; label: string; be
     const { r, datei } = vorschau; const m = vorschau.monat;
     setLaeuft('Speichere …');
     try {
+      // Nur Technik-Kostenstellen übernehmen; Belege ohne Technik-Position werden nicht gespeichert
+      const technikPos = r.positionen.filter(p => p.kst && ZIEL_KST.includes(p.kst));
+      const technikSumme: Record<string, number> = {};
+      technikPos.forEach(p => { technikSumme[p.beleg] = (technikSumme[p.beleg] || 0) + Number(p.gp || 0); });
+      const technikBelege = r.belege.filter(b => technikSumme[b.beleg] != null);
       const nummern = r.belege.map(b => b.beleg);
       // vorhandene Belege dieser Datei ersetzen (Positionen werden per Cascade gelöscht)
       for (let i = 0; i < nummern.length; i += 200) {
         const { error } = await db().from('md_sr_belege').delete().in('beleg', nummern.slice(i, i + 200));
         if (error) throw error;
       }
-      const belegRows = r.belege.map(b => ({
+      const belegRows = technikBelege.map(b => ({
         beleg: b.beleg, monat: m, typ: b.typ, kunde: b.kunde, kdnr: b.kdnr, belegdatum: deDatumZuIso(b.belegdatum), faellig: deDatumZuIso(b.faellig),
         bezug: b.bezug || null, kopf: b.kopf || null, a_nummer: b.a_nummer, netto: b.netto, steuer: b.steuer, brutto: b.brutto, quelle_datei: datei,
+        netto_technik: Math.round(technikSumme[b.beleg] * 100) / 100,
       }));
       for (let i = 0; i < belegRows.length; i += 200) {
         const { error } = await db().from('md_sr_belege').insert(belegRows.slice(i, i + 200));
         if (error) throw error;
       }
-      const posRows = r.positionen.map(p => ({
+      const posRows = technikPos.map(p => ({
         beleg: p.beleg, monat: m, kst: p.kst, abteilung: p.abteilung, leistungsdatum: deDatumZuIso(p.leistungsdatum), menge: p.menge, einheit: p.einheit,
         leistung: p.leistung, text: p.text, ep: p.ep, gp: p.gp, a_nummer: p.a_nummer,
       }));
@@ -424,7 +430,7 @@ function SrTab({ monat, label, belege, pos }: { monat: string; label: string; be
         if (error) throw error;
       }
       await logUpload(m, 'Sammelrechnung', datei, posRows.length, getLocalSession()?.email);
-      toast.success(`${belegRows.length} Belege und ${posRows.length} Positionen übernommen`);
+      toast.success(`${belegRows.length} Technik-Belege und ${posRows.length} Positionen übernommen (${r.belege.length - belegRows.length} Belege anderer Bereiche ignoriert)`);
       setVorschau(null);
       qc.invalidateQueries({ queryKey: ['md-sr-belege'] }); qc.invalidateQueries({ queryKey: ['md-sr-pos'] }); qc.invalidateQueries({ queryKey: ['md-uploads'] });
     } catch (err: any) {
@@ -444,7 +450,7 @@ function SrTab({ monat, label, belege, pos }: { monat: string; label: string; be
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div>
             <p style={{ margin: 0, fontWeight: 800, fontSize: 16 }}>Sammelrechnung {label}</p>
-            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>PDF „sammelrechnung_JJJJ_MM.pdf“ hochladen – Belege und Positionen werden automatisch ausgelesen. Gutschriften/Stornos werden negativ gerechnet.</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>PDF „sammelrechnung_JJJJ_MM.pdf“ hochladen – es werden nur Positionen der Technik (KST 244801, 244802, 244803) gespeichert, alle anderen Bereiche werden ignoriert. Gutschriften/Stornos werden negativ gerechnet.</p>
           </div>
           <button style={btn(ACCENT)} disabled={!!laeuft} onClick={() => fileRef.current?.click()}><Upload size={14} /> {laeuft || 'PDF hochladen'}</button>
           <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) lesen(f); e.target.value = ''; }} />
@@ -454,7 +460,8 @@ function SrTab({ monat, label, belege, pos }: { monat: string; label: string; be
           <div style={{ marginTop: 16, padding: 16, background: '#f0fdfa', border: `1px solid ${ACCENT}55`, borderRadius: 12 }}>
             <p style={{ margin: '0 0 8px', fontWeight: 700 }}>Vorschau: {vorschau.datei} · Leistungsmonat {vorschau.monat}</p>
             <p style={{ margin: '0 0 10px', fontSize: 13, color: '#334155' }}>
-              {vorschau.r.belege.length} Belege · {vorschau.r.positionen.length} Positionen ·
+              {new Set(vorschau.r.positionen.filter(p => p.kst && ZIEL_KST.includes(p.kst)).map(p => p.beleg)).size} Technik-Belege · {vorschau.r.positionen.filter(p => p.kst && ZIEL_KST.includes(p.kst)).length} Technik-Positionen
+              <span style={{ color: '#94a3b8' }}> (von {vorschau.r.belege.length} Belegen / {vorschau.r.positionen.length} Positionen in der PDF – Rest wird ignoriert)</span> ·
               {vorschau.r.pruefung.belegeMitAbweichung === 0
                 ? <span style={{ color: '#16a34a', fontWeight: 600 }}> Positionen = Belegsummen ✓</span>
                 : <span style={{ color: '#b45309', fontWeight: 600 }}> {vorschau.r.pruefung.belegeMitAbweichung} Belege mit Abweichung Positionen/Netto (andere Kunden/Layouts) – bitte stichprobenartig prüfen</span>}
@@ -472,15 +479,15 @@ function SrTab({ monat, label, belege, pos }: { monat: string; label: string; be
       </div>
 
       <div style={card}>
-        <p style={{ margin: '0 0 10px', fontWeight: 700 }}>Gespeichert für {label}: {belege.length} Belege</p>
+        <p style={{ margin: '0 0 10px', fontWeight: 700 }}>Gespeichert für {label}: {belege.length} Technik-Belege <span style={{ fontWeight: 400, fontSize: 12, color: '#94a3b8' }}>(* = Beleg enthält auch andere Kostenstellen, gezeigt wird nur der Technik-Anteil)</span></p>
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 12 }}>
           {ZIEL_KST.map(k => <span key={k} style={{ fontSize: 13 }}><b>{k}</b> {KST_NAME[k]}: {eur(gespeichert[k] || 0)}</span>)}
-          <span style={{ fontSize: 13, fontWeight: 700 }}>Summe KST 244800–244803: {eur(Object.values(gespeichert).reduce((a, b) => a + b, 0))}</span>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>Summe Technik (KST 244801–244803): {eur(Object.values(gespeichert).reduce((a, b) => a + b, 0))}</span>
         </div>
         {belege.length > 0 && (
           <div style={{ maxHeight: 420, overflow: 'auto', border: '1px solid #f1f5f9', borderRadius: 10 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr><th style={th}>Beleg</th><th style={th}>Art</th><th style={th}>Datum</th><th style={th}>Kunde</th><th style={th}>A-Nr.</th><th style={th}>Kopf</th><th style={{ ...th, textAlign: 'right' }}>Netto</th></tr></thead>
+              <thead><tr><th style={th}>Beleg</th><th style={th}>Art</th><th style={th}>Datum</th><th style={th}>Kunde</th><th style={th}>A-Nr.</th><th style={th}>Kopf</th><th style={{ ...th, textAlign: 'right' }}>Netto Technik</th></tr></thead>
               <tbody>
                 {belege.map(b => (
                   <tr key={b.beleg}>
@@ -488,7 +495,7 @@ function SrTab({ monat, label, belege, pos }: { monat: string; label: string; be
                     <td style={{ ...td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.kunde}</td>
                     <td style={td}>{b.a_nummer || '–'}</td>
                     <td style={{ ...td, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#64748b' }} title={b.kopf}>{b.kopf}</td>
-                    <td style={tdR}>{eur(b.netto)}</td>
+                    <td style={tdR} title={b.netto_technik != null && Math.abs(Number(b.netto) - Number(b.netto_technik)) > 0.01 ? `Beleg gesamt ${eur(b.netto)} – enthält auch andere Kostenstellen` : undefined}>{eur(b.netto_technik ?? b.netto)}{b.netto_technik != null && Math.abs(Number(b.netto) - Number(b.netto_technik)) > 0.01 ? ' *' : ''}</td>
                   </tr>
                 ))}
               </tbody>
@@ -832,7 +839,7 @@ function AuswertungTab({ monat, label, employees, maMonat, sys, srPos, saetze, t
     <div style={{ display: 'grid', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
         {kpi('Stunden im System', `${zahl(sysGesamt, 1)} h`, 'Tickets + Baustellen + intern')}
-        {kpi('Erlös Sammelrechnung', erloesZiel ? eur(erloesZiel) : '–', 'KST 244800–244803, netto', !erloesZiel)}
+        {kpi('Erlös Sammelrechnung', erloesZiel ? eur(erloesZiel) : '–', 'KST 244801–244803, netto', !erloesZiel)}
         {kpi('Kosten (geschätzt)', kostenGesamt ? eur(kostenGesamt) : '–', kostenVollst ? 'Kostensatz × Stunden + Zulagen + Teamkosten' : 'Kostensatz fehlt teilweise', !kostenVollst)}
         {kpi('Deckungsbeitrag', erloesZiel && kostenGesamt ? eur(erloesZiel - kostenGesamt) : '–', erloesZiel && kostenGesamt ? `${zahl(((erloesZiel - kostenGesamt) / erloesZiel) * 100, 1)} % vom Erlös` : 'braucht Sammelrechnung + Sätze', !(erloesZiel && kostenGesamt))}
         {kpi('Verrechnungssatz', vSatz != null ? `${eur(vSatz)}/h` : '–', vSatz != null ? 'gültig für diesen Monat' : 'unter „Sätze & Teamkosten“ eintragen', vSatz == null)}

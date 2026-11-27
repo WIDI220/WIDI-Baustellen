@@ -2,7 +2,8 @@
 import * as XLSX from 'xlsx';
 import { db } from '@/lib/md-db';
 
-export const ZIEL_KST = ['244800', '244801', '244802', '244803'];
+// Nur Technik: Sammelrechnungen werden ausschließlich für diese Kostenstellen gespeichert und ausgewertet
+export const ZIEL_KST = ['244801', '244802', '244803'];
 export const KST_NAME: Record<string, string> = {
   '244800': 'Material', '244801': 'Elektro / Prüfungen', '244802': 'Sanitär / Hygiene', '244803': 'Hochbau / Instandhaltung',
 };
